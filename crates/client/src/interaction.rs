@@ -185,7 +185,8 @@ fn use_blocks(
     tools: Res<crate::gamemode::ToolHotbar>,
     mut focus: ResMut<UiFocus>,
     mut screen: ResMut<OpenScreen>,
-    mut furnace: ResMut<crate::inventory_ui::FurnaceView>,
+    mut container: ResMut<crate::inventory_ui::ContainerView>,
+    registry: Res<Blocks>,
     conn: Option<ResMut<crate::net::Connection>>,
     mut held_before: Local<bool>,
 ) {
@@ -219,23 +220,39 @@ fn use_blocks(
         return;
     }
     let Some(hit) = target.0 else { return };
-    let opened = if hit.id == blocks::CRAFTING_TABLE {
-        OpenScreen::CraftingTable
-    } else if hit.id == blocks::FURNACE {
-        let Some(mut conn) = conn else { return };
-        furnace.0 = None;
-        conn.send(
-            Channel::Reliable,
-            &ClientMessage::OpenContainer {
-                pos: hit.block.to_array(),
-            },
-        );
-        OpenScreen::Furnace(hit.block)
-    } else {
-        return;
+    let Some(mut conn) = conn else { return };
+    let pos = hit.block.to_array();
+    use ourcraft_common::shapes::VariantKind;
+    let opened = match (usable(&registry.0, hit.id), registry.0.variant_kind(hit.id)) {
+        (false, _) => return,
+        (_, Some(VariantKind::Door | VariantKind::Trapdoor | VariantKind::Bed)) => {
+            conn.send(Channel::Reliable, &ClientMessage::UseBlock { pos });
+            return;
+        }
+        (_, Some(VariantKind::Sign | VariantKind::WallSign)) => OpenScreen::Sign(hit.block),
+        _ if hit.id == blocks::CRAFTING_TABLE => OpenScreen::CraftingTable,
+        _ => {
+            // Furnaces and chests live on the server.
+            container.0 = None;
+            conn.send(Channel::Reliable, &ClientMessage::OpenContainer { pos });
+            OpenScreen::Container(hit.block)
+        }
     };
     *screen = opened;
     focus.inventory_open = true;
+}
+
+/// Blocks that do something when you use them (instead of having a block
+/// placed against them).
+pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> bool {
+    use ourcraft_common::shapes::VariantKind as K;
+    id == blocks::CRAFTING_TABLE
+        || id == blocks::FURNACE
+        || registry.get(id).name == "core:chest"
+        || matches!(
+            registry.variant_kind(id),
+            Some(K::Door | K::Trapdoor | K::Bed | K::Sign | K::WallSign)
+        )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -313,8 +330,8 @@ fn break_and_place(
         });
         *cooldown = REPEAT_DELAY;
     } else if actions.place_block && *cooldown <= 0.0 {
-        // Using a crafting table or furnace instead (see `use_blocks`).
-        if (hit.id == blocks::CRAFTING_TABLE || hit.id == blocks::FURNACE) && !actions.descend {
+        // Using a door, chest, furnace… instead (see `use_blocks`).
+        if usable(&blocks.0, hit.id) && !actions.descend {
             return;
         }
         let pos = hit.block + hit.normal;
@@ -325,25 +342,34 @@ fn break_and_place(
         else {
             return; // not holding a block
         };
-        // Some blocks change with where they go (torches on walls).
-        let Some(block) = blocks.0.placed_variant(block, hit.normal.to_array()) else {
+        // Some blocks change with where they go and which way you look
+        // (torches on walls, stairs, doors two blocks tall).
+        let look = player.look_direction().to_array();
+        let Some(placed) = blocks.0.placement(block, hit.normal.to_array(), look) else {
             return;
         };
-        // Only place into empty space (air or water)…
-        let existing = world.block(pos.x, pos.y, pos.z);
-        let replaceable = existing.is_air() || blocks.0.is_liquid(existing);
-        // …and never inside the player.
-        let inside_player = blocks.0.is_solid(block)
-            && Aabb::player(player.state.position).intersects(&Aabb::block(pos));
-        if replaceable && !inside_player {
+        let mut parts = vec![(pos, placed.block)];
+        if let Some((offset, extra)) = placed.extra {
+            parts.push((pos + IVec3::from_array(offset), extra));
+        }
+        // Only into empty space (air or water), and never inside the player.
+        let me = Aabb::player(player.state.position);
+        let fits = parts.iter().all(|(p, b)| {
+            let existing = world.block(p.x, p.y, p.z);
+            let replaceable = existing.is_air() || blocks.0.is_liquid(existing);
+            replaceable && !(blocks.0.is_solid(*b) && me.intersects(&Aabb::block(*p)))
+        });
+        if fits {
             if survival {
                 inventory.take_selected();
             }
-            edits.write(BlockEditRequest {
-                pos,
-                block,
-                held: held.unwrap_or(ItemId::NONE),
-            });
+            for (pos, block) in parts {
+                edits.write(BlockEditRequest {
+                    pos,
+                    block,
+                    held: held.unwrap_or(ItemId::NONE),
+                });
+            }
             *cooldown = REPEAT_DELAY;
         }
     }

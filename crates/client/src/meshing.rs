@@ -340,7 +340,8 @@ fn mesh_shapes(
                 let emissive = registry.light(block) > 0;
                 let (sky, glow) = chunk.light(x, y, z);
                 let at = [x as f32, y as f32, z as f32];
-                for (min, max) in shape.boxes() {
+                let near = |o: [i32; 3]| chunk.get(x + o[0], y + o[1], z + o[2]);
+                for (min, max) in registry.boxes_at(block, near) {
                     for face in Face::ALL {
                         let axes = face_axes(face);
                         let normal = face.normal();

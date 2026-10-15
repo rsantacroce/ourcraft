@@ -418,6 +418,98 @@ fn torch_top(x: usize, y: usize) -> Rgba {
     }
 }
 
+/// A wooden door: planks with a frame, and a window in the top half.
+fn door(x: usize, y: usize, upper: bool) -> Rgba {
+    let frame = x <= 1 || x >= N - 2 || (if upper { y <= 1 } else { y >= N - 2 });
+    let c = speckle(rgb(160, 116, 70), x, y, 62, 6.0);
+    if frame {
+        return shift(c, -30.0);
+    }
+    if upper && (4..12).contains(&x) && (4..11).contains(&y) {
+        // Window with a cross.
+        return if x == 7 || x == 8 || y == 7 {
+            shift(c, -30.0)
+        } else {
+            rgb(190, 226, 240)
+        };
+    }
+    if !upper && (x == 11 || x == 12) && (1..=2).contains(&y) {
+        return rgb(230, 200, 80); // the handle
+    }
+    if x.is_multiple_of(5) { shift(c, -18.0) } else { c }
+}
+
+fn door_lower(x: usize, y: usize) -> Rgba {
+    door(x, y, false)
+}
+
+fn door_upper(x: usize, y: usize) -> Rgba {
+    door(x, y, true)
+}
+
+fn trapdoor(x: usize, y: usize) -> Rgba {
+    let c = speckle(rgb(150, 108, 64), x, y, 63, 6.0);
+    let frame = x <= 1 || y <= 1 || x >= N - 2 || y >= N - 2;
+    let slats = (x == 5 || x == 10) && (3..13).contains(&y);
+    if frame || slats { shift(c, -28.0) } else { c }
+}
+
+fn ladder(x: usize, y: usize) -> Rgba {
+    let rail = x == 2 || x == 3 || x == 12 || x == 13;
+    let rung = y % 4 == 1 && (2..=13).contains(&x);
+    if rail || rung {
+        speckle(rgb(150, 104, 58), x, y, 64, 8.0)
+    } else {
+        [0, 0, 0, 0]
+    }
+}
+
+fn bed_head(x: usize, y: usize) -> Rgba {
+    // A white pillow in the middle on a red blanket.
+    if (3..13).contains(&x) && (4..12).contains(&y) {
+        speckle(rgb(244, 244, 240), x, y, 65, 5.0)
+    } else {
+        speckle(rgb(200, 50, 60), x, y, 66, 8.0)
+    }
+}
+
+fn bed_foot(x: usize, y: usize) -> Rgba {
+    let c = speckle(rgb(200, 50, 60), x, y, 66, 8.0);
+    if y % 6 == 2 { shift(c, 25.0) } else { c }
+}
+
+fn bed_side(x: usize, y: usize) -> Rgba {
+    if y < 7 {
+        // The blanket hangs over the side…
+        speckle(rgb(200, 50, 60), x, y, 67, 8.0)
+    } else {
+        // …over a wooden frame.
+        planks(x, y)
+    }
+}
+
+fn chest_side(x: usize, y: usize) -> Rgba {
+    let c = planks(x, y);
+    let band = y == 6 || y == 7;
+    let latch = (7..=8).contains(&x) && (5..=9).contains(&y);
+    if latch {
+        rgb(220, 196, 90)
+    } else if band || x == 0 || x == N - 1 || y == 0 || y == N - 1 {
+        shift(c, -35.0)
+    } else {
+        c
+    }
+}
+
+fn chest_top(x: usize, y: usize) -> Rgba {
+    let c = planks(x, y);
+    if x == 0 || x == N - 1 || y == 0 || y == N - 1 {
+        shift(c, -35.0)
+    } else {
+        c
+    }
+}
+
 /// Magenta and black checkerboard: impossible to miss in-game.
 fn missing(x: usize, y: usize) -> Rgba {
     if (x / 8 + y / 8).is_multiple_of(2) {
@@ -465,6 +557,15 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
         "wool" => wool,
         "torch" => torch,
         "torch_top" => torch_top,
+        "door_lower" => door_lower,
+        "door_upper" => door_upper,
+        "trapdoor" => trapdoor,
+        "ladder" => ladder,
+        "bed_head" => bed_head,
+        "bed_foot" => bed_foot,
+        "bed_side" => bed_side,
+        "chest_side" => chest_side,
+        "chest_top" => chest_top,
         _ => return None,
     })
 }

@@ -35,7 +35,7 @@ impl Plugin for InventoryUiPlugin {
         app.init_resource::<OpenScreen>()
             .init_resource::<Cursor>()
             .init_resource::<CraftGrid>()
-            .init_resource::<FurnaceView>()
+            .init_resource::<ContainerView>()
             .add_systems(
                 Startup,
                 (
@@ -77,7 +77,10 @@ pub enum OpenScreen {
     #[default]
     Inventory,
     CraftingTable,
-    Furnace(IVec3),
+    /// A furnace or chest (kept by the server).
+    Container(IVec3),
+    /// Writing on a sign (see the `signs` module).
+    Sign(IVec3),
 }
 
 impl OpenScreen {
@@ -86,7 +89,7 @@ impl OpenScreen {
         match self {
             OpenScreen::Inventory => 2,
             OpenScreen::CraftingTable => 3,
-            OpenScreen::Furnace(_) => 0,
+            OpenScreen::Container(_) | OpenScreen::Sign(_) => 0,
         }
     }
 }
@@ -103,9 +106,9 @@ pub struct Cursor {
 #[derive(Resource, Default, Debug)]
 pub struct CraftGrid(pub [Option<ItemStack>; 9]);
 
-/// The open furnace, as the server last described it.
+/// The open furnace or chest, as the server last described it.
 #[derive(Resource, Default, Debug)]
-pub struct FurnaceView(pub Option<NetContainer>);
+pub struct ContainerView(pub Option<NetContainer>);
 
 const ICON: u32 = 32;
 
@@ -143,6 +146,72 @@ pub fn render_block_icon(top: &[u8], side: &[u8]) -> Vec<u8> {
             if let Some(c) = px_color {
                 let i = ((py * ICON + px) * 4) as usize;
                 out[i..i + 4].copy_from_slice(&c);
+            }
+        }
+    }
+    out
+}
+
+/// Draw the boxes of a shaped block (stairs, slabs, fences…) the same way
+/// as [`render_block_icon`] draws a cube: seen from above one corner, top
+/// faces brightest. Each pixel sends a ray into the scene and takes the
+/// colour of the first box face it hits.
+pub fn render_boxes_icon(top: &[u8], side: &[u8], boxes: &[([f32; 3], [f32; 3])]) -> Vec<u8> {
+    let t = TEXTURE_SIZE as f32;
+    let mut out = vec![0u8; (ICON * ICON * 4) as usize];
+    let dir = Vec3::new(-1.0, -1.0, -1.0).normalize();
+    // The cube icon's corners: its top corner is at the top middle, and it
+    // is 32 pixels wide; work backwards from that.
+    let c30 = 16.0;
+    let s30 = 8.0;
+    let sample = |tex: &[u8], a: f32, b: f32, shade: f32| -> [u8; 4] {
+        let x = ((a.clamp(0.0, 0.999) * t) as usize).min(TEXTURE_SIZE as usize - 1);
+        let y = ((b.clamp(0.0, 0.999) * t) as usize).min(TEXTURE_SIZE as usize - 1);
+        let i = (y * TEXTURE_SIZE as usize + x) * 4;
+        let f = |v: u8| (v as f32 * shade) as u8;
+        [f(tex[i]), f(tex[i + 1]), f(tex[i + 2]), tex[i + 3]]
+    };
+    for py in 0..ICON {
+        for px in 0..ICON {
+            // Screen position → a point high above the scene on the ray.
+            let sx = (px as f32 + 0.5 - 16.0) / c30;
+            let sy = (py as f32 + 0.5) / s30;
+            // sx = x - z, sy = x + z - 2y + 2 (from how the cube icon is laid out).
+            let y0 = 3.0;
+            let sum = sy + 2.0 * y0 - 2.0;
+            let x0 = (sum + sx) / 2.0;
+            let z0 = (sum - sx) / 2.0;
+            let origin = Vec3::new(x0, y0, z0);
+            let mut best: Option<(f32, usize, Vec3)> = None;
+            for (min, max) in boxes {
+                let (min, max) = (Vec3::from(*min), Vec3::from(*max));
+                let (mut tn, mut tf, mut axis) = (f32::MIN, f32::MAX, 0);
+                for a in 0..3 {
+                    let (mut t1, mut t2) =
+                        ((min[a] - origin[a]) / dir[a], (max[a] - origin[a]) / dir[a]);
+                    if t1 > t2 {
+                        std::mem::swap(&mut t1, &mut t2);
+                    }
+                    if t1 > tn {
+                        tn = t1;
+                        axis = a;
+                    }
+                    tf = tf.min(t2);
+                }
+                if tn <= tf && best.is_none_or(|b| tn < b.0) {
+                    best = Some((tn, axis, origin + dir * tn));
+                }
+            }
+            let Some((_, axis, p)) = best else { continue };
+            // Same shading as the cube icon: +z faces lighter than +x faces.
+            let color = match axis {
+                1 => sample(top, p.x, p.z, 1.0),
+                0 => sample(side, 1.0 - p.z, 1.0 - p.y, 0.62),
+                _ => sample(side, p.x, 1.0 - p.y, 0.8),
+            };
+            if color[3] > 0 {
+                let i = ((py * ICON + px) * 4) as usize;
+                out[i..i + 4].copy_from_slice(&color);
             }
         }
     }
@@ -194,6 +263,30 @@ pub fn item_icon_pixels(
             Some(render_block_icon(
                 &textures.pixels(&tex.top),
                 &textures.pixels(&tex.side),
+            ))
+        }
+        // Other shapes: a 3D picture of the shape, unless there's a flat
+        // picture for it (torches, doors, signs).
+        ItemKind::Block(b)
+            if crate::render::item_icons::item_icon(def.name.trim_start_matches("core:"))
+                .is_none()
+                && blocks.get(b).textures.is_some()
+                && !blocks.is_climbable(b) =>
+        {
+            let tex = blocks.get(b).textures.as_ref()?;
+            // Fences are shown joined up on both sides.
+            let fence = |o: [i32; 3]| {
+                if o[0] != 0 {
+                    b
+                } else {
+                    ourcraft_common::block::BlockId::AIR
+                }
+            };
+            let boxes = blocks.boxes_at(b, fence);
+            Some(render_boxes_icon(
+                &textures.pixels(&tex.top),
+                &textures.pixels(&tex.side),
+                &boxes,
             ))
         }
         _ => {
@@ -543,7 +636,12 @@ fn toggle_inventory_screen(
     if tools.active() && !focus.inventory_open {
         return;
     }
-    if focus.menu_open || focus.chat_open {
+    // Typing on a sign uses the keyboard (E included); the sign editor
+    // closes itself.
+    if focus.menu_open
+        || focus.chat_open
+        || (focus.inventory_open && matches!(*screen, OpenScreen::Sign(_)))
+    {
         return;
     }
     if actions.toggle_inventory {
@@ -567,7 +665,7 @@ fn close_screen_cleanup(
     mut inventory: ResMut<PlayerInventory>,
     mut cursor: ResMut<Cursor>,
     mut grid: ResMut<CraftGrid>,
-    mut furnace: ResMut<FurnaceView>,
+    mut furnace: ResMut<ContainerView>,
     conn: Option<ResMut<crate::net::Connection>>,
     mut was: Local<Option<OpenScreen>>,
 ) {
@@ -596,7 +694,7 @@ fn close_screen_cleanup(
         give(s, &mut inventory);
     }
     if let Some(mut conn) = conn {
-        if matches!(before, OpenScreen::Furnace(_)) {
+        if matches!(before, OpenScreen::Container(_)) {
             furnace.0 = None;
             conn.send(Channel::Reliable, &ClientMessage::CloseContainer);
         }
@@ -650,7 +748,7 @@ fn rebuild_screen(
     blocks: Res<Blocks>,
     grid: Res<CraftGrid>,
     cursor: Res<Cursor>,
-    furnace: Res<FurnaceView>,
+    furnace: Res<ContainerView>,
     existing: Query<Entity, With<InventoryScreen>>,
 ) {
     let changed = focus.is_changed()
@@ -667,7 +765,7 @@ fn rebuild_screen(
     for e in &existing {
         commands.entity(e).despawn();
     }
-    if !focus.inventory_open {
+    if !focus.inventory_open || matches!(*screen, OpenScreen::Sign(_)) {
         return;
     }
     let creative = *mode == GameMode::Creative;
@@ -676,7 +774,11 @@ fn rebuild_screen(
         _ if palette_screen => "Creative: click an item to put it in your selected hotbar slot",
         OpenScreen::Inventory => "Inventory",
         OpenScreen::CraftingTable => "Crafting Table",
-        OpenScreen::Furnace(_) => "Furnace",
+        OpenScreen::Container(_) => match furnace.0.as_ref().map(|v| v.kind) {
+            Some(ContainerKind::Chest) => "Chest",
+            _ => "Furnace",
+        },
+        OpenScreen::Sign(_) => "Sign",
     };
     let row = || Node {
         flex_direction: FlexDirection::Row,
@@ -734,8 +836,13 @@ fn rebuild_screen(
                                 spawn_slot(g, stack, false, false, &icons, &items, b);
                             }
                         });
-                    } else if let OpenScreen::Furnace(_) = *screen {
-                        spawn_furnace(panel, &furnace, &icons, &items);
+                    } else if let OpenScreen::Container(_) = *screen {
+                        match furnace.0.as_ref().map(|v| v.kind) {
+                            Some(ContainerKind::Chest) => {
+                                spawn_chest(panel, &furnace, &icons, &items)
+                            }
+                            _ => spawn_furnace(panel, &furnace, &icons, &items),
+                        }
                     } else {
                         let size = screen.grid_size();
                         let result = craft_result(&grid, size, &recipes);
@@ -820,10 +927,43 @@ fn rebuild_screen(
         });
 }
 
+/// A chest: three rows of nine.
+fn spawn_chest(
+    panel: &mut ChildSpawnerCommands,
+    view: &ContainerView,
+    icons: &ItemIcons,
+    items: &ItemRegistry,
+) {
+    let Some(view) = &view.0 else { return };
+    panel
+        .spawn(Node {
+            flex_direction: FlexDirection::Row,
+            flex_wrap: FlexWrap::Wrap,
+            column_gap: px(4),
+            row_gap: px(4),
+            max_width: px(9.0 * (SLOT + 4.0)),
+            ..default()
+        })
+        .with_children(|g| {
+            for (i, slot) in view.slots.iter().enumerate() {
+                let stack = slot.map(ItemStack::from);
+                spawn_slot(
+                    g,
+                    stack,
+                    false,
+                    true,
+                    icons,
+                    items,
+                    Some(SlotButton::Container(i)),
+                );
+            }
+        });
+}
+
 /// The furnace: input above fuel, a flame and an arrow, the output.
 fn spawn_furnace(
     panel: &mut ChildSpawnerCommands,
-    furnace: &FurnaceView,
+    furnace: &ContainerView,
     icons: &ItemIcons,
     items: &ItemRegistry,
 ) {
@@ -1050,6 +1190,20 @@ mod tests {
         assert_eq!(alpha(4, 20), 255, "left face");
         assert_eq!(alpha(28, 20), 255, "right face");
         assert_eq!(alpha(1, 1), 0, "corner is transparent");
+    }
+
+    #[test]
+    fn a_box_icon_of_a_cube_looks_like_the_cube_icon() {
+        let (top, side) = (generate_texture("stone"), generate_texture("dirt"));
+        let cube = render_block_icon(&top, &side);
+        let boxes = render_boxes_icon(&top, &side, &[([0.0; 3], [1.0; 3])]);
+        let differ = cube
+            .chunks(4)
+            .zip(boxes.chunks(4))
+            .filter(|(a, b)| a[3] != b[3])
+            .count();
+        // Only a few edge pixels may round differently.
+        assert!(differ < 40, "{differ} pixels differ");
     }
 
     #[test]

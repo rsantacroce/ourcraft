@@ -167,6 +167,9 @@ pub enum BlockShape {
     #[default]
     Cube,
     Boxes(Vec<ShapeBox>),
+    /// A post that grows rails towards its neighbours (see
+    /// `BlockRegistry::boxes_at`).
+    Fence,
 }
 
 impl BlockShape {
@@ -174,6 +177,7 @@ impl BlockShape {
     pub fn boxes(&self) -> Vec<([f32; 3], [f32; 3])> {
         match self {
             BlockShape::Cube => vec![([0.0; 3], [1.0; 3])],
+            BlockShape::Fence => BlockShape::Boxes(vec![[6, 0, 6, 10, 16, 10]]).boxes(),
             BlockShape::Boxes(b) => b
                 .iter()
                 .map(|b| {
@@ -228,6 +232,9 @@ pub struct BlockDef {
     /// Left out of the creative palette (variants like wall torches, which
     /// you get by placing the normal kind).
     pub hidden: bool,
+    /// Its family and state, for blocks placed in different ways (stairs
+    /// facing east, an open door…). See `shapes`.
+    pub variant: Option<crate::shapes::Variant>,
 }
 
 impl BlockDef {
@@ -249,6 +256,7 @@ impl BlockDef {
             bonus_drop: None,
             shape: BlockShape::Cube,
             hidden: false,
+            variant: None,
         }
     }
 
@@ -297,6 +305,7 @@ impl BlockRegistry {
                 bonus_drop: None,
                 shape: BlockShape::Cube,
                 hidden: false,
+                variant: None,
             }],
         }
     }
@@ -456,75 +465,9 @@ impl BlockRegistry {
         );
         // ---- Milestone 12: animals ----
         reg.register(BlockDef::solid("core:wool", "Wool", T::all("wool")).mined(0.8, None, 0));
-        // ---- Milestone 13: light ----
-        // A torch on the floor, and leaning on each kind of wall (named by
-        // the way it faces, away from the wall it hangs on).
-        let torch = |name: &str, boxes: Vec<ShapeBox>, hidden: bool| BlockDef {
-            render: RenderKind::Cutout,
-            solid: false,
-            light: 14,
-            drops: Drops::Block(blocks::TORCH),
-            shape: BlockShape::Boxes(boxes),
-            hidden,
-            ..BlockDef::solid(
-                name,
-                "Torch",
-                T::top_bottom_side("torch_top", "torch", "torch"),
-            )
-            .mined(0.0, None, 0)
-        };
-        reg.register(torch("core:torch", vec![[7, 0, 7, 9, 10, 9]], false));
-        reg.register(torch(
-            "core:wall_torch_east",
-            vec![[1, 3, 7, 3, 13, 9], [0, 4, 7, 1, 6, 9]],
-            true,
-        ));
-        reg.register(torch(
-            "core:wall_torch_west",
-            vec![[13, 3, 7, 15, 13, 9], [15, 4, 7, 16, 6, 9]],
-            true,
-        ));
-        reg.register(torch(
-            "core:wall_torch_south",
-            vec![[7, 3, 1, 9, 13, 3], [7, 4, 0, 9, 6, 1]],
-            true,
-        ));
-        reg.register(torch(
-            "core:wall_torch_north",
-            vec![[7, 3, 13, 9, 13, 15], [7, 4, 15, 9, 6, 16]],
-            true,
-        ));
+        // ---- Milestones 13 and 14: torches and shaped blocks ----
+        crate::shapes::register_shaped_blocks(&mut reg);
         reg
-    }
-
-    /// The block actually placed when you put `block` against a face whose
-    /// outward direction is `normal` (torches go on walls), or `None` if it
-    /// can't go there.
-    pub fn placed_variant(&self, block: BlockId, normal: [i32; 3]) -> Option<BlockId> {
-        if block != blocks::TORCH {
-            return Some(block);
-        }
-        Some(match normal {
-            [0, 1, 0] => blocks::TORCH,
-            [1, 0, 0] => blocks::WALL_TORCH_EAST,
-            [-1, 0, 0] => blocks::WALL_TORCH_WEST,
-            [0, 0, 1] => blocks::WALL_TORCH_SOUTH,
-            [0, 0, -1] => blocks::WALL_TORCH_NORTH,
-            _ => return None, // not on ceilings
-        })
-    }
-
-    /// The block a torch (or other attached block) at a position hangs on,
-    /// as an offset from it.
-    pub fn attached_to(&self, block: BlockId) -> Option<[i32; 3]> {
-        Some(match block {
-            b if b == blocks::TORCH => [0, -1, 0],
-            b if b == blocks::WALL_TORCH_EAST => [-1, 0, 0],
-            b if b == blocks::WALL_TORCH_WEST => [1, 0, 0],
-            b if b == blocks::WALL_TORCH_SOUTH => [0, 0, -1],
-            b if b == blocks::WALL_TORCH_NORTH => [0, 0, 1],
-            _ => return None,
-        })
     }
 
     /// A registry from a full list of definitions, in id order (as sent by
@@ -572,7 +515,12 @@ impl BlockRegistry {
             bonus_drop: None,
             shape: BlockShape::Cube,
             hidden: false,
+            variant: None,
         }))
+    }
+
+    pub(crate) fn defs_mut(&mut self, id: BlockId) -> &mut BlockDef {
+        &mut self.defs[id.0 as usize]
     }
 
     pub fn register(&mut self, def: BlockDef) -> BlockId {
@@ -675,27 +623,6 @@ mod tests {
         assert_eq!(
             reg.get(blocks::WALL_TORCH_NORTH).name,
             "core:wall_torch_north"
-        );
-    }
-
-    #[test]
-    fn torches_go_on_floors_and_walls() {
-        let reg = BlockRegistry::with_builtin_blocks();
-        assert_eq!(
-            reg.placed_variant(blocks::TORCH, [0, 1, 0]),
-            Some(blocks::TORCH)
-        );
-        assert_eq!(reg.placed_variant(blocks::TORCH, [0, -1, 0]), None);
-        for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]] {
-            let wall = reg.placed_variant(blocks::TORCH, n).unwrap();
-            // It hangs on the block it was placed against.
-            assert_eq!(reg.attached_to(wall), Some([-n[0], -n[1], -n[2]]));
-            assert!(!reg.is_opaque(wall) && !reg.is_solid(wall));
-            assert_eq!(reg.light(wall), 14);
-        }
-        assert_eq!(
-            reg.placed_variant(blocks::STONE, [0, -1, 0]),
-            Some(blocks::STONE)
         );
     }
 

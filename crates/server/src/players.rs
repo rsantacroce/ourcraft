@@ -95,6 +95,8 @@ pub struct ConnectedPlayer {
     pub creative: bool,
     /// The furnace whose screen this player has open.
     pub open_container: Option<IVec3>,
+    /// In bed, waiting for everyone else to sleep too.
+    pub sleeping: bool,
     /// Columns this client has been sent and (as far as we know) still has.
     pub sent: HashSet<ColumnPos>,
     pub connected_for: f32,
@@ -153,6 +155,7 @@ fn on_connect(
                 inventory: Inventory::default(),
                 creative: true,
                 open_container: None,
+                sleeping: false,
                 sent: HashSet::new(),
                 connected_for: 0.0,
                 rules: ourcraft_mod_api::PlayerRules::default(),
@@ -455,7 +458,9 @@ fn handle_messages(
             | ClientMessage::CloseContainer
             | ClientMessage::ContainerClick { .. }
             | ClientMessage::DropItems(_)
-            | ClientMessage::UseEntity { .. } => {}
+            | ClientMessage::UseEntity { .. }
+            | ClientMessage::UseBlock { .. }
+            | ClientMessage::SetSign { .. } => {}
             ClientMessage::SetBlock { pos, block, held } => {
                 let pos = IVec3::from_array(*pos);
                 let block = BlockId(*block);
@@ -702,6 +707,7 @@ fn compute_wanted_columns(query: Query<&ConnectedPlayer>, mut wanted: ResMut<Wan
 fn stream_columns(
     mut query: Query<&mut ConnectedPlayer>,
     world: Res<ServerWorld>,
+    open: Res<OpenWorld>,
     mut cache: ResMut<ColumnCache>,
     mut net: ResMut<Network>,
 ) {
@@ -737,6 +743,21 @@ fn stream_columns(
                 },
             );
             p.sent.insert(col);
+            // And what the signs in it say.
+            for (pos, lines) in open
+                .signs
+                .iter()
+                .filter(|(pos, _)| ColumnPos::from_block(pos.x, pos.z) == col)
+            {
+                net.send(
+                    p.client,
+                    Channel::Reliable,
+                    &ServerMessage::SignText {
+                        pos: pos.to_array(),
+                        lines: lines.clone(),
+                    },
+                );
+            }
         }
     }
 }

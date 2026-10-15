@@ -675,6 +675,42 @@ impl WorldStorage {
         write_atomic(&self.dir.join("containers.dat"), &bytes)
     }
 
+    /// What signs say (`signs.dat`).
+    pub fn load_signs(&self) -> io::Result<Vec<([i32; 3], Vec<String>)>> {
+        self.load_list("signs.dat")
+    }
+
+    pub fn save_signs(&self, signs: Vec<([i32; 3], Vec<String>)>) -> io::Result<()> {
+        self.save_list("signs.dat", signs)
+    }
+
+    /// Where players respawn: the bed they last slept in (`beds.dat`).
+    pub fn load_beds(&self) -> io::Result<Vec<(String, [i32; 3])>> {
+        self.load_list("beds.dat")
+    }
+
+    pub fn save_beds(&self, beds: Vec<(String, [i32; 3])>) -> io::Result<()> {
+        self.save_list("beds.dat", beds)
+    }
+
+    fn load_list<T: serde::de::DeserializeOwned>(&self, file: &str) -> io::Result<Vec<T>> {
+        let path = self.dir.join(file);
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let (version, list): (u32, Vec<T>) =
+            postcard::from_bytes(&fs::read(path)?).map_err(|e| invalid(e.to_string()))?;
+        if version != 1 {
+            return Err(invalid(format!("unknown {file} version {version}")));
+        }
+        Ok(list)
+    }
+
+    fn save_list<T: Serialize>(&self, file: &str, list: Vec<T>) -> io::Result<()> {
+        let bytes = postcard::to_allocvec(&(1u32, list)).map_err(|e| invalid(e.to_string()))?;
+        write_atomic(&self.dir.join(file), &bytes)
+    }
+
     pub fn save_player(&self, name: &str, player: &PlayerSave) -> io::Result<()> {
         let bytes = postcard::to_allocvec(player).map_err(|e| invalid(e.to_string()))?;
         write_atomic(&self.player_path(name), &bytes)
@@ -828,6 +864,20 @@ mod tests {
 
         let worlds = list_worlds(dir.parent().unwrap());
         assert!(worlds.iter().any(|(_, m)| m.name == "Test World"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn signs_and_beds_round_trip() {
+        let dir = temp_dir("signs");
+        let storage = WorldStorage::open(&dir).unwrap();
+        assert!(storage.load_signs().unwrap().is_empty());
+        let signs = vec![([1, 64, -2], vec!["Hello".to_string(), "Sam!".to_string()])];
+        storage.save_signs(signs.clone()).unwrap();
+        assert_eq!(storage.load_signs().unwrap(), signs);
+        let beds = vec![("Kim".to_string(), [5, 70, 5])];
+        storage.save_beds(beds.clone()).unwrap();
+        assert_eq!(storage.load_beds().unwrap(), beds);
         fs::remove_dir_all(dir).unwrap();
     }
 

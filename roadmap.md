@@ -1,7 +1,7 @@
 # Ourcraft roadmap
 
 Where Ourcraft stands compared with the classic block-building game, and
-what to build next. Milestones 1–10 (the original plan) and 11–13 are done; this file
+what to build next. Milestones 1–10 (the original plan) and 11–14 are done; this file
 picks up from there.
 
 ## What we have
@@ -11,7 +11,7 @@ picks up from there.
 | World | Infinite generated terrain; plains, forest, desert, snowy and mountain biomes; caves; trees; cacti; seas and lakes; beaches; bedrock floor; a seed per world |
 | Blocks | 26 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water, coal/iron/gold/diamond ore, clay, crafting table, furnace, iron/gold/diamond blocks, wool), plus 9 from the Paint Blocks mod and 2 from the Snow Fun tutorial mod |
 | Items | Sticks, coal, iron and gold ingots, diamonds, clay balls, bricks, shears, eggs, apples; wooden, stone, iron and diamond pickaxes, axes and shovels that wear out |
-| Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative palette of every item |
+| Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative palette of every item; stairs and slabs (wood, cobblestone, stone, brick), fences that join up, doors and trapdoors that open, ladders to climb, chests, signs you write on, beds that skip the night |
 | Crafting | 2×2 grid in the inventory, 3×3 on a crafting table, 25 recipes (mods can add more); furnace that smelts ore, sand, clay and cobblestone with coal or wood |
 | Game modes | Creative (fly, endless blocks) and survival (blocks take time to break, the right tool is faster, drops land as items you pick up); Splat Squad team game (mod) |
 | Movement | Walk, sprint, jump, gravity, collision, swimming, flying (double-tap jump), auto-jump on touch screens |
@@ -33,8 +33,6 @@ picks up from there.
 - Monsters
 - Health, hunger, fall damage and drowning outside Splat Squad
 - Armour, food, swords
-- Non-cube blocks: stairs, slabs, doors, fences
-- Blocks with storage or behaviour: chests, beds, signs
 - Redstone-style circuits
 - Falling sand and gravel; flowing water and lava
 - Villages and other generated structures
@@ -130,7 +128,21 @@ What was planned:
 - Option for players to turn off monster spawning in the dark (for later
   milestones).
 
-### 14. Building blocks with shapes
+### 14. Building blocks with shapes ✅ done
+
+Stairs and slabs in four materials, fences that join to each other and to
+walls, doors (two blocks tall) and trapdoors that open and close, ladders
+(jump to climb), chests with 27 slots shared by everyone, signs with four
+lines of text drawn in a little pixel font (rude words filtered), and beds
+that set where you wake up and skip the night once everyone's in bed.
+Shapes collide box by box, and you walk up slabs and stair steps without
+jumping. Each shape faces the way you look or the wall you click.
+
+Not quite as planned: one kind of fence and door (wood); no half-open
+fence gates or coloured beds yet. Sleeping doesn't show you lying down.
+
+What was planned:
+
 
 - Stairs, slabs, fences, doors, trapdoors, ladders. *Engine: non-cube
   block shapes in meshing, collision and raycasts.*

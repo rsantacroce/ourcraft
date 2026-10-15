@@ -21,6 +21,7 @@ pub mod profanity;
 pub mod remote_players;
 pub mod render;
 pub mod settings;
+pub mod signs;
 pub mod sky;
 pub mod survival;
 pub mod touch;
@@ -58,6 +59,7 @@ impl Plugin for ClientPlugin {
                 entities::EntitiesPlugin,
                 items::ItemsPlugin,
                 survival::SurvivalPlugin,
+                signs::SignsPlugin,
             ));
     }
 }

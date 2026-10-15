@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 6;
+pub const PROTOCOL_VERSION: u64 = 7;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -228,6 +228,33 @@ pub enum ClientMessage {
         id: u64,
         held: u16,
     },
+    /// Used a block: open or close a door or trapdoor, sleep in a bed.
+    UseBlock {
+        pos: [i32; 3],
+    },
+    /// Wrote on a sign (up to [`SIGN_LINES`] lines of [`SIGN_LINE_LEN`]).
+    SetSign {
+        pos: [i32; 3],
+        lines: Vec<String>,
+    },
+}
+
+/// Lines on a sign, and characters per line.
+pub const SIGN_LINES: usize = 4;
+pub const SIGN_LINE_LEN: usize = 15;
+
+/// Clean up sign text: at most 4 lines of 15 printable characters.
+pub fn sanitize_sign(lines: &[String]) -> Vec<String> {
+    lines
+        .iter()
+        .take(SIGN_LINES)
+        .map(|l| {
+            l.chars()
+                .filter(|c| !c.is_control())
+                .take(SIGN_LINE_LEN)
+                .collect()
+        })
+        .collect()
 }
 
 /// Another player as seen by everyone else.
@@ -347,6 +374,11 @@ pub enum ServerMessage {
     ContainerClosed,
     /// Remove these from your inventory (you fed an animal, say).
     TakeItems(NetStack),
+    /// What a sign says (sent when it changes, and with its column).
+    SignText {
+        pos: [i32; 3],
+        lines: Vec<String>,
+    },
 }
 
 /// Encode a message for sending.

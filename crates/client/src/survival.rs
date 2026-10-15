@@ -8,7 +8,7 @@ use ourcraft_common::protocol::{Channel, ClientMessage, ServerMessage};
 
 use crate::input::UiFocus;
 use crate::interaction::PlayerInventory;
-use crate::inventory_ui::{Cursor, FurnaceView, OpenScreen};
+use crate::inventory_ui::{ContainerView, Cursor, OpenScreen};
 use crate::items::Items;
 use crate::net::{Connection, FromServer, NetReceiveSet};
 use crate::player::GameMode;
@@ -28,7 +28,7 @@ fn handle_messages(
     items: Res<Items>,
     mut inventory: ResMut<PlayerInventory>,
     mut cursor: ResMut<Cursor>,
-    mut furnace: ResMut<FurnaceView>,
+    mut furnace: ResMut<ContainerView>,
     mut focus: ResMut<UiFocus>,
     screen: Res<OpenScreen>,
     conn: Option<ResMut<Connection>>,
@@ -47,7 +47,7 @@ fn handle_messages(
                 }
             }
             ServerMessage::Container(view) => {
-                if *screen == OpenScreen::Furnace(IVec3::from_array(view.pos))
+                if *screen == OpenScreen::Container(IVec3::from_array(view.pos))
                     && focus.inventory_open
                 {
                     furnace.0 = Some(view.clone());
@@ -56,7 +56,8 @@ fn handle_messages(
             ServerMessage::ContainerCursor(slot) => {
                 cursor.pending = false;
                 let stack = slot.map(ItemStack::from);
-                let still_open = focus.inventory_open && matches!(*screen, OpenScreen::Furnace(_));
+                let still_open =
+                    focus.inventory_open && matches!(*screen, OpenScreen::Container(_));
                 match (stack, still_open) {
                     (s, true) => cursor.stack = s,
                     // The screen closed meanwhile: into the inventory.
@@ -91,7 +92,7 @@ fn handle_messages(
                 }
             }
             ServerMessage::ContainerClosed => {
-                if matches!(*screen, OpenScreen::Furnace(_)) {
+                if matches!(*screen, OpenScreen::Container(_)) {
                     focus.inventory_open = false;
                     furnace.0 = None;
                 }

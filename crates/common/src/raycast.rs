@@ -64,13 +64,18 @@ pub fn raycast(
         if let Some(id) = world.get_block(block.x, block.y, block.z) {
             let targetable = reg.render_kind(id) != RenderKind::Invisible && !reg.is_liquid(id);
             if targetable {
-                let shape = reg.shape(id);
-                if shape.is_cube() {
+                if reg.shape(id).is_cube() {
                     return Some(RayHit { block, id, normal });
                 }
-                // Smaller shapes (torches…): the ray must hit one of the boxes.
-                let hit = shape
-                    .boxes()
+                // Smaller shapes (torches, fences…): the ray must hit one of
+                // the boxes.
+                let near = |o: [i32; 3]| {
+                    world
+                        .get_block(block.x + o[0], block.y + o[1], block.z + o[2])
+                        .unwrap_or(BlockId::AIR)
+                };
+                let hit = reg
+                    .boxes_at(id, near)
                     .into_iter()
                     .filter_map(|(min, max)| {
                         let b = block.as_vec3();

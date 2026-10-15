@@ -100,8 +100,17 @@ fn show_container(
     }
 }
 
-fn container_kind(block: BlockId) -> Option<ContainerKind> {
-    (block == blocks::FURNACE).then_some(ContainerKind::Furnace)
+fn container_kind(
+    registry: &ourcraft_common::block::BlockRegistry,
+    block: BlockId,
+) -> Option<ContainerKind> {
+    if block == blocks::FURNACE {
+        Some(ContainerKind::Furnace)
+    } else if registry.get(block).name == "core:chest" {
+        Some(ContainerKind::Chest)
+    } else {
+        None
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -111,6 +120,7 @@ fn handle_container_messages(
     mut players: Query<&mut ConnectedPlayer>,
     mut open: ResMut<OpenWorld>,
     world: Res<ServerWorld>,
+    registry: Res<Registry>,
     mut entities: ResMut<Entities>,
     mut net: ResMut<Network>,
 ) {
@@ -129,7 +139,7 @@ fn handle_container_messages(
                     p.position().distance(pos.as_vec3() + Vec3::splat(0.5)) <= CONTAINER_REACH;
                 let kind = world
                     .get_block(pos.x, pos.y, pos.z)
-                    .and_then(container_kind);
+                    .and_then(|b| container_kind(&registry.0, b));
                 let (Some(kind), true, true) = (kind, near, p.name.is_some()) else {
                     continue;
                 };
@@ -251,6 +261,43 @@ fn drop_broken_blocks(
         let survival_breaker = players
             .iter()
             .any(|p| p.client == edit.client && !p.creative);
+        // A sign's words go with it.
+        if open.signs.remove(&edit.pos).is_some() {
+            net.broadcast(
+                Channel::Reliable,
+                &ServerMessage::SignText {
+                    pos: edit.pos.to_array(),
+                    lines: Vec::new(),
+                },
+            );
+        }
+        // The other half of a door or bed goes too. Whichever half you
+        // break, you get one door (or bed) back.
+        if let Some(o) = registry.0.other_half(edit.old) {
+            let at = edit.pos + IVec3::from_array(o);
+            let kind = registry.0.variant_kind(edit.old);
+            let partner = world
+                .get_block(at.x, at.y, at.z)
+                .filter(|b| registry.0.variant_kind(*b) == kind);
+            if let Some(partner) = partner {
+                crate::world::set_block(&mut world, &mut cache, &open, at, BlockId::AIR);
+                net.broadcast(
+                    Channel::Reliable,
+                    &ServerMessage::BlockChanged {
+                        pos: at.to_array(),
+                        block: 0,
+                    },
+                );
+                let broke_the_dropless_half =
+                    registry.0.get(edit.old).drops == ourcraft_common::block::Drops::Nothing;
+                if survival_breaker
+                    && broke_the_dropless_half
+                    && let Some((item, n)) = open.items.drop_for(&registry.0, partner, None)
+                {
+                    spawn_item(&mut entities, center, ItemStack::new(item, n));
+                }
+            }
+        }
         // Torches (and anything else hanging) on the block that went away.
         if edit.new.is_air() {
             for d in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::Z, IVec3::NEG_Z] {

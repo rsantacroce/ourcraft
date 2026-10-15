@@ -15,12 +15,15 @@ pub const FURNACE_OUTPUT: usize = 2;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ContainerKind {
     Furnace,
+    /// 27 slots for anything.
+    Chest,
 }
 
 impl ContainerKind {
     pub fn slots(self) -> usize {
         match self {
             ContainerKind::Furnace => 3,
+            ContainerKind::Chest => 27,
         }
     }
 
@@ -32,6 +35,7 @@ impl ContainerKind {
                 FURNACE_FUEL => items.fuel(stack.item) > 0.0,
                 _ => false, // the output is take-only
             },
+            ContainerKind::Chest => slot < 27,
         }
     }
 }

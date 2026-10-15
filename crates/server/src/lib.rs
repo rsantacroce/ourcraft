@@ -13,6 +13,7 @@
 //!   the network. Same code, same rules; and the same world can later be
 //!   opened up to friends.
 
+pub mod building;
 pub mod entities;
 pub mod mobs;
 pub mod mods;
@@ -138,6 +139,7 @@ impl Plugin for ServerPlugin {
             entities::EntitiesPlugin,
             survival::SurvivalPlugin,
             mobs::MobsPlugin,
+            building::BuildingPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

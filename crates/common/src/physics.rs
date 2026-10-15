@@ -16,7 +16,7 @@
 
 use glam::{IVec3, Vec2, Vec3};
 
-use crate::block::BlockRegistry;
+use crate::block::{BlockId, BlockRegistry};
 use crate::world::BlockSource;
 
 /// Physics steps per second.
@@ -179,13 +179,41 @@ impl Aabb {
     }
 }
 
+/// The solid boxes of the block at `b`: a full cube for most solid blocks,
+/// smaller boxes for slabs, stairs, fences and doors, nothing for air.
 /// Unloaded chunks count as solid, so players can't fall out of the world
 /// while terrain is still streaming in.
-fn is_solid(world: &impl BlockSource, reg: &BlockRegistry, b: IVec3) -> bool {
-    match world.get_block(b.x, b.y, b.z) {
-        Some(id) => reg.is_solid(id),
-        None => true,
+fn solid_boxes(world: &impl BlockSource, reg: &BlockRegistry, b: IVec3) -> Vec<Aabb> {
+    let Some(id) = world.get_block(b.x, b.y, b.z) else {
+        return vec![Aabb::block(b)];
+    };
+    if !reg.is_solid(id) {
+        return Vec::new();
     }
+    if reg.shape(id).is_cube() {
+        return vec![Aabb::block(b)];
+    }
+    let near = |o: [i32; 3]| {
+        world
+            .get_block(b.x + o[0], b.y + o[1], b.z + o[2])
+            .unwrap_or(BlockId::AIR)
+    };
+    reg.boxes_at(id, near)
+        .into_iter()
+        .map(|(min, max)| Aabb {
+            min: b.as_vec3() + Vec3::from(min),
+            max: b.as_vec3() + Vec3::from(max),
+        })
+        .collect()
+}
+
+/// Is any part of the player box touching a ladder?
+fn on_ladder(world: &impl BlockSource, reg: &BlockRegistry, feet: Vec3) -> bool {
+    Aabb::player(feet).inflate(0.05).blocks().any(|b| {
+        world
+            .get_block(b.x, b.y, b.z)
+            .is_some_and(|id| reg.is_climbable(id))
+    })
 }
 
 fn is_liquid(world: &impl BlockSource, reg: &BlockRegistry, p: Vec3) -> bool {
@@ -197,8 +225,15 @@ fn is_liquid(world: &impl BlockSource, reg: &BlockRegistry, p: Vec3) -> bool {
 
 /// Does a player box at `feet` overlap any solid block?
 pub fn collides(world: &impl BlockSource, reg: &BlockRegistry, feet: Vec3) -> bool {
-    Aabb::player(feet).blocks().any(|b| is_solid(world, reg, b))
+    let me = Aabb::player(feet);
+    me.blocks()
+        .any(|b| solid_boxes(world, reg, b).iter().any(|s| s.intersects(&me)))
 }
+
+/// How high players walk up without jumping (slabs and stair steps).
+const STEP_HEIGHT: f32 = 0.55;
+/// Climbing speed on ladders.
+const CLIMB_SPEED: f32 = 2.8;
 
 /// Move `value` towards `target` by at most `max_delta`.
 fn approach(value: f32, target: f32, max_delta: f32) -> f32 {
@@ -274,6 +309,17 @@ pub fn step(
             state.velocity.y = JUMP_SPEED;
         }
         state.velocity.y = (state.velocity.y - GRAVITY * dt).max(-TERMINAL_SPEED);
+        // Ladders: hold jump to climb, "down" to go down, otherwise slide
+        // down slowly.
+        if on_ladder(world, reg, state.position) {
+            state.velocity.y = if input.jump && can_jump {
+                CLIMB_SPEED
+            } else if input.descend {
+                -CLIMB_SPEED
+            } else {
+                state.velocity.y.max(-CLIMB_SPEED * 0.5)
+            };
+        }
     }
 
     // Move one axis at a time, Y first so landing is resolved before sliding.
@@ -291,20 +337,45 @@ pub fn step(
         let aabb = Aabb::player(next);
         let mut hit = false;
         for b in aabb.blocks() {
-            // Blocks we already overlap (say, one placed inside us, or an
-            // unloaded chunk) don't block movement, so we can't get stuck.
-            if !is_solid(world, reg, b) || before.intersects(&Aabb::block(b)) {
-                continue;
+            for solid in solid_boxes(world, reg, b) {
+                // Boxes we already overlap (say, a block placed inside us, or
+                // an unloaded chunk) don't block movement, so we can't get
+                // stuck.
+                if !solid.intersects(&aabb) || before.intersects(&solid) {
+                    continue;
+                }
+                hit = true;
+                // Push back to just touching the box's face.
+                let half = if axis == 1 { 0.0 } else { PLAYER_WIDTH / 2.0 };
+                if delta > 0.0 {
+                    let limit =
+                        solid.min[axis] - SKIN - if axis == 1 { PLAYER_HEIGHT } else { half };
+                    next[axis] = next[axis].min(limit);
+                } else {
+                    let limit = solid.max[axis] + SKIN + half;
+                    next[axis] = next[axis].max(limit);
+                }
             }
-            hit = true;
-            // Push back to just touching the block's face.
-            let half = if axis == 1 { 0.0 } else { PLAYER_WIDTH / 2.0 };
-            if delta > 0.0 {
-                let limit = b[axis] as f32 - SKIN - if axis == 1 { PLAYER_HEIGHT } else { half };
-                next[axis] = next[axis].min(limit);
-            } else {
-                let limit = b[axis] as f32 + 1.0 + SKIN + half;
-                next[axis] = next[axis].max(limit);
+        }
+        // Walking into something low (a slab, a stair step): step up onto
+        // it instead of stopping.
+        if hit && axis != 1 && was_on_ground && !state.flying {
+            let mut up = state.position;
+            up[axis] += delta;
+            up.y += STEP_HEIGHT;
+            if !collides(world, reg, up) {
+                // Settle down onto the step.
+                let mut settled = up;
+                for _ in 0..12 {
+                    let lower = settled - Vec3::Y * (STEP_HEIGHT / 12.0);
+                    if collides(world, reg, lower) {
+                        break;
+                    }
+                    settled = lower;
+                }
+                state.position = settled;
+                state.on_ground = true;
+                continue;
             }
         }
         if hit {
@@ -337,7 +408,7 @@ pub fn step(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::{BlockId, blocks};
+    use crate::block::blocks;
     use crate::chunk::Chunk;
     use crate::world::{ColumnPos, VoxelWorld, WORLD_HEIGHT_CHUNKS};
 
@@ -423,6 +494,83 @@ mod tests {
             "x = {}",
             s.position.x
         );
+    }
+
+    fn east() -> PlayerInput {
+        PlayerInput {
+            movement: Vec2::new(0.0, 1.0),
+            yaw: -std::f32::consts::FRAC_PI_2,
+            ..default_input()
+        }
+    }
+
+    #[test]
+    fn walks_up_slabs_and_stairs() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        let mut w = flat_world();
+        let slab = reg.by_name("core:stone_slab").unwrap();
+        for z in -5..5 {
+            w.set_block(3, 10, z, slab);
+            for x in 4..12 {
+                w.set_block(x, 10, z, blocks::STONE);
+            }
+        }
+        let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        run(&mut s, east(), &w, 150);
+        // Up the slab (half a block), then up onto the full block.
+        assert!(s.position.x > 5.0, "x = {}", s.position.x);
+        assert!((s.position.y - 11.0).abs() < 0.05, "y = {}", s.position.y);
+    }
+
+    #[test]
+    fn full_blocks_still_need_a_jump() {
+        let mut w = flat_world();
+        for z in -5..5 {
+            w.set_block(3, 10, z, blocks::STONE);
+        }
+        let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        run(&mut s, east(), &w, 120);
+        assert!(s.position.x < 3.0);
+    }
+
+    #[test]
+    fn closed_doors_stop_you_and_open_ones_dont() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        let door = reg.by_name("core:door").unwrap();
+        // A closed door facing east has its panel on the east side.
+        let closed = reg
+            .placement(door, [0, 1, 0], [1.0, 0.0, 0.0])
+            .unwrap()
+            .block;
+        let open = reg.toggled(closed).unwrap()[0].1;
+        for (block, passes) in [(closed, false), (open, true)] {
+            let mut w = flat_world();
+            for z in -5..5 {
+                w.set_block(3, 10, z, block);
+                w.set_block(3, 11, z, block);
+            }
+            let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+            run(&mut s, east(), &w, 150);
+            assert_eq!(s.position.x > 4.5, passes, "x = {}", s.position.x);
+        }
+    }
+
+    #[test]
+    fn ladders_are_climbed_by_jumping() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        let mut w = flat_world();
+        let ladder = reg.by_name("core:ladder").unwrap();
+        for y in 10..20 {
+            w.set_block(1, y, 0, blocks::STONE); // the wall
+            w.set_block(0, y, 0, ladder);
+        }
+        let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        let climb = PlayerInput {
+            jump: true,
+            ..default_input()
+        };
+        run(&mut s, climb, &w, 120);
+        assert!(s.position.y > 14.0, "y = {}", s.position.y);
     }
 
     #[test]

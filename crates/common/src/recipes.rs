@@ -101,6 +101,38 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         ),
         shaped(&[" X", "X "], &[('X', "core:iron_ingot")], "core:shears", 1),
         shaped(
+            &["P#P", "P#P"],
+            &[('P', "core:planks"), ('#', "core:stick")],
+            "core:fence",
+            3,
+        ),
+        shaped(&["PP", "PP", "PP"], &[('P', "core:planks")], "core:door", 3),
+        shaped(&["PPP", "PPP"], &[('P', "core:planks")], "core:trapdoor", 2),
+        shaped(
+            &["# #", "###", "# #"],
+            &[('#', "core:stick")],
+            "core:ladder",
+            3,
+        ),
+        shaped(
+            &["PPP", "PPP", " # "],
+            &[('P', "core:planks"), ('#', "core:stick")],
+            "core:sign",
+            3,
+        ),
+        shaped(
+            &["WWW", "PPP"],
+            &[('W', "core:wool"), ('P', "core:planks")],
+            "core:bed",
+            1,
+        ),
+        shaped(
+            &["PPP", "P P", "PPP"],
+            &[('P', "core:planks")],
+            "core:chest",
+            1,
+        ),
+        shaped(
             &["C", "#"],
             &[('C', "core:coal"), ('#', "core:stick")],
             "core:torch",
@@ -132,6 +164,17 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             &format!("core:{key}_shovel"),
             1,
         ));
+    }
+    for mat in ["planks", "cobblestone", "stone", "bricks"] {
+        let block = format!("core:{mat}");
+        let k = [('X', block.as_str())];
+        r.push(shaped(
+            &["X  ", "XX ", "XXX"],
+            &k,
+            &format!("core:{mat}_stairs"),
+            4,
+        ));
+        r.push(shaped(&["XXX"], &k, &format!("core:{mat}_slab"), 6));
     }
     for (ingot, block) in [
         ("core:iron_ingot", "core:iron_block"),

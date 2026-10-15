@@ -79,6 +79,10 @@ pub struct OpenWorld {
     pub containers: HashMap<IVec3, Container>,
     /// Every kind of animal.
     pub mobs: Arc<Vec<ourcraft_common::mobs::MobDef>>,
+    /// What signs say, by position.
+    pub signs: HashMap<IVec3, Vec<String>>,
+    /// Where each player last slept (their respawn point).
+    pub beds: HashMap<String, IVec3>,
     /// Shared with the save-on-exit guard.
     snapshot: Arc<Mutex<Snapshot>>,
 }
@@ -88,6 +92,8 @@ pub struct OpenWorld {
 struct Snapshot {
     meta: WorldMeta,
     containers: Vec<SavedContainer>,
+    signs: Vec<([i32; 3], Vec<String>)>,
+    beds: Vec<(String, [i32; 3])>,
 }
 
 /// Columns encoded for sending, so several players near the same place
@@ -180,9 +186,29 @@ fn open_world(
         .iter()
         .map(|c| (IVec3::from_array(c.pos), c.restore(&items)))
         .collect();
+    let signs = storage
+        .load_signs()
+        .unwrap_or_else(|e| {
+            error!("Can't read signs ({e})");
+            Vec::new()
+        })
+        .into_iter()
+        .map(|(p, l)| (IVec3::from_array(p), l))
+        .collect();
+    let beds = storage
+        .load_beds()
+        .unwrap_or_else(|e| {
+            error!("Can't read beds ({e})");
+            Vec::new()
+        })
+        .into_iter()
+        .map(|(n, p)| (n, IVec3::from_array(p)))
+        .collect();
     let snapshot = Snapshot {
         meta: meta.clone(),
         containers: Vec::new(),
+        signs: Vec::new(),
+        beds: Vec::new(),
     };
     let open = OpenWorld {
         storage: Arc::new(storage),
@@ -194,6 +220,8 @@ fn open_world(
         items,
         containers,
         mobs: Arc::new(content.mobs.clone()),
+        signs,
+        beds,
     };
     // The save guard must never write an empty furnace list over real ones.
     open.update_snapshot();
@@ -241,6 +269,16 @@ impl OpenWorld {
         *self.snapshot.lock().unwrap() = Snapshot {
             meta: self.meta.clone(),
             containers,
+            signs: self
+                .signs
+                .iter()
+                .map(|(p, l)| (p.to_array(), l.clone()))
+                .collect(),
+            beds: self
+                .beds
+                .iter()
+                .map(|(n, p)| (n.clone(), p.to_array()))
+                .collect(),
         };
     }
 }
@@ -372,6 +410,12 @@ fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
     }
     if let Err(e) = storage.save_containers(snapshot.containers) {
         error!("Saving furnaces failed: {e}");
+    }
+    if let Err(e) = storage.save_signs(snapshot.signs) {
+        error!("Saving signs failed: {e}");
+    }
+    if let Err(e) = storage.save_beds(snapshot.beds) {
+        error!("Saving beds failed: {e}");
     }
     match storage.flush() {
         Ok(n) if n > 0 => info!("Saved {n} column(s)"),
