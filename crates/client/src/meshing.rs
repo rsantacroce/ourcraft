@@ -244,7 +244,11 @@ fn face_visible(registry: &BlockRegistry, block: BlockId, neighbour: BlockId) ->
         RenderKind::Opaque => !registry.is_opaque(neighbour),
         // Glass next to glass (or water next to water) shows no inner faces.
         RenderKind::Cutout | RenderKind::Translucent => {
-            !registry.is_opaque(neighbour) && neighbour != block
+            !registry.is_opaque(neighbour)
+                && neighbour != block
+                // Water against water at least as deep shows no face.
+                && !(registry.is_liquid(block)
+                    && registry.liquid_height(neighbour) >= registry.liquid_height(block))
         }
     }
 }
@@ -352,13 +356,10 @@ fn mesh_shapes(
                         } else {
                             min[axes.d] <= 0.0
                         };
-                        if on_edge
-                            && registry.is_opaque(chunk.get(
-                                x + normal[0],
-                                y + normal[1],
-                                z + normal[2],
-                            ))
-                        {
+                        let next = chunk.get(x + normal[0], y + normal[1], z + normal[2]);
+                        let liquids = registry.is_liquid(block)
+                            && registry.liquid_height(next) >= registry.liquid_height(block);
+                        if on_edge && (registry.is_opaque(next) || liquids) {
                             continue;
                         }
                         let layer = layers.get(block.0 as usize).map_or(0, |l| l[face as usize]);
@@ -379,8 +380,13 @@ fn mesh_shapes(
                         } else {
                             face_shade(face)
                         };
+                        let target = if registry.render_kind(block) == RenderKind::Translucent {
+                            &mut mesh.translucent
+                        } else {
+                            &mut mesh.solid
+                        };
                         push_face(
-                            &mut mesh.solid,
+                            target,
                             &axes,
                             d,
                             rect,

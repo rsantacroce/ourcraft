@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 7;
+pub const PROTOCOL_VERSION: u64 = 8;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -237,6 +237,15 @@ pub enum ClientMessage {
         pos: [i32; 3],
         lines: Vec<String>,
     },
+    /// Ate one of this item (it was in hand).
+    Eat {
+        item: u16,
+    },
+    /// Hit an animal or monster (left click), holding `held`.
+    HitEntity {
+        id: u64,
+        held: u16,
+    },
 }
 
 /// Lines on a sign, and characters per line.
@@ -378,6 +387,13 @@ pub enum ServerMessage {
     SignText {
         pos: [i32; 3],
         lines: Vec<String>,
+    },
+    /// Your health and hunger (out of 20) and breath (out of 10), in
+    /// survival. All zero hides them (creative, or a game mode).
+    Vitals {
+        health: f32,
+        food: f32,
+        air: f32,
     },
 }
 

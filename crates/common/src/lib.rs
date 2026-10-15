@@ -3,6 +3,7 @@
 pub mod block;
 pub mod chunk;
 pub mod container;
+pub mod fluids;
 pub mod inventory;
 pub mod item;
 pub mod mobs;

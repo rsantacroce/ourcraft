@@ -56,6 +56,7 @@ pub mod blocks {
     pub const WALL_TORCH_WEST: BlockId = BlockId(30);
     pub const WALL_TORCH_SOUTH: BlockId = BlockId(31);
     pub const WALL_TORCH_NORTH: BlockId = BlockId(32);
+    pub const LAVA: BlockId = BlockId(111);
 }
 
 /// The six faces of a block, in the order used for per-face lookups.
@@ -235,6 +236,10 @@ pub struct BlockDef {
     /// Its family and state, for blocks placed in different ways (stairs
     /// facing east, an open door…). See `shapes`.
     pub variant: Option<crate::shapes::Variant>,
+    /// Part of a fluid (water, lava). See `fluids`.
+    pub fluid: Option<crate::fluids::Fluid>,
+    /// Falls when there's nothing under it (sand, gravel).
+    pub falls: bool,
 }
 
 impl BlockDef {
@@ -257,6 +262,8 @@ impl BlockDef {
             shape: BlockShape::Cube,
             hidden: false,
             variant: None,
+            fluid: None,
+            falls: false,
         }
     }
 
@@ -306,6 +313,8 @@ impl BlockRegistry {
                 shape: BlockShape::Cube,
                 hidden: false,
                 variant: None,
+                fluid: None,
+                falls: false,
             }],
         }
     }
@@ -467,6 +476,11 @@ impl BlockRegistry {
         reg.register(BlockDef::solid("core:wool", "Wool", T::all("wool")).mined(0.8, None, 0));
         // ---- Milestones 13 and 14: torches and shaped blocks ----
         crate::shapes::register_shaped_blocks(&mut reg);
+        // ---- Milestone 15: flowing water and lava ----
+        crate::fluids::register_fluids(&mut reg);
+        for b in [blocks::SAND, blocks::GRAVEL] {
+            reg.defs_mut(b).falls = true;
+        }
         reg
     }
 
@@ -516,6 +530,8 @@ impl BlockRegistry {
             shape: BlockShape::Cube,
             hidden: false,
             variant: None,
+            fluid: None,
+            falls: false,
         }))
     }
 
@@ -618,6 +634,7 @@ mod tests {
         assert_eq!(reg.get(blocks::FURNACE).name, "core:furnace");
         assert_eq!(reg.get(blocks::DIAMOND_BLOCK).name, "core:diamond_block");
         assert_eq!(reg.get(blocks::WOOL).name, "core:wool");
+        assert_eq!(reg.get(blocks::LAVA).name, "core:lava");
         assert!(reg.get(blocks::LEAVES).bonus_drop.is_some(), "apples");
         assert_eq!(reg.get(blocks::TORCH).name, "core:torch");
         assert_eq!(

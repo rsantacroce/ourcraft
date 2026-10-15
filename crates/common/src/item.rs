@@ -52,6 +52,10 @@ pub struct ItemDef {
     pub fuel: f32,
     /// What a furnace turns this into, by name.
     pub smelts_into: Option<String>,
+    /// Hunger points it fills when eaten (0 = not food). Out of 20.
+    pub food: u8,
+    /// Health it gives back when eaten. Out of 20.
+    pub heals: u8,
 }
 
 impl ItemDef {
@@ -64,6 +68,8 @@ impl ItemDef {
             durability: 0,
             fuel: 0.0,
             smelts_into: None,
+            food: 0,
+            heals: 0,
         }
     }
 
@@ -130,9 +136,23 @@ fn builtin_items() -> Vec<ItemDef> {
         },
         ItemDef {
             max_stack: 16,
+            smelts_into: Some("core:fried_egg".into()),
             ..ItemDef::material("core:egg", "Egg")
         },
-        ItemDef::material("core:apple", "Apple"),
+        ItemDef {
+            food: 4,
+            ..ItemDef::material("core:apple", "Apple")
+        },
+        // ---- Milestone 15: food ----
+        ItemDef {
+            food: 6,
+            ..ItemDef::material("core:fried_egg", "Fried Egg")
+        },
+        ItemDef {
+            food: 4,
+            heals: 8,
+            ..ItemDef::material("core:golden_apple", "Golden Apple")
+        },
     ];
     for (tier, material) in [(1, "Wooden"), (2, "Stone"), (3, "Iron"), (4, "Diamond")] {
         let key = ["wood", "stone", "iron", "diamond"][tier as usize - 1];
@@ -186,6 +206,8 @@ impl ItemRegistry {
                     durability: 0,
                     fuel,
                     smelts_into: smelts.map(Into::into),
+                    food: 0,
+                    heals: 0,
                 }
             })
             .collect();

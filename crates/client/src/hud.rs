@@ -54,7 +54,7 @@ fn spawn_hud(mut commands: Commands) {
                      WASD: move   Space: jump (double-tap: fly)   Shift: down   Ctrl: run\n\
                      Left click: break   Right click: place   Middle click: pick block\n\
                      1-9 / wheel: hotbar   E: inventory and crafting   Q: drop   F: fly   G: creative/survival\n\
-                     Right click doors, chests, signs, beds, furnaces to use them   T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag",
+                     Right click doors, chests, signs, beds, furnaces   Hold right click to eat   T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag",
                 ),
                 TextFont::from_font_size(14.0),
                 TextColor(Color::WHITE),

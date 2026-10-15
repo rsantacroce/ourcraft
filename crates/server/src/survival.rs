@@ -251,9 +251,12 @@ fn drop_broken_blocks(
     mut cache: ResMut<crate::world::ColumnCache>,
     mut entities: ResMut<Entities>,
     mut net: ResMut<Network>,
+    mut updates: ResMut<crate::updates::BlockUpdates>,
     mut luck: Local<u32>,
 ) {
     for edit in std::mem::take(&mut applied.0) {
+        // Water may flow into the gap, sand may fall…
+        updates.around(edit.pos, 2);
         if edit.old.is_air() || edit.old == edit.new {
             continue;
         }

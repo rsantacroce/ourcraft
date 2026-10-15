@@ -17,10 +17,12 @@ pub mod building;
 pub mod entities;
 pub mod mobs;
 pub mod mods;
+pub mod needs;
 
 pub mod net;
 pub mod players;
 pub mod survival;
+pub mod updates;
 pub mod world;
 
 use std::net::SocketAddr;
@@ -140,6 +142,8 @@ impl Plugin for ServerPlugin {
             survival::SurvivalPlugin,
             mobs::MobsPlugin,
             building::BuildingPlugin,
+            updates::UpdatesPlugin,
+            needs::NeedsPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

@@ -139,6 +139,26 @@ fn generate(name: &str) -> Vec<f32> {
             let f = 700.0 - 1500.0 * local;
             (TAU * f * t).sin() * 0.45 * env(local, 45.0)
         }),
+        // Munch: a few crunchy bites.
+        "munch" => synth(0.4, |t| {
+            let local = t % 0.13;
+            (noise.next() * 0.6) * env(local, 30.0) * if t < 0.39 { 1.0 } else { 0.0 }
+        }),
+        // Bonk: a cartoon knock on the head.
+        "bonk" => synth(0.18, |t| {
+            let f = 420.0 - 900.0 * t;
+            ((TAU * f * t).sin() * 0.7 + noise.next() * 0.1) * env(t, 22.0)
+        }),
+        // Grumble: a low, grumpy hum.
+        "grumble" => synth(0.6, |t| {
+            let f = 95.0 + 12.0 * (TAU * 7.0 * t).sin();
+            voice(f * t, 9) * 0.5 * soft(t, 0.6)
+        }),
+        // Boing: a springy rising wobble.
+        "boing" => synth(0.35, |t| {
+            let f = 180.0 + 500.0 * t + 40.0 * (TAU * 25.0 * t).sin();
+            (TAU * f * t).sin() * 0.5 * env(t, 7.0)
+        }),
         // Menu click.
         _ => synth(0.03, |t| (TAU * 1800.0 * t).sin() * 0.4 * env(t, 120.0)),
     }
@@ -181,8 +201,9 @@ pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     out
 }
 
-pub const SOUND_NAMES: [&str; 11] = [
+pub const SOUND_NAMES: [&str; 15] = [
     "place", "break", "pop", "splat", "grab", "cheer", "click", "baa", "moo", "oink", "cluck",
+    "munch", "bonk", "grumble", "boing",
 ];
 
 fn create_sounds(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {

@@ -693,6 +693,15 @@ impl WorldStorage {
         self.save_list("beds.dat", beds)
     }
 
+    /// World rules such as peaceful (`rules.dat`).
+    pub fn load_rules(&self) -> io::Result<Vec<(String, bool)>> {
+        self.load_list("rules.dat")
+    }
+
+    pub fn save_rules(&self, rules: Vec<(String, bool)>) -> io::Result<()> {
+        self.save_list("rules.dat", rules)
+    }
+
     fn load_list<T: serde::de::DeserializeOwned>(&self, file: &str) -> io::Result<Vec<T>> {
         let path = self.dir.join(file);
         if !path.exists() {

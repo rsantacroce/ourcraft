@@ -97,6 +97,8 @@ pub struct ConnectedPlayer {
     pub open_container: Option<IVec3>,
     /// In bed, waiting for everyone else to sleep too.
     pub sleeping: bool,
+    /// Health, hunger and breath (survival).
+    pub needs: crate::needs::Needs,
     /// Columns this client has been sent and (as far as we know) still has.
     pub sent: HashSet<ColumnPos>,
     pub connected_for: f32,
@@ -156,6 +158,7 @@ fn on_connect(
                 creative: true,
                 open_container: None,
                 sleeping: false,
+                needs: crate::needs::Needs::default(),
                 sent: HashSet::new(),
                 connected_for: 0.0,
                 rules: ourcraft_mod_api::PlayerRules::default(),
@@ -460,7 +463,9 @@ fn handle_messages(
             | ClientMessage::DropItems(_)
             | ClientMessage::UseEntity { .. }
             | ClientMessage::UseBlock { .. }
-            | ClientMessage::SetSign { .. } => {}
+            | ClientMessage::SetSign { .. }
+            | ClientMessage::Eat { .. }
+            | ClientMessage::HitEntity { .. } => {}
             ClientMessage::SetBlock { pos, block, held } => {
                 let pos = IVec3::from_array(*pos);
                 let block = BlockId(*block);
@@ -621,9 +626,17 @@ fn run_command(text: &str, open: &mut OpenWorld) -> Option<String> {
     let mut words = text.split_whitespace();
     match words.next()? {
         "/help" => Some(
-            "Commands: /time day, /time night, /summon sheep (or pig, cow, chicken) (mods may add more)"
+            "Commands: /time day, /time night, /summon sheep (or pig, cow, chicken), /peaceful (mods may add more)"
                 .into(),
         ),
+        "/peaceful" => {
+            open.peaceful = !open.peaceful;
+            Some(if open.peaceful {
+                "Peaceful: no monsters, and no getting hungry.".into()
+            } else {
+                "Peaceful is off: watch out for monsters at night!".into()
+            })
+        }
         "/time" => match words.next() {
             Some("day") => {
                 open.meta.time_of_day = 0.3;

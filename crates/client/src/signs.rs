@@ -215,10 +215,7 @@ fn place_sign_text(
                 Vec3::new(0.0, 12.5 / 16.0 - 0.5, 7.0 / 16.0 - 0.5 - 0.01),
                 7.0 / 16.0,
             ),
-            VariantKind::WallSign => (
-                Vec3::new(0.0, 0.0, 14.0 / 16.0 - 0.5 - 0.01),
-                8.0 / 16.0,
-            ),
+            VariantKind::WallSign => (Vec3::new(0.0, 0.0, 14.0 / 16.0 - 0.5 - 0.01), 8.0 / 16.0),
             _ => continue,
         };
         let turns = match v.facing {

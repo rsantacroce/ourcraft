@@ -436,7 +436,11 @@ fn door(x: usize, y: usize, upper: bool) -> Rgba {
     if !upper && (x == 11 || x == 12) && (1..=2).contains(&y) {
         return rgb(230, 200, 80); // the handle
     }
-    if x.is_multiple_of(5) { shift(c, -18.0) } else { c }
+    if x.is_multiple_of(5) {
+        shift(c, -18.0)
+    } else {
+        c
+    }
 }
 
 fn door_lower(x: usize, y: usize) -> Rgba {
@@ -510,6 +514,17 @@ fn chest_top(x: usize, y: usize) -> Rgba {
     }
 }
 
+fn lava(x: usize, y: usize) -> Rgba {
+    // Swirls of bright yellow in orange, with a few dark crusts.
+    let swirl = ((x as f32 * 0.7 + (y as f32 * 0.5).sin() * 2.0).sin() * 0.5 + 0.5) * 50.0;
+    let c = speckle(shift(rgb(230, 100, 20), swirl), x, y, 68, 12.0);
+    if one_in(x, y, 69, 13) {
+        shift(c, -60.0)
+    } else {
+        c
+    }
+}
+
 /// Magenta and black checkerboard: impossible to miss in-game.
 fn missing(x: usize, y: usize) -> Rgba {
     if (x / 8 + y / 8).is_multiple_of(2) {
@@ -555,6 +570,7 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
         "gold_block" => gold_block,
         "diamond_block" => diamond_block,
         "wool" => wool,
+        "lava" => lava,
         "torch" => torch,
         "torch_top" => torch_top,
         "door_lower" => door_lower,

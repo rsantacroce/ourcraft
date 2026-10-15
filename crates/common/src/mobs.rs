@@ -44,6 +44,19 @@ pub struct MobDef {
     pub lays: Option<String>,
     /// The sound it makes (one of the client's built-in sounds).
     pub sound: String,
+    /// Monsters: they come out at night, chase players and bonk them.
+    pub hostile: Option<Hostile>,
+}
+
+/// How a monster fights (gently: it's a game for kids).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Hostile {
+    /// Health taken from a player per bonk (out of 20).
+    pub damage: f32,
+    /// Its health: hands hit for 2, tools for more.
+    pub health: f32,
+    /// Moves by hopping (bouncy things) rather than walking.
+    pub hops: bool,
 }
 
 fn part(min: [f32; 3], max: [f32; 3], color: [u8; 4]) -> MobPart {
@@ -96,6 +109,7 @@ pub fn builtin_mobs() -> Vec<MobDef> {
         shears_into: None,
         lays: None,
         sound: sound.into(),
+        hostile: None,
     };
 
     let wool = [242, 242, 236, 255];
@@ -175,7 +189,53 @@ pub fn builtin_mobs() -> Vec<MobDef> {
     ];
     chicken.parts.extend(eyes(0.05, 0.78, 0.3, 0.05));
 
-    vec![sheep, pig, cow, chicken]
+    // ---- Monsters (milestone 15): cartoon and gentle. ----
+    let mut grumble = base("core:grumble", "Grumble", [0.7, 1.5], 1.5, "grumble");
+    grumble.spawns_on = None;
+    grumble.food = None;
+    grumble.hostile = Some(Hostile {
+        damage: 2.0,
+        health: 8.0,
+        hops: false,
+    });
+    let teal = [70, 160, 150, 255];
+    let purple = [120, 80, 170, 255];
+    let white = [250, 250, 250, 255];
+    grumble.parts = vec![
+        part([-0.32, 0.55, -0.22], [0.32, 1.15, 0.22], teal),
+        // A big round head with a grumpy brow and two huge eyes.
+        part([-0.3, 1.1, -0.25], [0.3, 1.5, 0.27], teal),
+        part([-0.24, 1.32, 0.27], [-0.05, 1.45, 0.29], white),
+        part([0.05, 1.32, 0.27], [0.24, 1.45, 0.29], white),
+        part([-0.17, 1.34, 0.29], [-0.1, 1.41, 0.31], [20, 20, 30, 255]),
+        part([0.1, 1.34, 0.29], [0.17, 1.41, 0.31], [20, 20, 30, 255]),
+        part([-0.26, 1.45, 0.27], [0.26, 1.5, 0.3], purple),
+        // Purple shorts, and arms that swing like legs.
+        part([-0.33, 0.55, -0.23], [0.33, 0.72, 0.23], purple),
+        leg([-0.42, 0.6, -0.08], [-0.32, 1.1, 0.08], teal, -1.0),
+        leg([0.32, 0.6, -0.08], [0.42, 1.1, 0.08], teal, 1.0),
+        leg([-0.25, 0.0, -0.1], [-0.05, 0.55, 0.1], purple, 1.0),
+        leg([0.05, 0.0, -0.1], [0.25, 0.55, 0.1], purple, -1.0),
+    ];
+
+    let mut bouncer = base("core:bouncer", "Bouncer", [0.8, 0.8], 1.8, "boing");
+    bouncer.spawns_on = None;
+    bouncer.food = None;
+    bouncer.hostile = Some(Hostile {
+        damage: 1.0,
+        health: 6.0,
+        hops: true,
+    });
+    let jelly = [190, 100, 220, 255];
+    bouncer.parts = vec![
+        part([-0.4, 0.0, -0.4], [0.4, 0.8, 0.4], jelly),
+        part([-0.28, 0.45, 0.4], [-0.08, 0.65, 0.42], white),
+        part([0.08, 0.45, 0.4], [0.28, 0.65, 0.42], white),
+        part([-0.2, 0.5, 0.42], [-0.12, 0.6, 0.44], [20, 20, 30, 255]),
+        part([0.12, 0.5, 0.42], [0.2, 0.6, 0.44], [20, 20, 30, 255]),
+    ];
+
+    vec![sheep, pig, cow, chicken, grumble, bouncer]
 }
 
 /// The model name clients recognise as "draw this mob":
@@ -238,8 +298,9 @@ mod tests {
                 "{} is taller than its box",
                 m.name
             );
+            let jelly = m.hostile.is_some_and(|h| h.hops);
             assert!(
-                m.parts.iter().any(|p| p.leg != 0.0),
+                jelly || m.parts.iter().any(|p| p.leg != 0.0),
                 "{} has no legs",
                 m.name
             );

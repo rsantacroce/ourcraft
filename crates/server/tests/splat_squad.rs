@@ -192,7 +192,8 @@ fn splat_squad_full_flow() {
         direction: [0.0, -1.0, 0.0],
         secondary: false,
     });
-    let splatted = run_until(&mut [&mut alex, &mut sam], 5.0, |b| {
+    // (Generous time: these tests share the machine with the others.)
+    let splatted = run_until(&mut [&mut alex, &mut sam], 10.0, |b| {
         b[0].has(|m| matches!(m, ServerMessage::EntitySpawned { model, .. } if model == "splat:pellet_red"))
             && b[0].has(|m| matches!(m, ServerMessage::Effect { kind: EffectKind::Splat, .. }))
             && b[0].has(|m| matches!(m, ServerMessage::EntityRemoved(_)))

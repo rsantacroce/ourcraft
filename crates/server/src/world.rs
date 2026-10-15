@@ -83,6 +83,8 @@ pub struct OpenWorld {
     pub signs: HashMap<IVec3, Vec<String>>,
     /// Where each player last slept (their respawn point).
     pub beds: HashMap<String, IVec3>,
+    /// No monsters and no hunger.
+    pub peaceful: bool,
     /// Shared with the save-on-exit guard.
     snapshot: Arc<Mutex<Snapshot>>,
 }
@@ -94,6 +96,7 @@ struct Snapshot {
     containers: Vec<SavedContainer>,
     signs: Vec<([i32; 3], Vec<String>)>,
     beds: Vec<(String, [i32; 3])>,
+    rules: Vec<(String, bool)>,
 }
 
 /// Columns encoded for sending, so several players near the same place
@@ -209,7 +212,13 @@ fn open_world(
         containers: Vec::new(),
         signs: Vec::new(),
         beds: Vec::new(),
+        rules: Vec::new(),
     };
+    let peaceful = storage
+        .load_rules()
+        .unwrap_or_default()
+        .iter()
+        .any(|(k, v)| k == "peaceful" && *v);
     let open = OpenWorld {
         storage: Arc::new(storage),
         snapshot: Arc::new(Mutex::new(snapshot)),
@@ -222,6 +231,7 @@ fn open_world(
         mobs: Arc::new(content.mobs.clone()),
         signs,
         beds,
+        peaceful,
     };
     // The save guard must never write an empty furnace list over real ones.
     open.update_snapshot();
@@ -279,6 +289,7 @@ impl OpenWorld {
                 .iter()
                 .map(|(n, p)| (n.clone(), p.to_array()))
                 .collect(),
+            rules: vec![("peaceful".into(), self.peaceful)],
         };
     }
 }
@@ -416,6 +427,9 @@ fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
     }
     if let Err(e) = storage.save_beds(snapshot.beds) {
         error!("Saving beds failed: {e}");
+    }
+    if let Err(e) = storage.save_rules(snapshot.rules) {
+        error!("Saving world rules failed: {e}");
     }
     match storage.flush() {
         Ok(n) if n > 0 => info!("Saved {n} column(s)"),

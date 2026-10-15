@@ -25,6 +25,7 @@ pub mod signs;
 pub mod sky;
 pub mod survival;
 pub mod touch;
+pub mod vitals;
 pub mod world;
 
 use bevy::prelude::*;
@@ -60,6 +61,7 @@ impl Plugin for ClientPlugin {
                 items::ItemsPlugin,
                 survival::SurvivalPlugin,
                 signs::SignsPlugin,
+                vitals::VitalsPlugin,
             ));
     }
 }

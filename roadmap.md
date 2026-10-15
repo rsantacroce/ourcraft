@@ -1,7 +1,7 @@
 # Ourcraft roadmap
 
 Where Ourcraft stands compared with the classic block-building game, and
-what to build next. Milestones 1–10 (the original plan) and 11–14 are done; this file
+what to build next. Milestones 1–10 (the original plan) and 11–15 are done; this file
 picks up from there.
 
 ## What we have
@@ -13,7 +13,8 @@ picks up from there.
 | Items | Sticks, coal, iron and gold ingots, diamonds, clay balls, bricks, shears, eggs, apples; wooden, stone, iron and diamond pickaxes, axes and shovels that wear out |
 | Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative palette of every item; stairs and slabs (wood, cobblestone, stone, brick), fences that join up, doors and trapdoors that open, ladders to climb, chests, signs you write on, beds that skip the night |
 | Crafting | 2×2 grid in the inventory, 3×3 on a crafting table, 25 recipes (mods can add more); furnace that smelts ore, sand, clay and cobblestone with coal or wood |
-| Game modes | Creative (fly, endless blocks) and survival (blocks take time to break, the right tool is faster, drops land as items you pick up); Splat Squad team game (mod) |
+| Game modes | Creative (fly, endless blocks) and survival (blocks take time to break, the right tool is faster, drops land as items you pick up; health, hunger and breath; falls, drowning and lava hurt; fainting sends you back to bed with your things; gentle monsters at night; `/peaceful`); Splat Squad team game (mod) |
+| Living world | Water and lava flow (and lava meeting water turns to stone); sand and gravel fall; lava lakes deep underground |
 | Movement | Walk, sprint, jump, gravity, collision, swimming, flying (double-tap jump), auto-jump on touch screens |
 | Looks | Day/night cycle, sun and moon, sunset colours, fog, ambient occlusion, see-through leaves and glass; real light: sunlight that doesn't reach into caves, and warm light from torches and lamps, smooth across corners |
 | Animals | Sheep, pigs, cows and chickens that wander, follow you when you hold an apple, have lambs, piglets, calves and chicks; shear sheep for wool, chickens lay eggs; pet them for hearts; `/summon` in creative; mods can add their own |
@@ -24,17 +25,13 @@ picks up from there.
 
 ## Partly done
 
-- **Water:** still; it doesn't flow.
 - **Sound:** effects for placing, breaking and the game mode; no
   footsteps, ambience or music.
 
 ## Missing
 
-- Monsters
-- Health, hunger, fall damage and drowning outside Splat Squad
-- Armour, food, swords
+- Armour, swords, more food (bread with farming)
 - Redstone-style circuits
-- Falling sand and gravel; flowing water and lava
 - Villages and other generated structures
 - Other dimensions (an "underworld" and an "end" world)
 - Weather (rain, snow, thunder) and clouds
@@ -150,7 +147,28 @@ What was planned:
   *Engine: containers from milestone 11 (furnaces) make chests easy.*
 - Beds: sleep through the night, and set where you respawn.
 
-### 15. Living world
+### 15. Living world ✅ done
+
+Health, hunger and breath with gentle rules: falls hurt only from high up
+(water breaks any fall), lava stings, hunger heals you when full and can't
+make you faint by itself, and at zero health you faint and wake up in your
+bed (or at the start) with all your things. Food: apples, fried eggs
+(cook an egg) and golden apples (they heal). Two cartoon monsters come out
+near survival players at night (the Grumble walks, the Bouncer hops),
+bonk you for a heart or half a heart, get bopped away with a few hits
+(tools hit harder), and puff away at sunrise. `/peaceful` turns off
+monsters and hunger for the world. Water and lava flow (7 and 3 blocks,
+lava more slowly), dry up without a source, and make stone where they
+meet; sand and gravel fall; lava lakes fill the deepest caves. Water and
+lava sources are in the creative palette.
+
+Not quite as planned: no bucket yet, so in survival water only flows out
+of lakes and the sea; health and hunger reset when you rejoin; monsters
+appear at night on the surface, not in dark caves by day (the server
+doesn't know light levels).
+
+What was planned:
+
 
 - Survival needs: health, hunger, food, fall damage, drowning, with
   gentle kid-friendly defaults (and a "peaceful" option). *Engine; Splat

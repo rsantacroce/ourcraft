@@ -704,8 +704,8 @@ fn close_screen_cleanup(
     }
 }
 
-/// Every item, for the creative palette (blocks you can't hold, like air
-/// and water, are left out).
+/// Every item, for the creative palette (air, and hidden variants such as
+/// wall torches and flowing water, are left out).
 fn palette(items: &ItemRegistry, blocks: &ourcraft_common::block::BlockRegistry) -> Vec<ItemId> {
     use ourcraft_common::block::RenderKind;
     items
@@ -713,7 +713,8 @@ fn palette(items: &ItemRegistry, blocks: &ourcraft_common::block::BlockRegistry)
         .filter(|(_, d)| match d.kind {
             ItemKind::Block(b) => {
                 let def = blocks.get(b);
-                def.render != RenderKind::Invisible && !def.liquid && !def.hidden
+                // Water and lava sources are fine; their flowing bits are hidden.
+                def.render != RenderKind::Invisible && !def.hidden
             }
             _ => true,
         })

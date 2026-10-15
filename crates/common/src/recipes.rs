@@ -101,6 +101,12 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         ),
         shaped(&[" X", "X "], &[('X', "core:iron_ingot")], "core:shears", 1),
         shaped(
+            &["GGG", "GAG", "GGG"],
+            &[('G', "core:gold_ingot"), ('A', "core:apple")],
+            "core:golden_apple",
+            1,
+        ),
+        shaped(
             &["P#P", "P#P"],
             &[('P', "core:planks"), ('#', "core:stick")],
             "core:fence",

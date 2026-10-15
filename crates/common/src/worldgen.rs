@@ -22,6 +22,8 @@ use crate::world::{ColumnPos, WORLD_HEIGHT, WORLD_HEIGHT_CHUNKS};
 pub const BASE_HEIGHT: i32 = 64;
 /// Lakes and seas fill up to this height.
 pub const SEA_LEVEL: i32 = 58;
+/// Caves below this height are flooded with lava.
+pub const LAVA_LEVEL: i32 = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Biome {
@@ -193,6 +195,10 @@ impl WorldGenerator {
                     let block = if y == 0 {
                         blocks::BEDROCK
                     } else if !(wet && depth < 6) && self.is_cave(wx, y, wz, height) {
+                        // The bottom of the deepest caves is a lake of lava.
+                        if y <= LAVA_LEVEL {
+                            col[idx(lx, y as usize, lz)] = blocks::LAVA;
+                        }
                         continue;
                     } else {
                         let b = surface_block(biome, depth, height);

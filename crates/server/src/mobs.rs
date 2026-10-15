@@ -39,6 +39,8 @@ const GROW_UP: f32 = 300.0;
 const WOOL_REGROW: f32 = 90.0;
 /// Seconds an animal stays "in love" after eating.
 const LOVE: f32 = 20.0;
+/// Monsters wanted near each survival player at night.
+const MONSTERS_NEAR_PLAYER: usize = 4;
 /// Animals notice food held this close (blocks).
 const FOLLOW: f32 = 10.0;
 /// Seconds before it can have another baby.
@@ -54,9 +56,11 @@ impl Plugin for MobsPlugin {
                 Update,
                 (
                     use_mobs,
+                    hit_mobs,
                     spawn_naturally,
                     think,
                     walk,
+                    monsters,
                     life_events,
                     despawn_far,
                 )
@@ -113,6 +117,13 @@ pub struct MobState {
     /// Seconds until it lays (chickens) or makes a noise.
     egg_in: f32,
     noise_in: f32,
+    /// Monsters: health left (set when first hit).
+    health: Option<f32>,
+    /// Seconds until a monster can bonk again, or hop again.
+    attack_cd: f32,
+    hop_cd: f32,
+    /// Seconds left running away after being hit.
+    flee: f32,
 }
 
 impl MobState {
@@ -129,6 +140,10 @@ impl MobState {
             breed_cooldown: 0.0,
             egg_in: rng.range(60.0, 150.0),
             noise_in: rng.range(8.0, 30.0),
+            health: None,
+            attack_cd: 0.0,
+            hop_cd: 0.0,
+            flee: 0.0,
         }
     }
 
@@ -196,6 +211,7 @@ pub fn mob_from_spec(
         shears_into: None,
         lays: None,
         sound: spec.sound.clone(),
+        hostile: None,
     }
 }
 
@@ -454,6 +470,13 @@ fn think(
         .collect();
     let mut babies = Vec::new();
 
+    // Survival players monsters can chase.
+    let prey: Vec<Vec3> = players
+        .iter()
+        .filter(|p| crate::needs::applies(p, &open))
+        .map(|p| p.position())
+        .collect();
+
     for (id, s) in states.0.iter_mut() {
         let Some(&me) = positions.get(id) else {
             continue;
@@ -464,6 +487,22 @@ fn think(
         let Some(kind) = def(&open, &s.kind) else {
             continue;
         };
+        // Just got bopped: keep running.
+        if s.flee > 0.0 {
+            s.flee -= dt;
+            continue;
+        }
+        // Monsters go after the nearest survival player.
+        if kind.hostile.is_some() {
+            let target = prey
+                .iter()
+                .filter(|p| p.distance(me) < 20.0)
+                .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));
+            if let Some(at) = target {
+                s.goal = Goal::Towards(*at);
+                continue;
+            }
+        }
 
         // In love: go to the nearest partner of the same kind.
         if s.love > 0.0 {
@@ -601,7 +640,17 @@ fn walk(
                 Some(d.x.atan2(d.z))
             }
         };
-        if let Some(yaw) = target_yaw {
+        // Bouncy monsters move only in hops.
+        let hops = kind.hostile.is_some_and(|h| h.hops);
+        if hops && on_ground && s.vy == 0.0 {
+            s.hop_cd -= dt;
+            if target_yaw.is_some() && s.hop_cd <= 0.0 {
+                s.hop_cd = 0.5;
+                s.vy = 6.0;
+            }
+        }
+        let grounded_hopper = hops && on_ground && s.vy <= 0.0;
+        if let Some(yaw) = target_yaw.filter(|_| !grounded_hopper) {
             e.yaw = turn_towards(e.yaw, yaw, 4.0 * dt);
             let dir = Vec3::new(e.yaw.sin(), 0.0, e.yaw.cos());
             let speed = kind.speed
@@ -645,6 +694,235 @@ fn walk(
         if (e.position, e.yaw) != before {
             e.moved = true;
         }
+    }
+}
+
+/// Bopping animals (they hop away) and monsters (they lose health, and
+/// go away in a puff of confetti when it runs out).
+#[allow(clippy::too_many_arguments)]
+fn hit_mobs(
+    mut messages: MessageReader<FromClient>,
+    players_map: Res<Players>,
+    players: Query<&ConnectedPlayer>,
+    open: Res<OpenWorld>,
+    mut entities: ResMut<Entities>,
+    mut states: ResMut<MobStates>,
+    mut net: ResMut<Network>,
+    mut rng: ResMut<Rng>,
+) {
+    for FromClient { client, msg } in messages.read() {
+        let ClientMessage::HitEntity { id, held } = msg else {
+            continue;
+        };
+        let Some(p) = players_map.0.get(client).and_then(|e| players.get(*e).ok()) else {
+            continue;
+        };
+        let (Some(e), Some(s)) = (entities.list.get_mut(id), states.0.get_mut(id)) else {
+            continue;
+        };
+        if p.position().distance(e.position) > USE_REACH || p.name.is_none() {
+            continue;
+        }
+        let Some(kind) = def(&open, &s.kind) else {
+            continue;
+        };
+        // Knocked back a little, and runs off.
+        let away = (e.position - p.position()).with_y(0.0).normalize_or_zero();
+        e.position += away * 0.6;
+        e.moved = true;
+        s.vy = 4.0;
+        s.flee = 1.5;
+        s.goal = Goal::Wander(away.x.atan2(away.z));
+        let at = e.position;
+        let Some(h) = kind.hostile else {
+            net.broadcast(
+                Channel::Reliable,
+                &ServerMessage::Sound {
+                    name: kind.sound.clone(),
+                    at: Some(at.to_array()),
+                },
+            );
+            continue;
+        };
+        // Tools hit harder: hand 2, wood 3, stone 4, iron 5, diamond 6.
+        let tier = open
+            .items
+            .get(ourcraft_common::item::ItemId(*held))
+            .and_then(|d| d.tool())
+            .map_or(0, |(_, t)| t);
+        let health = s.health.get_or_insert(h.health);
+        *health -= 2.0 + tier as f32;
+        let gone = *health <= 0.0;
+        net.broadcast(
+            Channel::Reliable,
+            &ServerMessage::Sound {
+                name: "bonk".into(),
+                at: Some(at.to_array()),
+            },
+        );
+        if gone {
+            states.0.remove(id);
+            entities.remove(*id);
+            net.broadcast(
+                Channel::Reliable,
+                &ServerMessage::Effect {
+                    kind: EffectKind::Confetti,
+                    position: (at + Vec3::Y * 0.6).to_array(),
+                    color: [255, 255, 255, 255],
+                },
+            );
+            // A little thank-you for being brave: sometimes some coal.
+            if rng.next().is_multiple_of(2)
+                && let Some(coal) = open.items.by_name("core:coal")
+            {
+                crate::survival::spawn_item(
+                    &mut entities,
+                    at + Vec3::Y * 0.5,
+                    ItemStack::new(coal, 1),
+                );
+            }
+        }
+    }
+}
+
+/// Night: monsters come out near survival players and bonk them. Morning
+/// (or peaceful): they go away.
+#[allow(clippy::too_many_arguments)]
+fn monsters(
+    time: Res<Time>,
+    mut players: Query<&mut ConnectedPlayer>,
+    open: Res<OpenWorld>,
+    world: Res<ServerWorld>,
+    registry: Res<Registry>,
+    mut entities: ResMut<Entities>,
+    mut states: ResMut<MobStates>,
+    mut net: ResMut<Network>,
+    mut rng: ResMut<Rng>,
+    mut timer: Local<f32>,
+) {
+    let dt = time.delta_secs();
+    let night = crate::building::is_night(open.time_of_day());
+    let allowed = night && !open.peaceful && open.meta.game_mode.is_none();
+    let is_monster = |s: &MobState| def(&open, &s.kind).is_some_and(|d| d.hostile.is_some());
+
+    // Bonks.
+    for (id, s) in states.0.iter_mut() {
+        s.attack_cd = (s.attack_cd - dt).max(0.0);
+        let Some(h) = def(&open, &s.kind).and_then(|d| d.hostile) else {
+            continue;
+        };
+        let Some(e) = entities.list.get(id) else {
+            continue;
+        };
+        if s.attack_cd > 0.0 {
+            continue;
+        }
+        for mut p in &mut players {
+            if !crate::needs::applies(&p, &open) {
+                continue;
+            }
+            let body = ourcraft_common::physics::Aabb::player(p.position()).inflate(0.5);
+            let close =
+                e.position.cmpge(body.min - Vec3::Y).all() && e.position.cmple(body.max).all();
+            if close {
+                s.attack_cd = 1.2;
+                p.needs.hurt(h.damage);
+                net.broadcast(
+                    Channel::Reliable,
+                    &ServerMessage::Sound {
+                        name: "bonk".into(),
+                        at: Some(e.position.to_array()),
+                    },
+                );
+                break;
+            }
+        }
+    }
+
+    *timer += dt;
+    if *timer < 2.0 {
+        return;
+    }
+    *timer = 0.0;
+
+    // Morning (or peaceful): monsters puff away, a few at a time.
+    if !allowed {
+        let leaving: Vec<u64> = states
+            .0
+            .iter()
+            .filter(|(_, s)| is_monster(s))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in leaving {
+            if rng.unit() < 0.5 {
+                continue;
+            }
+            states.0.remove(&id);
+            if let Some(e) = entities.list.get(&id) {
+                net.broadcast(
+                    Channel::Reliable,
+                    &ServerMessage::Effect {
+                        kind: EffectKind::Poof,
+                        position: (e.position + Vec3::Y * 0.6).to_array(),
+                        color: [255, 255, 255, 255],
+                    },
+                );
+            }
+            entities.remove(id);
+        }
+        return;
+    }
+
+    // Night: a few around each survival player.
+    let kinds: Vec<String> = open
+        .mobs
+        .iter()
+        .filter(|m| m.hostile.is_some())
+        .map(|m| m.name.clone())
+        .collect();
+    if kinds.is_empty() {
+        return;
+    }
+    let hunted: Vec<Vec3> = players
+        .iter()
+        .filter(|p| crate::needs::applies(p, &open))
+        .map(|p| p.position())
+        .collect();
+    for me in hunted {
+        let near = states
+            .0
+            .iter()
+            .filter(|(_, s)| is_monster(s))
+            .filter_map(|(id, _)| entities.list.get(id))
+            .filter(|e| e.position.distance(me) < NEAR)
+            .count();
+        if near >= MONSTERS_NEAR_PLAYER || states.0.len() >= MAX_MOBS {
+            continue;
+        }
+        let angle = rng.range(0.0, std::f32::consts::TAU);
+        let dist = rng.range(16.0, 30.0);
+        let x = (me.x + angle.cos() * dist).floor() as i32;
+        let z = (me.z + angle.sin() * dist).floor() as i32;
+        let Some((y, top)) = ground(&world, &registry, x, z) else {
+            continue;
+        };
+        if registry.0.is_liquid(top) {
+            continue;
+        }
+        let kind = kinds[rng.next() as usize % kinds.len()].clone();
+        let at = Vec3::new(x as f32 + 0.5, y as f32 + 1.0, z as f32 + 0.5);
+        let id = spawn_mob(&mut entities, &kind, at, false);
+        states
+            .0
+            .insert(id, MobState::new(&kind, true, false, &mut rng));
+        net.broadcast(
+            Channel::Reliable,
+            &ServerMessage::Effect {
+                kind: EffectKind::Poof,
+                position: (at + Vec3::Y * 0.6).to_array(),
+                color: [120, 80, 170, 255],
+            },
+        );
     }
 }
 
