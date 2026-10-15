@@ -125,16 +125,24 @@ impl WorldGenerator {
         (height, biome)
     }
 
-    /// A good place to spawn: the nearest dry land to the origin, searching
-    /// outwards in a spiral. Returns the block position to stand on top of.
+    /// A good place to spawn: the nearest flat, open, dry land to the origin,
+    /// searching outwards in a spiral. Returns the block position to stand on
+    /// top of.
     pub fn find_spawn(&self) -> (i32, i32, i32) {
         for r in 0..200i32 {
             for i in -r..=r {
                 for (x, z) in [(i, -r), (i, r), (-r, i), (r, i)] {
                     let (wx, wz) = (x * 8, z * 8);
                     let (h, biome) = self.surface(wx, wz);
-                    if h > SEA_LEVEL + 2 && biome != Biome::Mountains && !self.is_cave(wx, h, wz, h)
-                    {
+                    let open = matches!(biome, Biome::Plains | Biome::Desert | Biome::Snowy);
+                    if h <= SEA_LEVEL + 2 || !open || self.is_cave(wx, h, wz, h) {
+                        continue;
+                    }
+                    // Flat: all nearby columns within one block of this one.
+                    let flat = (-3..=3).all(|dz| {
+                        (-3..=3).all(|dx| (self.surface(wx + dx, wz + dz).0 - h).abs() <= 1)
+                    });
+                    if flat {
                         return (wx, h, wz);
                     }
                 }

@@ -4057,6 +4057,7 @@ name = "ourcraft_common"
 version = "0.1.0"
 dependencies = [
  "fastnoise-lite",
+ "glam",
 ]
 
 [[package]]

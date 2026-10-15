@@ -158,7 +158,7 @@ fn cactus_side(x: usize, y: usize) -> Rgba {
     let c = speckle(rgb(76, 150, 64), x, y, 24, 10.0);
     if x % 4 == 1 {
         // Ridges with little light spines.
-        if y % 3 == 0 {
+        if y.is_multiple_of(3) {
             rgb(230, 230, 190)
         } else {
             shift(c, -30.0)
@@ -188,7 +188,7 @@ fn bedrock(x: usize, y: usize) -> Rgba {
 fn cobblestone(x: usize, y: usize) -> Rgba {
     // Rounded stones separated by dark mortar, on an offset grid.
     let row = y / 4;
-    let offset = if row % 2 == 0 { 0 } else { 3 };
+    let offset = if row.is_multiple_of(2) { 0 } else { 3 };
     let cx = (x + offset) % 6;
     let cy = y % 4;
     let mortar = cx == 0 || cy == 0;
@@ -215,7 +215,7 @@ fn glass(x: usize, y: usize) -> Rgba {
 
 fn bricks(x: usize, y: usize) -> Rgba {
     let row = y / 4;
-    let offset = if row % 2 == 0 { 0 } else { 4 };
+    let offset = if row.is_multiple_of(2) { 0 } else { 4 };
     let mortar = y % 4 == 3 || (x + offset) % 8 == 7;
     if mortar {
         speckle(rgb(200, 196, 186), x, y, 31, 6.0)

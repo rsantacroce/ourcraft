@@ -5,7 +5,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# Deliberately has no dependencies (not even Bevy) so it can be shared by the
-# client, the headless server and the mod host, and so its tests run fast.
+# Deliberately avoids Bevy so it can be shared by the client, the headless
+# server and the mod host, and so its tests build and run fast.
 [dependencies]
+glam.workspace = true
 fastnoise-lite = "1.1"
+
+[lints]
+workspace = true

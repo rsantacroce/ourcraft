@@ -2,5 +2,8 @@
 
 pub mod block;
 pub mod chunk;
+pub mod inventory;
+pub mod physics;
+pub mod raycast;
 pub mod world;
 pub mod worldgen;

@@ -11,6 +11,13 @@ license = "MIT OR Apache-2.0"
 ourcraft_common = { path = "crates/common" }
 # Pinned exactly: the networking crates we'll add in M6 target Bevy 0.19.
 bevy = "=0.19.1"
+# Same version Bevy 0.19 uses, so `Vec3` in `common` *is* Bevy's `Vec3`.
+glam = "0.32"
+
+[workspace.lints.clippy]
+# Bevy system signatures routinely trip these.
+type_complexity = "allow"
+too_many_arguments = "allow"
 
 # Bevy is slow when compiled without optimizations. Optimize dependencies fully
 # and our own code a little, so debug builds are still playable.

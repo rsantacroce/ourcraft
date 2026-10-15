@@ -17,3 +17,6 @@ name = "ourcraft_client"
 [[bin]]
 name = "ourcraft"
 path = "src/main.rs"
+
+[lints]
+workspace = true

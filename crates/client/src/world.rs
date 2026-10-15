@@ -46,6 +46,7 @@ impl Plugin for WorldPlugin {
             .add_systems(
                 Update,
                 (
+                    apply_block_edits,
                     request_columns,
                     receive_columns,
                     unload_far_columns,
@@ -156,6 +157,18 @@ pub fn set_block(
         streaming.mark_block_dirty(pos.x, pos.y, pos.z);
     }
     Some(old)
+}
+
+/// Single player: apply block edits straight to the local world. (In
+/// multiplayer the server does this and tells everyone.)
+fn apply_block_edits(
+    mut edits: MessageReader<crate::interaction::BlockEditRequest>,
+    mut world: ResMut<ClientWorld>,
+    mut streaming: ResMut<ChunkStreaming>,
+) {
+    for edit in edits.read() {
+        set_block(&mut world, &mut streaming, edit.pos, edit.block);
+    }
 }
 
 /// Max columns generating at once. Enough to keep all cores busy without

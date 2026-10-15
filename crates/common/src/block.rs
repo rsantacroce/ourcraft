@@ -126,6 +126,16 @@ pub enum RenderKind {
     Translucent,
 }
 
+/// What you get when you break a block (in survival).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Drops {
+    /// The block itself.
+    Itself,
+    /// A different block (stone drops cobblestone).
+    Block(BlockId),
+    Nothing,
+}
+
 #[derive(Clone, Debug)]
 pub struct BlockDef {
     /// Namespaced name, e.g. `"core:stone"`. Mods use their own namespace.
@@ -141,6 +151,7 @@ pub struct BlockDef {
     pub liquid: bool,
     /// Light emitted, 0–15 (0 = none). Used for glowing blocks.
     pub light: u8,
+    pub drops: Drops,
     /// `None` for air (nothing is drawn).
     pub textures: Option<BlockTextures>,
 }
@@ -156,6 +167,7 @@ impl BlockDef {
             breakable: true,
             liquid: false,
             light: 0,
+            drops: Drops::Itself,
             textures: Some(textures),
         }
     }
@@ -187,6 +199,7 @@ impl BlockRegistry {
                 breakable: false,
                 liquid: false,
                 light: 0,
+                drops: Drops::Nothing,
                 textures: None,
             }],
         }
@@ -196,13 +209,19 @@ impl BlockRegistry {
     pub fn with_builtin_blocks() -> Self {
         use BlockTextures as T;
         let mut reg = Self::new();
-        reg.register(BlockDef::solid("core:stone", "Stone", T::all("stone")));
+        reg.register(BlockDef {
+            drops: Drops::Block(blocks::COBBLESTONE),
+            ..BlockDef::solid("core:stone", "Stone", T::all("stone"))
+        });
         reg.register(BlockDef::solid("core:dirt", "Dirt", T::all("dirt")));
-        reg.register(BlockDef::solid(
-            "core:grass",
-            "Grass",
-            T::top_bottom_side("grass_top", "dirt", "grass_side"),
-        ));
+        reg.register(BlockDef {
+            drops: Drops::Block(blocks::DIRT),
+            ..BlockDef::solid(
+                "core:grass",
+                "Grass",
+                T::top_bottom_side("grass_top", "dirt", "grass_side"),
+            )
+        });
         reg.register(BlockDef::solid("core:sand", "Sand", T::all("sand")));
         reg.register(BlockDef::solid(
             "core:log",
@@ -211,11 +230,14 @@ impl BlockRegistry {
         ));
         reg.register(BlockDef::cutout("core:leaves", "Leaves", T::all("leaves")));
         reg.register(BlockDef::solid("core:planks", "Planks", T::all("planks")));
-        reg.register(BlockDef::solid(
-            "core:snow",
-            "Snowy Grass",
-            T::top_bottom_side("snow", "dirt", "snow_side"),
-        ));
+        reg.register(BlockDef {
+            drops: Drops::Block(blocks::DIRT),
+            ..BlockDef::solid(
+                "core:snow",
+                "Snowy Grass",
+                T::top_bottom_side("snow", "dirt", "snow_side"),
+            )
+        });
         reg.register(BlockDef::solid(
             "core:cactus",
             "Cactus",
@@ -267,6 +289,19 @@ impl BlockRegistry {
     /// Solid blocks stop movement.
     pub fn is_solid(&self, id: BlockId) -> bool {
         self.defs.get(id.0 as usize).is_some_and(|d| d.solid)
+    }
+
+    /// The block added to your inventory when `id` is broken.
+    pub fn drop_for(&self, id: BlockId) -> Option<BlockId> {
+        match self.defs.get(id.0 as usize)?.drops {
+            Drops::Itself => Some(id),
+            Drops::Block(b) => Some(b),
+            Drops::Nothing => None,
+        }
+    }
+
+    pub fn is_breakable(&self, id: BlockId) -> bool {
+        self.defs.get(id.0 as usize).is_some_and(|d| d.breakable)
     }
 
     pub fn is_liquid(&self, id: BlockId) -> bool {

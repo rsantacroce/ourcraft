@@ -3,14 +3,12 @@
 
 use bevy::prelude::*;
 
-use crate::render::{VoxelMaterial, VoxelMaterialHandle};
-
 pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GraphicsSettings>()
-            .add_systems(Update, (adjust_render_distance, apply_fog).chain());
+            .add_systems(Update, adjust_render_distance);
     }
 }
 
@@ -50,24 +48,5 @@ fn adjust_render_distance(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<
     if rd != settings.render_distance {
         settings.render_distance = rd;
         info!("Render distance: {rd} chunks");
-    }
-}
-
-/// Fog ends just before the edge of the loaded area.
-fn apply_fog(
-    settings: Res<GraphicsSettings>,
-    handle: Option<Res<VoxelMaterialHandle>>,
-    mut materials: ResMut<Assets<VoxelMaterial>>,
-) {
-    let Some(handle) = handle else { return };
-    if !settings.is_changed() && !handle.is_added() {
-        return;
-    }
-    let end = (settings.render_distance as f32 - 0.5) * 16.0;
-    for h in handle.both() {
-        if let Some(mut mat) = materials.get_mut(h) {
-            mat.params.fog_end = end;
-            mat.params.fog_start = end * 0.55;
-        }
     }
 }

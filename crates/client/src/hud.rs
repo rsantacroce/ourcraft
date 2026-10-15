@@ -3,8 +3,11 @@
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
+use crate::interaction::Target;
+use crate::player::{GameMode, Player};
 use crate::settings::GraphicsSettings;
-use crate::world::{ChunkStreaming, ChunkViewer, ClientWorld};
+use crate::sky::TimeOfDay;
+use crate::world::{Blocks, ChunkStreaming, ClientWorld};
 
 pub struct HudPlugin;
 
@@ -45,9 +48,11 @@ fn spawn_hud(mut commands: Commands) {
             ));
             parent.spawn((
                 Text::new(
-                    "Click: capture mouse   Esc: release   F3: debug info\n\
-                     WASD: move   Space/Shift: up/down   Ctrl: fast\n\
-                     [ and ]: render distance",
+                    "Click: capture mouse   Esc: release   F3: hide this text\n\
+                     WASD: move   Space: jump (double-tap: fly)   Shift: down   Ctrl: run\n\
+                     Left click: break   Right click: place   Middle click: pick block\n\
+                     1-9 / wheel: hotbar   E: inventory   F: fly   G: creative/survival\n\
+                     T: skip an hour   [ and ]: render distance",
                 ),
                 TextFont::from_font_size(14.0),
                 TextColor(Color::WHITE),
@@ -73,22 +78,42 @@ fn toggle_debug(
 
 fn update_debug_text(
     diagnostics: Res<DiagnosticsStore>,
-    viewer: Single<&Transform, With<ChunkViewer>>,
+    player: Single<&Player>,
     world: Res<ClientWorld>,
+    blocks: Res<Blocks>,
     streaming: Res<ChunkStreaming>,
     settings: Res<GraphicsSettings>,
+    tod: Res<TimeOfDay>,
+    mode: Res<GameMode>,
+    target: Res<Target>,
     mut text: Single<&mut Text, With<DebugText>>,
 ) {
     let fps = diagnostics
         .get(&FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|d| d.smoothed())
         .unwrap_or(0.0);
-    let p = viewer.translation;
+    let p = player.state.position;
+    let (hh, mm) = tod.clock();
+    let looking_at = target
+        .0
+        .map(|t| {
+            format!(
+                "{} at {} {} {}",
+                blocks.0.get(t.id).display_name,
+                t.block.x,
+                t.block.y,
+                t.block.z
+            )
+        })
+        .unwrap_or_else(|| "nothing".into());
+    let flying = if player.state.flying { ", flying" } else { "" };
     text.0 = format!(
-        "FPS: {fps:.0}\n\
+        "FPS: {fps:.0}   Time: {hh:02}:{mm:02}   Mode: {:?}{flying}\n\
          Position: {:.1} / {:.1} / {:.1}\n\
-         Chunks: {} loaded, {} meshes, {} generating, {} to mesh\n\
+         Looking at: {looking_at}\n\
+         Chunks: {} loaded, {} meshes, {} generating, {} meshing\n\
          Render distance: {}",
+        *mode,
         p.x,
         p.y,
         p.z,

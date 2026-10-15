@@ -1,11 +1,14 @@
 //! The Ourcraft client: rendering, input and (for now) the whole game.
 
-pub mod camera;
 pub mod hud;
 pub mod input;
+pub mod interaction;
+pub mod inventory_ui;
 pub mod meshing;
+pub mod player;
 pub mod render;
 pub mod settings;
+pub mod sky;
 pub mod world;
 
 use bevy::prelude::*;
@@ -22,7 +25,10 @@ impl Plugin for ClientPlugin {
                 settings::SettingsPlugin,
                 render::VoxelRenderPlugin,
                 world::WorldPlugin,
-                camera::FlyCameraPlugin,
+                player::PlayerPlugin,
+                interaction::InteractionPlugin,
+                inventory_ui::InventoryUiPlugin,
+                sky::SkyPlugin,
                 hud::HudPlugin,
             ));
     }
