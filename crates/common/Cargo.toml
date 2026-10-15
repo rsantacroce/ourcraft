@@ -8,3 +8,4 @@ license.workspace = true
 # Deliberately has no dependencies (not even Bevy) so it can be shared by the
 # client, the headless server and the mod host, and so its tests run fast.
 [dependencies]
+fastnoise-lite = "1.1"

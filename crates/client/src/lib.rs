@@ -5,6 +5,7 @@ pub mod hud;
 pub mod input;
 pub mod meshing;
 pub mod render;
+pub mod settings;
 pub mod world;
 
 use bevy::prelude::*;
@@ -18,6 +19,7 @@ impl Plugin for ClientPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.53, 0.75, 0.96)))
             .add_plugins((
                 input::InputPlugin,
+                settings::SettingsPlugin,
                 render::VoxelRenderPlugin,
                 world::WorldPlugin,
                 camera::FlyCameraPlugin,

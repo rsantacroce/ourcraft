@@ -7,6 +7,7 @@ use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 
 use crate::input::Actions;
+use crate::world::{ChunkViewer, TerrainGenerator};
 
 pub struct FlyCameraPlugin;
 
@@ -28,11 +29,12 @@ pub struct FlyCamera {
     pub sprint_multiplier: f32,
 }
 
-fn spawn_camera(mut commands: Commands) {
-    // Start outside the chunk, looking at its middle.
-    let eye = Vec3::new(-10.0, 16.0, -10.0);
-    let target = Vec3::new(8.0, 5.0, 8.0);
-    let transform = Transform::from_translation(eye).looking_at(target, Vec3::Y);
+fn spawn_camera(mut commands: Commands, generator: Res<TerrainGenerator>) {
+    // Start a little above dry ground near the origin, looking north-east.
+    let (x, ground, z) = generator.0.find_spawn();
+    let eye = Vec3::new(x as f32 + 0.5, ground as f32 + 12.0, z as f32 + 0.5);
+    let transform =
+        Transform::from_translation(eye).looking_at(eye + Vec3::new(1.0, -0.3, 1.0), Vec3::Y);
     let (yaw, pitch, _) = transform.rotation.to_euler(EulerRot::YXZ);
 
     commands.spawn((
@@ -45,6 +47,7 @@ fn spawn_camera(mut commands: Commands) {
         // colour grading on top, which keeps the colours bright and cartoony.
         Tonemapping::None,
         transform,
+        ChunkViewer,
         FlyCamera {
             yaw,
             pitch,

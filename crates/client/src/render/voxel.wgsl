@@ -1,11 +1,23 @@
-// Shader for chunk meshes: samples the block texture array and applies the
-// per-vertex brightness baked in by the mesher. No dynamic lights, which
+// Shader for chunk meshes: samples the block texture array, applies the
+// per-vertex brightness baked in by the mesher (face direction + ambient
+// occlusion), the time of day, and distance fog. No dynamic lights, which
 // keeps it fast on tablets and gives a clean cartoon look.
 
-#import bevy_pbr::mesh_functions::{get_world_from_local, mesh_position_local_to_clip}
+#import bevy_pbr::mesh_functions::{get_world_from_local, mesh_position_local_to_world}
+#import bevy_pbr::view_transformations::position_world_to_clip
+#import bevy_pbr::mesh_view_bindings::view
+
+struct VoxelParams {
+    fog_color: vec4<f32>,
+    fog_start: f32,
+    fog_end: f32,
+    daylight: f32,
+    min_light: f32,
+};
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var block_textures: texture_2d_array<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var block_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> params: VoxelParams;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -21,15 +33,18 @@ struct VertexOutput {
     // Integers can't be blended between vertices, so pass it through "flat".
     @location(1) @interpolate(flat) layer: u32,
     @location(2) shade: f32,
+    @location(3) world_position: vec3<f32>,
 };
 
 @vertex
 fn vertex(v: Vertex) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = mesh_position_local_to_clip(
+    let world = mesh_position_local_to_world(
         get_world_from_local(v.instance_index),
         vec4<f32>(v.position, 1.0),
     );
+    out.clip_position = position_world_to_clip(world.xyz);
+    out.world_position = world.xyz;
     out.uv = v.uv;
     out.layer = v.layer;
     out.shade = v.shade;
@@ -39,5 +54,23 @@ fn vertex(v: Vertex) -> VertexOutput {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let color = textureSample(block_textures, block_sampler, in.uv, in.layer);
-    return vec4<f32>(color.rgb * in.shade, 1.0);
+    // Cut-out blocks (leaves, glass) have fully see-through pixels. Water's
+    // pixels are partly see-through and get blended (in a separate pass).
+    if color.a < 0.1 {
+        discard;
+    }
+
+    var light: f32;
+    if in.shade > 1.5 {
+        // Glowing block: always fully bright.
+        light = 1.0;
+    } else {
+        light = max(in.shade * params.daylight, params.min_light * in.shade);
+    }
+    let lit = color.rgb * light;
+
+    // Fog by horizontal distance, so looking up or down doesn't change it.
+    let dist = distance(in.world_position.xz, view.world_position.xz);
+    let fog = smoothstep(params.fog_start, params.fog_end, dist);
+    return vec4<f32>(mix(lit, params.fog_color.rgb, fog), color.a);
 }

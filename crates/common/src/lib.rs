@@ -2,4 +2,5 @@
 
 pub mod block;
 pub mod chunk;
-pub mod demo;
+pub mod world;
+pub mod worldgen;
