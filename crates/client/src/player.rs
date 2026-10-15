@@ -5,10 +5,18 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
+use ourcraft_common::block::BlockId;
+use ourcraft_common::inventory::ItemStack;
 use ourcraft_common::physics::{self, PlayerInput, PlayerState, TICK_RATE};
+use ourcraft_common::protocol::{Channel, ClientMessage, NetPlayerState, ServerMessage};
 
 use crate::input::Actions;
-use crate::world::{Blocks, ChunkViewer, ClientWorld, TerrainGenerator};
+use crate::interaction::PlayerInventory;
+use crate::net::{Connection, FromServer, NetReceiveSet};
+use crate::world::{Blocks, ChunkViewer, ClientWorld};
+
+/// Position updates sent to the server per second.
+const STATE_SEND_RATE: f32 = 20.0;
 
 pub struct PlayerPlugin;
 
@@ -17,12 +25,17 @@ impl Plugin for PlayerPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(TICK_RATE))
             .init_resource::<GameMode>()
             .add_systems(Startup, spawn_player)
+            .add_systems(PreUpdate, handle_welcome.after(NetReceiveSet))
             .add_systems(FixedUpdate, player_physics.in_set(PlayerPhysicsSet))
             .add_systems(
                 Update,
                 (look, toggle_fly, toggle_game_mode, follow_camera)
                     .chain()
                     .in_set(PlayerUpdateSet),
+            )
+            .add_systems(
+                Update,
+                (send_player_state, send_inventory).run_if(resource_exists::<Connection>),
             );
     }
 }
@@ -54,6 +67,8 @@ pub struct Player {
     pub pitch: f32,
     /// Seconds since jump was last pressed, for double-tap-to-fly.
     last_jump_press: f32,
+    /// Held in place until the server says where we are.
+    pub frozen: bool,
 }
 
 impl Player {
@@ -64,6 +79,18 @@ impl Player {
             yaw: 0.0,
             pitch: 0.0,
             last_jump_press: f32::MAX,
+            frozen: true,
+        }
+    }
+
+    pub fn net_state(&self) -> NetPlayerState {
+        NetPlayerState {
+            position: self.state.position.to_array(),
+            velocity: self.state.velocity.to_array(),
+            yaw: self.yaw,
+            pitch: self.pitch,
+            flying: self.state.flying,
+            on_ground: self.state.on_ground,
         }
     }
 
@@ -77,42 +104,11 @@ impl Player {
 #[derive(Component)]
 pub struct PlayerCamera;
 
-fn spawn_player(
-    mut commands: Commands,
-    generator: Res<TerrainGenerator>,
-    storage: Res<crate::persistence::Storage>,
-    mut inventory: ResMut<crate::interaction::PlayerInventory>,
-    mut mode: ResMut<GameMode>,
-) {
-    *mode = if storage.meta.creative {
-        GameMode::Creative
-    } else {
-        GameMode::Survival
-    };
-    let player = match &storage.player {
-        // Back where we left off.
-        Some(save) => {
-            let mut p = Player::new(Vec3::from_array(save.position));
-            p.yaw = save.yaw;
-            p.pitch = save.pitch;
-            p.state.flying = save.flying;
-            inventory.0 = save.inventory(storage.remap.as_ref());
-            p
-        }
-        // New world: find a nice spot.
-        None => {
-            let (x, ground, z) = generator.0.find_spawn();
-            let mut p = Player::new(Vec3::new(
-                x as f32 + 0.5,
-                ground as f32 + 1.0,
-                z as f32 + 0.5,
-            ));
-            p.yaw = -std::f32::consts::FRAC_PI_4;
-            p.pitch = -0.35; // look slightly down at the ground ahead
-            p
-        }
-    };
-    let feet = player.state.position;
+fn spawn_player(mut commands: Commands) {
+    // Parked high up and frozen until the server's welcome message says
+    // where we really are.
+    let feet = Vec3::new(0.5, 200.0, 0.5);
+    let player = Player::new(feet);
     commands.spawn((Name::new("Player"), player));
 
     commands.spawn((
@@ -132,6 +128,96 @@ fn spawn_player(
     ));
 }
 
+/// The server's welcome: where we are, our inventory and the game mode.
+fn handle_welcome(
+    mut messages: MessageReader<FromServer>,
+    mut player: Single<&mut Player>,
+    mut inventory: ResMut<PlayerInventory>,
+    mut mode: ResMut<GameMode>,
+) {
+    for FromServer(msg) in messages.read() {
+        let ServerMessage::Welcome {
+            state,
+            inventory: saved,
+            creative,
+            ..
+        } = msg
+        else {
+            continue;
+        };
+        *mode = if *creative {
+            GameMode::Creative
+        } else {
+            GameMode::Survival
+        };
+        let feet = Vec3::from_array(state.position);
+        player.state = PlayerState::new(feet);
+        player.state.flying = state.flying;
+        player.prev_position = feet;
+        player.yaw = state.yaw;
+        player.pitch = state.pitch;
+        player.frozen = false;
+        if let Some((slots, selected)) = saved {
+            for (slot, saved) in inventory.slots.iter_mut().zip(slots) {
+                *slot = saved.map(|(id, count)| ItemStack {
+                    block: BlockId(id),
+                    count,
+                });
+            }
+            inventory.select(*selected as usize);
+        }
+    }
+}
+
+/// Tell the server where we are, 20 times a second.
+fn send_player_state(
+    time: Res<Time>,
+    player: Single<&Player>,
+    mut conn: ResMut<Connection>,
+    mut timer: Local<f32>,
+    mut tick: Local<u32>,
+) {
+    *timer += time.delta_secs();
+    if *timer < 1.0 / STATE_SEND_RATE || player.frozen || !conn.is_welcomed() {
+        return;
+    }
+    *timer = 0.0;
+    *tick += 1;
+    let msg = ClientMessage::PlayerState {
+        tick: *tick,
+        state: player.net_state(),
+    };
+    conn.send(Channel::Unreliable, &msg);
+}
+
+/// Send the inventory when it changes (at most once a second), so the
+/// server can save it.
+fn send_inventory(
+    time: Res<Time>,
+    inventory: Res<PlayerInventory>,
+    mut conn: ResMut<Connection>,
+    mut pending: Local<bool>,
+    mut timer: Local<f32>,
+) {
+    if inventory.is_changed() {
+        *pending = true;
+    }
+    *timer += time.delta_secs();
+    if *pending && *timer >= 1.0 && conn.is_welcomed() {
+        *timer = 0.0;
+        *pending = false;
+        let msg = ClientMessage::Inventory {
+            slots: inventory
+                .slots
+                .iter()
+                .map(|s| s.map(|s| (s.block.0, s.count)))
+                .collect(),
+            selected: inventory.selected as u8,
+        };
+        conn.send(Channel::Reliable, &msg);
+    }
+}
+
 /// Advance the player's physics by one fixed step.
 fn player_physics(
     actions: Res<Actions>,
@@ -148,6 +234,9 @@ fn player_physics(
         yaw: player.yaw,
         auto_jump: touch.enabled,
     };
+    if player.frozen {
+        return;
+    }
     player.prev_position = player.state.position;
     let player = &mut **player;
     physics::step(&mut player.state, &input, &world.0, &blocks.0);

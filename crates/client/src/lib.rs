@@ -1,12 +1,15 @@
 //! The Ourcraft client: rendering, input and (for now) the whole game.
 
+pub mod chat;
 pub mod hud;
 pub mod input;
 pub mod interaction;
 pub mod inventory_ui;
 pub mod meshing;
-pub mod persistence;
+pub mod net;
+pub mod paths;
 pub mod player;
+pub mod remote_players;
 pub mod render;
 pub mod settings;
 pub mod sky;
@@ -27,12 +30,14 @@ impl Plugin for ClientPlugin {
                 settings::SettingsPlugin,
                 render::VoxelRenderPlugin,
                 world::WorldPlugin,
-                persistence::PersistencePlugin,
+                net::NetPlugin,
+                remote_players::RemotePlayersPlugin,
                 player::PlayerPlugin,
                 interaction::InteractionPlugin,
                 inventory_ui::InventoryUiPlugin,
                 sky::SkyPlugin,
                 hud::HudPlugin,
+                chat::ChatPlugin,
             ));
     }
 }

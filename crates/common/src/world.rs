@@ -13,6 +13,8 @@ use crate::chunk::{CHUNK_SIZE_I32, Chunk, ChunkPos, split_block_pos};
 pub const WORLD_HEIGHT_CHUNKS: i32 = 16;
 /// World height in blocks. Valid block `y` values are `0..WORLD_HEIGHT`.
 pub const WORLD_HEIGHT: i32 = WORLD_HEIGHT_CHUNKS * CHUNK_SIZE_I32;
+/// Real-time seconds for one full day/night cycle.
+pub const DAY_LENGTH_SECS: f32 = 20.0 * 60.0;
 
 /// Horizontal position of a column of chunks, in chunk units.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, PartialOrd, Ord)]

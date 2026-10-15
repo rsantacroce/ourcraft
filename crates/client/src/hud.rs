@@ -4,7 +4,9 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
 use crate::interaction::Target;
+use crate::net::{Connection, Status};
 use crate::player::{GameMode, Player};
+use crate::remote_players::RemotePlayers;
 use crate::settings::GraphicsSettings;
 use crate::sky::TimeOfDay;
 use crate::world::{Blocks, ChunkStreaming, ClientWorld};
@@ -15,7 +17,7 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(Startup, spawn_hud)
-            .add_systems(Update, (toggle_debug, update_debug_text));
+            .add_systems(Update, (toggle_debug, update_debug_text, update_status));
     }
 }
 
@@ -71,6 +73,49 @@ fn spawn_hud(mut commands: Commands) {
         });
 }
 
+#[derive(Component)]
+struct StatusText;
+
+/// Big centred text while connecting or after a disconnect.
+fn update_status(
+    mut commands: Commands,
+    conn: Option<Res<Connection>>,
+    existing: Query<Entity, With<StatusText>>,
+    mut shown: Local<Option<String>>,
+) {
+    let text = match conn.as_deref().map(|c| (&c.status, c)) {
+        Some((Status::Connecting, c)) => Some(format!("Connecting to {}…", c.target)),
+        Some((Status::Disconnected(reason), _)) => Some(format!("Disconnected: {reason}")),
+        _ => None,
+    };
+    if *shown == text {
+        return;
+    }
+    for e in &existing {
+        commands.entity(e).despawn();
+    }
+    if let Some(t) = &text {
+        commands.spawn((
+            StatusText,
+            Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                height: percent(100),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.05, 0.07, 0.12, 0.85)),
+            children![(
+                Text::new(t.clone()),
+                TextFont::from_font_size(28.0),
+                TextColor(Color::WHITE),
+            )],
+        ));
+    }
+    *shown = text;
+}
+
 fn toggle_debug(
     keys: Res<ButtonInput<KeyCode>>,
     mut texts: Query<&mut Visibility, Or<(With<DebugText>, With<HelpText>)>>,
@@ -92,6 +137,8 @@ fn update_debug_text(
     tod: Res<TimeOfDay>,
     mode: Res<GameMode>,
     target: Res<Target>,
+    conn: Option<Res<Connection>>,
+    remote: Res<RemotePlayers>,
     mut text: Single<&mut Text, With<DebugText>>,
 ) {
     let fps = diagnostics
@@ -117,16 +164,27 @@ fn update_debug_text(
         "FPS: {fps:.0}   Time: {hh:02}:{mm:02}   Mode: {:?}{flying}\n\
          Position: {:.1} / {:.1} / {:.1}\n\
          Looking at: {looking_at}\n\
-         Chunks: {} loaded, {} meshes, {} generating, {} meshing\n\
-         Render distance: {}",
+         Chunks: {} loaded, {} meshes, {} decoding, {} meshing\n\
+         Render distance: {}\n\
+         {}",
         *mode,
         p.x,
         p.y,
         p.z,
         world.chunk_count(),
         streaming.mesh_count(),
-        streaming.pending_generation(),
+        streaming.pending_decodes(),
         streaming.pending_meshes(),
         settings.render_distance,
+        match conn.as_deref() {
+            Some(c) if c.is_single_player() => "Single player".to_owned(),
+            Some(c) => format!(
+                "Server: {}   Ping: {:.0} ms   Others online: {}",
+                c.target,
+                c.rtt_ms(),
+                remote.count()
+            ),
+            None => "Not connected".to_owned(),
+        },
     );
 }

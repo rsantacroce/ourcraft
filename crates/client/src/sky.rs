@@ -16,7 +16,8 @@ pub struct SkyPlugin;
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TimeOfDay>()
-            .add_systems(Startup, (spawn_sun_and_moon, restore_time))
+            .add_systems(Startup, spawn_sun_and_moon)
+            .add_systems(PreUpdate, sync_time.after(crate::net::NetReceiveSet))
             .add_systems(
                 Update,
                 (advance_time, update_sky)
@@ -26,8 +27,7 @@ impl Plugin for SkyPlugin {
     }
 }
 
-/// Real-time seconds for one full day.
-pub const DAY_LENGTH_SECS: f32 = 20.0 * 60.0;
+pub use ourcraft_common::world::DAY_LENGTH_SECS;
 
 /// Time of day as a fraction: 0 = midnight, 0.25 = sunrise, 0.5 = noon,
 /// 0.75 = sunset.
@@ -74,9 +74,17 @@ impl TimeOfDay {
     }
 }
 
-fn restore_time(storage: Option<Res<crate::persistence::Storage>>, mut tod: ResMut<TimeOfDay>) {
-    if let Some(storage) = storage {
-        tod.fraction = storage.meta.time_of_day.rem_euclid(1.0);
+/// The server keeps the real time; we run our own clock between its
+/// updates and snap to it when one arrives.
+fn sync_time(mut messages: MessageReader<crate::net::FromServer>, mut tod: ResMut<TimeOfDay>) {
+    use ourcraft_common::protocol::ServerMessage;
+    for crate::net::FromServer(msg) in messages.read() {
+        match msg {
+            ServerMessage::TimeOfDay(t) | ServerMessage::Welcome { time_of_day: t, .. } => {
+                tod.fraction = t.rem_euclid(1.0);
+            }
+            _ => {}
+        }
     }
 }
 

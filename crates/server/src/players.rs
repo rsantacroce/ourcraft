@@ -1,0 +1,629 @@
+//! Connected players: joining, streaming the world to them, checking their
+//! block edits, relaying movement and chat, and saving them.
+
+use std::collections::{HashMap, HashSet};
+
+use bevy::prelude::*;
+use ourcraft_common::block::BlockId;
+use ourcraft_common::physics::{Aabb, EYE_HEIGHT};
+use ourcraft_common::protocol::{
+    Channel, ClientMessage, MAX_CHAT_LEN, NetPlayerState, NetSlot, PROTOCOL_VERSION, PlayerInfo,
+    ServerMessage, sanitize_name,
+};
+use ourcraft_common::save::{META_VERSION, PlayerSave};
+use ourcraft_common::world::{ColumnPos, WORLD_HEIGHT};
+use renet::ClientId;
+
+use crate::ServerConfig;
+use crate::net::{ClientConnected, ClientDisconnected, FromClient, Network};
+use crate::world::{
+    ColumnCache, OpenWorld, Registry, ServerWorld, WantedColumns, WorldSet, encoded_column,
+    set_block,
+};
+
+/// How far players can reach, plus some slack for lag.
+const MAX_REACH: f32 = 6.0 + 2.0;
+/// Columns sent per player per tick, at most.
+const COLUMNS_PER_TICK: usize = 6;
+/// Movement updates sent per second.
+const STATE_RATE: f32 = 20.0;
+/// Seconds a new connection has to say hello.
+const HELLO_TIMEOUT: f32 = 10.0;
+
+pub struct PlayersPlugin;
+
+impl Plugin for PlayersPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Players>()
+            .add_systems(
+                Update,
+                (
+                    on_connect,
+                    on_disconnect,
+                    handle_messages,
+                    hello_timeout,
+                    compute_wanted_columns,
+                )
+                    .chain()
+                    .before(WorldSet),
+            )
+            .add_systems(
+                Update,
+                (
+                    stream_columns,
+                    broadcast_states,
+                    broadcast_time,
+                    autosave_players,
+                )
+                    .chain()
+                    .after(WorldSet),
+            )
+            .add_systems(Last, shutdown);
+    }
+}
+
+/// Client id → player entity.
+#[derive(Resource, Default)]
+pub struct Players(pub HashMap<ClientId, Entity>);
+
+#[derive(Component, Debug)]
+pub struct ConnectedPlayer {
+    pub client: ClientId,
+    /// Set once the client has said hello.
+    pub name: Option<String>,
+    pub view_distance: i32,
+    pub state: NetPlayerState,
+    pub inventory: Option<(Vec<NetSlot>, u8)>,
+    /// Columns this client has been sent and (as far as we know) still has.
+    pub sent: HashSet<ColumnPos>,
+    pub connected_for: f32,
+}
+
+impl ConnectedPlayer {
+    fn column(&self) -> ColumnPos {
+        ColumnPos::from_world(self.state.position[0], self.state.position[2])
+    }
+
+    fn feet(&self) -> Vec3 {
+        Vec3::from_array(self.state.position)
+    }
+
+    fn save(&self) -> PlayerSave {
+        let (inventory, selected) = self.inventory.clone().unwrap_or_default();
+        PlayerSave {
+            version: META_VERSION,
+            position: self.state.position,
+            yaw: self.state.yaw,
+            pitch: self.state.pitch,
+            flying: self.state.flying,
+            inventory,
+            selected: selected as usize,
+        }
+    }
+}
+
+fn on_connect(
+    mut commands: Commands,
+    mut events: MessageReader<ClientConnected>,
+    mut players: ResMut<Players>,
+) {
+    for ClientConnected(client) in events.read() {
+        info!("Client {client} connected");
+        let e = commands
+            .spawn(ConnectedPlayer {
+                client: *client,
+                name: None,
+                view_distance: 4,
+                state: NetPlayerState::default(),
+                inventory: None,
+                sent: HashSet::new(),
+                connected_for: 0.0,
+            })
+            .id();
+        players.0.insert(*client, e);
+    }
+}
+
+fn save_player(open: &OpenWorld, player: &ConnectedPlayer) {
+    if let Some(name) = &player.name
+        && let Err(e) = open.storage.save_player(name, &player.save())
+    {
+        error!("Saving player {name} failed: {e}");
+    }
+}
+
+fn on_disconnect(
+    mut commands: Commands,
+    mut events: MessageReader<ClientDisconnected>,
+    mut players: ResMut<Players>,
+    query: Query<&ConnectedPlayer>,
+    open: Res<OpenWorld>,
+    mut net: ResMut<Network>,
+) {
+    for ev in events.read() {
+        let Some(e) = players.0.remove(&ev.client) else {
+            continue;
+        };
+        if let Ok(p) = query.get(e) {
+            save_player(&open, p);
+            if let Some(name) = &p.name {
+                info!("{name} left ({})", ev.reason);
+                net.broadcast(Channel::Reliable, &ServerMessage::PlayerLeft(ev.client));
+                net.broadcast(
+                    Channel::Reliable,
+                    &ServerMessage::Chat {
+                        from: None,
+                        text: format!("{name} left the game"),
+                    },
+                );
+            }
+        }
+        commands.entity(e).despawn();
+    }
+}
+
+fn hello_timeout(
+    time: Res<Time>,
+    mut query: Query<&mut ConnectedPlayer>,
+    mut net: ResMut<Network>,
+) {
+    for mut p in &mut query {
+        p.connected_for += time.delta_secs();
+        if p.name.is_none() && p.connected_for > HELLO_TIMEOUT {
+            p.connected_for = f32::MIN; // only kick once
+            net.kick(p.client, "No hello received");
+        }
+    }
+}
+
+/// Make a name unique among online players by adding a number.
+fn unique_name(wanted: &str, taken: &[String]) -> String {
+    if !taken.iter().any(|n| n == wanted) {
+        return wanted.to_owned();
+    }
+    (2..)
+        .map(|i| format!("{wanted} {i}"))
+        .find(|n| !taken.contains(n))
+        .unwrap()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_messages(
+    mut messages: MessageReader<FromClient>,
+    players: Res<Players>,
+    mut query: Query<&mut ConnectedPlayer>,
+    config: Res<ServerConfig>,
+    mut open: ResMut<OpenWorld>,
+    registry: Res<Registry>,
+    mut world: ResMut<ServerWorld>,
+    mut cache: ResMut<ColumnCache>,
+    mut net: ResMut<Network>,
+) {
+    for FromClient { client, msg } in messages.read() {
+        let Some(&entity) = players.0.get(client) else {
+            continue;
+        };
+        match msg {
+            ClientMessage::Hello {
+                name,
+                view_distance,
+                protocol_version,
+            } => {
+                if *protocol_version != PROTOCOL_VERSION {
+                    net.kick(*client, "Your game version doesn't match the server");
+                    continue;
+                }
+                let taken: Vec<String> = query.iter().filter_map(|p| p.name.clone()).collect();
+                let others: Vec<PlayerInfo> = query
+                    .iter()
+                    .filter_map(|p| {
+                        p.name.as_ref().map(|n| PlayerInfo {
+                            id: p.client,
+                            name: n.clone(),
+                        })
+                    })
+                    .collect();
+                let Ok(mut p) = query.get_mut(entity) else {
+                    continue;
+                };
+                if p.name.is_some() {
+                    continue; // already said hello
+                }
+                let name = unique_name(&sanitize_name(name), &taken);
+                p.view_distance = (*view_distance as i32).clamp(2, config.max_view_distance as i32);
+
+                // Back where they left off, or at the world spawn.
+                let saved = open.storage.load_player(&name).unwrap_or_else(|e| {
+                    error!("Can't read save for {name}: {e}");
+                    None
+                });
+                match &saved {
+                    Some(s) => {
+                        p.state.position = s.position;
+                        p.state.yaw = s.yaw;
+                        p.state.pitch = s.pitch;
+                        p.state.flying = s.flying;
+                        p.inventory = Some((s.inventory.clone(), s.selected as u8));
+                    }
+                    None => {
+                        let s = open.spawn;
+                        p.state.position = [s.x as f32 + 0.5, s.y as f32 + 1.0, s.z as f32 + 0.5];
+                        p.state.yaw = -std::f32::consts::FRAC_PI_4;
+                        p.state.pitch = -0.35;
+                    }
+                }
+                // Inventories saved before a mod change need their ids fixed.
+                let inventory = saved.as_ref().map(|s| {
+                    let inv = s.inventory(open.remap.as_ref());
+                    let slots = inv
+                        .slots
+                        .iter()
+                        .map(|s| s.map(|s| (s.block.0, s.count)))
+                        .collect();
+                    (slots, inv.selected as u8)
+                });
+                p.name = Some(name.clone());
+                info!("{name} joined (client {client})");
+
+                net.send(
+                    *client,
+                    Channel::Reliable,
+                    &ServerMessage::Welcome {
+                        your_id: *client,
+                        server_name: config.server_name.clone(),
+                        motd: config.motd.clone(),
+                        creative: open.meta.creative,
+                        time_of_day: open.time_of_day(),
+                        state: p.state,
+                        inventory,
+                        block_names: registry.0.iter().map(|(_, d)| d.name.clone()).collect(),
+                        players: others,
+                    },
+                );
+                let info = PlayerInfo {
+                    id: *client,
+                    name: name.clone(),
+                };
+                net.broadcast_except(
+                    *client,
+                    Channel::Reliable,
+                    &ServerMessage::PlayerJoined(info),
+                );
+                net.broadcast(
+                    Channel::Reliable,
+                    &ServerMessage::Chat {
+                        from: None,
+                        text: format!("{name} joined the game"),
+                    },
+                );
+            }
+            ClientMessage::ViewDistance(vd) => {
+                if let Ok(mut p) = query.get_mut(entity) {
+                    p.view_distance = (*vd as i32).clamp(2, config.max_view_distance as i32);
+                }
+            }
+            ClientMessage::PlayerState { state, .. } => {
+                if let Ok(mut p) = query.get_mut(entity)
+                    && p.name.is_some()
+                {
+                    let mut s = *state;
+                    // Ignore nonsense (NaN, or far outside the world).
+                    if s.position.iter().all(|v| v.is_finite()) {
+                        s.position[1] = s.position[1].clamp(-64.0, WORLD_HEIGHT as f32 + 64.0);
+                        p.state = s;
+                    }
+                }
+            }
+            ClientMessage::Inventory { slots, selected } => {
+                if let Ok(mut p) = query.get_mut(entity) {
+                    let mut slots = slots.clone();
+                    slots.truncate(ourcraft_common::inventory::INVENTORY_SLOTS);
+                    p.inventory = Some((slots, *selected));
+                }
+            }
+            ClientMessage::SetBlock { pos, block } => {
+                let pos = IVec3::from_array(*pos);
+                let block = BlockId(*block);
+                let Ok(p) = query.get(entity) else { continue };
+                if p.name.is_none() {
+                    continue;
+                }
+                let others: Vec<Vec3> = query.iter().map(|o| o.feet()).collect();
+                let ok = edit_allowed(&world, &registry.0, p, &others, pos, block);
+                let current = world.get_block(pos.x, pos.y, pos.z);
+                if ok && set_block(&mut world, &mut cache, &open, pos, block).is_some() {
+                    let msg = ServerMessage::BlockChanged {
+                        pos: pos.to_array(),
+                        block: block.0,
+                    };
+                    let col = ColumnPos::from_block(pos.x, pos.z);
+                    for other in &query {
+                        if other.sent.contains(&col) {
+                            net.send(other.client, Channel::Reliable, &msg);
+                        }
+                    }
+                } else if let Some(actual) = current {
+                    // Refused: put the client's copy back the way it was.
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::BlockChanged {
+                            pos: pos.to_array(),
+                            block: actual.0,
+                        },
+                    );
+                }
+            }
+            ClientMessage::Chat { text } => {
+                let Ok(p) = query.get(entity) else { continue };
+                let Some(name) = p.name.clone() else { continue };
+                let text: String = text
+                    .chars()
+                    .filter(|c| !c.is_control())
+                    .take(MAX_CHAT_LEN)
+                    .collect();
+                let text = text.trim().to_owned();
+                if text.is_empty() {
+                    continue;
+                }
+                if let Some(reply) = run_command(&text, &mut open) {
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Chat {
+                            from: None,
+                            text: reply,
+                        },
+                    );
+                    if text.starts_with("/time") {
+                        net.broadcast(
+                            Channel::Reliable,
+                            &ServerMessage::TimeOfDay(open.time_of_day()),
+                        );
+                    }
+                    continue;
+                }
+                info!("<{name}> {text}");
+                net.broadcast(
+                    Channel::Reliable,
+                    &ServerMessage::Chat {
+                        from: Some(name),
+                        text,
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// A few chat commands. Returns a reply if `text` was a command.
+fn run_command(text: &str, open: &mut OpenWorld) -> Option<String> {
+    let mut words = text.split_whitespace();
+    match words.next()? {
+        "/help" => Some("Commands: /time day, /time night".into()),
+        "/time" => match words.next() {
+            Some("day") => {
+                open.meta.time_of_day = 0.3;
+                Some("Good morning!".into())
+            }
+            Some("night") => {
+                open.meta.time_of_day = 0.8;
+                Some("Good night!".into())
+            }
+            _ => Some("Use /time day or /time night".into()),
+        },
+        cmd if cmd.starts_with('/') => Some(format!("Unknown command {cmd}. Try /help")),
+        _ => None,
+    }
+}
+
+/// The server's rules for changing blocks.
+fn edit_allowed(
+    world: &ServerWorld,
+    registry: &ourcraft_common::block::BlockRegistry,
+    player: &ConnectedPlayer,
+    players: &[Vec3],
+    pos: IVec3,
+    block: BlockId,
+) -> bool {
+    if block.0 as usize >= registry.len() {
+        return false;
+    }
+    let Some(existing) = world.get_block(pos.x, pos.y, pos.z) else {
+        return false; // not loaded
+    };
+    if !(0..WORLD_HEIGHT).contains(&pos.y) {
+        return false;
+    }
+    let eye = player.feet() + Vec3::Y * EYE_HEIGHT;
+    if eye.distance(pos.as_vec3() + Vec3::splat(0.5)) > MAX_REACH {
+        return false;
+    }
+    if block.is_air() {
+        // Breaking.
+        !existing.is_air() && registry.is_breakable(existing)
+    } else {
+        // Placing: only into empty space, and never inside anyone.
+        let replaceable = existing.is_air() || registry.is_liquid(existing);
+        let blocks_someone = registry.is_solid(block)
+            && players
+                .iter()
+                .any(|feet| Aabb::player(*feet).intersects(&Aabb::block(pos)));
+        replaceable && !blocks_someone
+    }
+}
+
+/// Columns within `r` of `center`, as (position, squared distance).
+fn columns_around(center: ColumnPos, r: i32) -> impl Iterator<Item = (ColumnPos, i32)> {
+    (-r..=r).flat_map(move |dz| {
+        (-r..=r).map(move |dx| {
+            (
+                ColumnPos::new(center.x + dx, center.z + dz),
+                dx * dx + dz * dz,
+            )
+        })
+    })
+}
+
+fn compute_wanted_columns(query: Query<&ConnectedPlayer>, mut wanted: ResMut<WantedColumns>) {
+    wanted.columns.clear();
+    wanted.keep.clear();
+    for p in query.iter().filter(|p| p.name.is_some()) {
+        // Clients mesh a column only once its neighbours arrive, so send
+        // one ring beyond their view distance.
+        for (col, d) in columns_around(p.column(), p.view_distance + 1) {
+            let e = wanted.columns.entry(col).or_insert(i32::MAX);
+            *e = (*e).min(d);
+        }
+        for (col, _) in columns_around(p.column(), p.view_distance + 3) {
+            wanted.keep.insert(col);
+        }
+    }
+}
+
+fn stream_columns(
+    mut query: Query<&mut ConnectedPlayer>,
+    world: Res<ServerWorld>,
+    mut cache: ResMut<ColumnCache>,
+    mut net: ResMut<Network>,
+) {
+    for mut p in &mut query {
+        if p.name.is_none() {
+            continue;
+        }
+        let center = p.column();
+        let r = p.view_distance + 1;
+        // Forget columns the client will have unloaded (it keeps two rings
+        // beyond its view distance), so they're re-sent if it comes back.
+        p.sent.retain(|c| c.chebyshev_distance(center) <= r + 1);
+
+        let mut todo: Vec<(ColumnPos, i32)> = columns_around(center, r)
+            .filter(|(c, _)| !p.sent.contains(c) && world.has_column(*c))
+            .collect();
+        todo.sort_by_key(|(_, d)| *d);
+        for (col, _) in todo.into_iter().take(COLUMNS_PER_TICK) {
+            let Some(data) = encoded_column(&mut cache, &world, col) else {
+                continue;
+            };
+            // Don't overfill the reliable channel (that would disconnect).
+            if !net.has_room(p.client, data.len() + 64) {
+                break;
+            }
+            net.send(
+                p.client,
+                Channel::Reliable,
+                &ServerMessage::Column {
+                    x: col.x,
+                    z: col.z,
+                    data: (*data).clone(),
+                },
+            );
+            p.sent.insert(col);
+        }
+    }
+}
+
+fn broadcast_states(
+    time: Res<Time>,
+    query: Query<&ConnectedPlayer>,
+    mut net: ResMut<Network>,
+    mut timer: Local<f32>,
+    mut tick: Local<u32>,
+) {
+    *timer += time.delta_secs();
+    if *timer < 1.0 / STATE_RATE {
+        return;
+    }
+    *timer = 0.0;
+    *tick += 1;
+    let players: Vec<_> = query
+        .iter()
+        .filter(|p| p.name.is_some())
+        .map(|p| (p.client, p.state))
+        .collect();
+    if players.len() > 1 {
+        net.broadcast(
+            Channel::Unreliable,
+            &ServerMessage::PlayerStates {
+                tick: *tick,
+                players,
+            },
+        );
+    }
+}
+
+fn broadcast_time(
+    time: Res<Time>,
+    open: Res<OpenWorld>,
+    mut net: ResMut<Network>,
+    mut timer: Local<f32>,
+) {
+    *timer += time.delta_secs();
+    if *timer >= 5.0 {
+        *timer = 0.0;
+        net.broadcast(
+            Channel::Reliable,
+            &ServerMessage::TimeOfDay(open.time_of_day()),
+        );
+    }
+}
+
+fn autosave_players(
+    time: Res<Time>,
+    query: Query<&ConnectedPlayer>,
+    open: Res<OpenWorld>,
+    mut timer: Local<f32>,
+) {
+    *timer += time.delta_secs();
+    if *timer >= 30.0 {
+        *timer = 0.0;
+        for p in &query {
+            save_player(&open, p);
+        }
+    }
+}
+
+/// On shutdown: save everyone and everything, then say goodbye. Also
+/// handles "save now" requests from the embedding game.
+fn shutdown(
+    mut exit: MessageReader<AppExit>,
+    save_now: Res<crate::SaveNowFlag>,
+    query: Query<&ConnectedPlayer>,
+    open: Res<OpenWorld>,
+    mut net: ResMut<Network>,
+) {
+    if save_now.0.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        for p in &query {
+            save_player(&open, p);
+        }
+        crate::world::save_all(&open);
+    }
+    if exit.read().count() == 0 {
+        return;
+    }
+    info!("Server stopping: saving…");
+    for p in &query {
+        save_player(&open, p);
+    }
+    crate::world::save_all(&open);
+    crate::net::disconnect_all(&mut net);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_names_get_numbers() {
+        let taken = vec!["Sam".to_string(), "Sam 2".to_string()];
+        assert_eq!(unique_name("Alex", &taken), "Alex");
+        assert_eq!(unique_name("Sam", &taken), "Sam 3");
+    }
+
+    #[test]
+    fn columns_around_is_a_square() {
+        let cols: Vec<_> = columns_around(ColumnPos::new(5, -5), 2).collect();
+        assert_eq!(cols.len(), 25);
+        assert!(cols.contains(&(ColumnPos::new(7, -3), 8)));
+    }
+}

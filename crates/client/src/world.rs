@@ -1,11 +1,10 @@
 //! The client's copy of the world and the machinery that streams chunks in
 //! and out around the player.
 //!
-//! Every frame:
-//! 1. **Request** columns near the player that we don't have yet. For now
-//!    they're generated locally on background threads; in M6 they arrive
-//!    from the server instead.
-//! 2. **Receive** finished columns and mark their chunks (and neighbours,
+//! The server decides which columns we get (based on where we are and our
+//! view distance) and sends them as compressed bytes. Every frame:
+//! 1. **Decode** newly arrived columns on background threads.
+//! 2. **Receive** decoded columns and mark their chunks (and neighbours,
 //!    whose border faces may change) as needing a new mesh.
 //! 3. **Unload** columns that are now too far away.
 //! 4. **Queue meshing** for dirty chunks, nearest first, on background
@@ -23,36 +22,27 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, futures::check_ready};
 use ourcraft_common::block::{BlockId, BlockRegistry};
 use ourcraft_common::chunk::{Chunk, ChunkPos};
+use ourcraft_common::protocol::{Channel, ClientMessage, ServerMessage};
+use ourcraft_common::save::decode_column;
 use ourcraft_common::world::{ColumnPos, VoxelWorld, WORLD_HEIGHT_CHUNKS};
-use ourcraft_common::worldgen::WorldGenerator;
 
 use crate::meshing::{ChunkMeshData, ChunkMeshes, PaddedChunk, mesh_chunk};
-use crate::persistence::{Storage, WorldChoice, mark_column_changed};
+use crate::net::{Connection, FromServer, NetReceiveSet};
 use crate::render::{BlockTextureLayers, VoxelMaterial, VoxelMaterialHandle, build_mesh};
 use crate::settings::GraphicsSettings;
-
-/// Seed for new worlds when none is given with `--seed`.
-pub const DEFAULT_SEED: u64 = 20_261_015;
 
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        let registry = Arc::new(BlockRegistry::with_builtin_blocks());
-        // Open the world now (it's quick) so its seed is known before
-        // anything spawns. M10's menu will choose the world instead.
-        let storage = crate::persistence::open_world(&WorldChoice::from_args(), &registry);
-        let generator = Arc::new(WorldGenerator::new(storage.meta.seed));
-        app.insert_resource(Blocks(registry))
-            .insert_resource(TerrainGenerator(generator))
-            .insert_resource(storage)
+        app.insert_resource(Blocks(Arc::new(BlockRegistry::with_builtin_blocks())))
             .init_resource::<ClientWorld>()
             .init_resource::<ChunkStreaming>()
+            .add_systems(PreUpdate, handle_world_messages.after(NetReceiveSet))
             .add_systems(
                 Update,
                 (
                     apply_block_edits,
-                    request_columns,
                     receive_columns,
                     unload_far_columns,
                     queue_meshing,
@@ -71,10 +61,6 @@ pub struct WorldSystems;
 /// The block registry, shared by meshing and gameplay.
 #[derive(Resource, Clone)]
 pub struct Blocks(pub Arc<BlockRegistry>);
-
-/// Generates terrain locally.
-#[derive(Resource, Clone)]
-pub struct TerrainGenerator(pub Arc<WorldGenerator>);
 
 /// The client's copy of all loaded chunks.
 #[derive(Resource, Default, Deref, DerefMut)]
@@ -106,7 +92,8 @@ impl ChunkEntities {
 /// Bookkeeping for streaming and meshing.
 #[derive(Resource, Default)]
 pub struct ChunkStreaming {
-    generating: HashMap<ColumnPos, Task<Vec<Chunk>>>,
+    /// Columns being decoded on background threads.
+    decoding: HashMap<ColumnPos, Task<Option<Vec<Chunk>>>>,
     meshing: HashMap<ChunkPos, Task<ChunkMeshes>>,
     entities: HashMap<ChunkPos, ChunkEntities>,
     dirty: HashSet<ChunkPos>,
@@ -136,8 +123,8 @@ impl ChunkStreaming {
         }
     }
 
-    pub fn pending_generation(&self) -> usize {
-        self.generating.len()
+    pub fn pending_decodes(&self) -> usize {
+        self.decoding.len()
     }
 
     pub fn pending_meshes(&self) -> usize {
@@ -164,82 +151,68 @@ pub fn set_block(
     Some(old)
 }
 
-/// Single player: apply block edits straight to the local world. (In
-/// multiplayer the server does this and tells everyone.)
+/// Apply our own edits straight away (so they feel instant) and ask the
+/// server to make them real. If the server says no, it sends back the
+/// correct block, which overwrites our guess.
 fn apply_block_edits(
     mut edits: MessageReader<crate::interaction::BlockEditRequest>,
     mut world: ResMut<ClientWorld>,
     mut streaming: ResMut<ChunkStreaming>,
-    storage: Res<Storage>,
+    conn: Option<ResMut<Connection>>,
 ) {
+    let Some(mut conn) = conn else { return };
     for edit in edits.read() {
-        if set_block(&mut world, &mut streaming, edit.pos, edit.block).is_some() {
-            let col = ColumnPos::from_block(edit.pos.x, edit.pos.z);
-            mark_column_changed(&storage, &world, col);
-        }
+        set_block(&mut world, &mut streaming, edit.pos, edit.block);
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::SetBlock {
+                pos: edit.pos.to_array(),
+                block: edit.block.0,
+            },
+        );
     }
 }
 
-/// Max columns generating at once. Enough to keep all cores busy without
-/// queueing work for columns we might walk away from.
-fn max_generation_tasks() -> usize {
-    std::thread::available_parallelism().map_or(4, |n| n.get()) * 2
+/// World data from the server: new columns and changed blocks.
+fn handle_world_messages(
+    mut messages: MessageReader<FromServer>,
+    mut world: ResMut<ClientWorld>,
+    mut streaming: ResMut<ChunkStreaming>,
+) {
+    let pool = AsyncComputeTaskPool::get();
+    for FromServer(msg) in messages.read() {
+        match msg {
+            ServerMessage::Column { x, z, data } => {
+                let pos = ColumnPos::new(*x, *z);
+                let data = data.clone();
+                // Decompressing takes a moment; keep it off the main thread.
+                let task = pool.spawn(async move { decode_column(&data, None).ok() });
+                streaming.decoding.insert(pos, task);
+            }
+            ServerMessage::BlockChanged { pos, block } => {
+                let pos = IVec3::from_array(*pos);
+                set_block(&mut world, &mut streaming, pos, BlockId(*block));
+            }
+            _ => {}
+        }
+    }
 }
 
 fn viewer_column(viewer: &Transform) -> ColumnPos {
     ColumnPos::from_world(viewer.translation.x, viewer.translation.z)
 }
 
-fn request_columns(
-    viewer: Single<&Transform, With<ChunkViewer>>,
-    settings: Res<GraphicsSettings>,
-    world: Res<ClientWorld>,
-    generator: Res<TerrainGenerator>,
-    storage: Res<Storage>,
-    mut streaming: ResMut<ChunkStreaming>,
-) {
-    let center = viewer_column(&viewer);
-    streaming.center = center;
-    let budget = max_generation_tasks().saturating_sub(streaming.generating.len());
-    if budget == 0 {
-        return;
-    }
-
-    // All missing columns within range, nearest first. One extra ring is
-    // loaded (but not drawn), because meshing a column needs its neighbours.
-    let r = settings.render_distance + 1;
-    let mut wanted: Vec<ColumnPos> = (-r..=r)
-        .flat_map(|dz| (-r..=r).map(move |dx| ColumnPos::new(center.x + dx, center.z + dz)))
-        .filter(|p| !world.has_column(*p) && !streaming.generating.contains_key(p))
-        .collect();
-    wanted.sort_by_key(|p| (p.x - center.x).pow(2) + (p.z - center.z).pow(2));
-
-    let pool = AsyncComputeTaskPool::get();
-    for pos in wanted.into_iter().take(budget) {
-        let generator = generator.0.clone();
-        let storage = storage.storage.clone();
-        // A saved column if there is one, otherwise fresh terrain.
-        let task = pool.spawn(async move {
-            match storage.load_column(pos) {
-                Ok(Some(chunks)) => chunks,
-                Ok(None) => generator.generate_column(pos),
-                Err(e) => {
-                    error!("Column {pos:?} is unreadable ({e}); regenerating it");
-                    generator.generate_column(pos)
-                }
-            }
-        });
-        streaming.generating.insert(pos, task);
-    }
-}
-
 fn receive_columns(mut world: ResMut<ClientWorld>, mut streaming: ResMut<ChunkStreaming>) {
     let mut done = Vec::new();
     streaming
-        .generating
+        .decoding
         .retain(|pos, task| match check_ready(task) {
-            Some(chunks) => {
+            Some(Some(chunks)) => {
                 done.push((*pos, chunks));
+                false
+            }
+            Some(None) => {
+                warn!("Received a corrupt column {pos:?}");
                 false
             }
             None => true,
@@ -263,9 +236,13 @@ fn receive_columns(mut world: ResMut<ClientWorld>, mut streaming: ResMut<ChunkSt
 fn unload_far_columns(
     mut commands: Commands,
     settings: Res<GraphicsSettings>,
+    viewer: Option<Single<&Transform, With<ChunkViewer>>>,
     mut world: ResMut<ClientWorld>,
     mut streaming: ResMut<ChunkStreaming>,
 ) {
+    if let Some(v) = viewer {
+        streaming.center = viewer_column(&v);
+    }
     let center = streaming.center;
     // Keep one more ring than we load so walking back and forth over a
     // border doesn't reload the same columns over and over.
@@ -275,7 +252,6 @@ fn unload_far_columns(
         .filter(|p| p.chebyshev_distance(center) > keep)
         .collect();
     for pos in far {
-        // Changed columns were already queued for saving when they changed.
         world.remove_column(pos);
         for cy in 0..WORLD_HEIGHT_CHUNKS {
             let cpos = pos.chunk(cy);
@@ -286,9 +262,9 @@ fn unload_far_columns(
             }
         }
     }
-    // Also cancel generation that's no longer wanted.
+    // Also drop decodes for columns that are now out of range.
     streaming
-        .generating
+        .decoding
         .retain(|p, _| p.chebyshev_distance(center) <= keep);
 }
 

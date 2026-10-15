@@ -1,0 +1,21 @@
+[package]
+name = "ourcraft_server"
+description = "The Ourcraft game server: runs headless, or inside the client for single player."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ourcraft_common.workspace = true
+# Just the ECS, scheduling, tasks and logging: no window, no renderer.
+bevy = { workspace = true, features = ["std", "async_executor", "multi_threaded", "bevy_log"] }
+renet.workspace = true
+renet_netcode.workspace = true
+ctrlc = "3"
+
+[[bin]]
+name = "ourcraft-server"
+path = "src/main.rs"
+
+[lints]
+workspace = true
