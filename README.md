@@ -1,7 +1,8 @@
 # Ourcraft
 
 A blocky sandbox game in Rust: infinite generated worlds to explore and
-build in, survival with ores, tools, crafting and furnaces, multiplayer, mods, and a cartoon team game mode called
+build in, survival with ores, tools, crafting and furnaces, friendly
+animals, multiplayer, mods, and a cartoon team game mode called
 **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
 
 **Website and player manual:** https://rsantacroce.github.io/ourcraft-site/

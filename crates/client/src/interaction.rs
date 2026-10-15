@@ -41,6 +41,7 @@ impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<BlockEditRequest>()
             .init_resource::<Target>()
+            .init_resource::<TargetMob>()
             .init_resource::<BreakProgress>()
             .insert_resource(PlayerInventory(creative_hotbar()))
             .add_systems(Startup, setup_cracks)
@@ -74,6 +75,11 @@ pub struct BlockEditRequest {
 /// The block under the crosshair, if any.
 #[derive(Resource, Default, Debug)]
 pub struct Target(pub Option<RayHit>);
+
+/// The animal under the crosshair (when it's nearer than any block), and
+/// where its feet are.
+#[derive(Resource, Default, Debug)]
+pub struct TargetMob(pub Option<(crate::entities::Mob, Vec3)>);
 
 /// The local player's inventory.
 #[derive(Resource, Debug, Deref, DerefMut)]
@@ -123,12 +129,36 @@ fn update_target(
     blocks: Res<Blocks>,
     camera: Single<&GlobalTransform, With<PlayerCamera>>,
     player: Single<&Player>,
+    mobs: Query<(&crate::entities::Mob, &Transform)>,
     mut target: ResMut<Target>,
+    mut target_mob: ResMut<TargetMob>,
 ) {
     // Use the up-to-date look direction (the camera transform may lag a
     // frame behind the mouse).
     let origin = camera.translation();
-    target.0 = raycast(&world.0, &blocks.0, origin, player.look_direction(), REACH);
+    let dir = player.look_direction();
+    target.0 = raycast(&world.0, &blocks.0, origin, dir, REACH);
+    let block_dist = target
+        .0
+        .and_then(|h| Aabb::block(h.block).ray_hit(origin, dir, REACH))
+        .unwrap_or(REACH);
+    // An animal in front of the block wins.
+    target_mob.0 = mobs
+        .iter()
+        .filter_map(|(m, t)| {
+            let feet = t.translation;
+            let half = m.size[0] / 2.0;
+            let aabb = Aabb {
+                min: feet - Vec3::new(half, 0.0, half),
+                max: feet + Vec3::new(half, m.size[1], half),
+            };
+            Some((aabb.ray_hit(origin, dir, block_dist)?, m, feet))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, m, feet)| (m.clone(), feet));
+    if target_mob.0.is_some() {
+        target.0 = None;
+    }
 }
 
 fn hotbar_selection(actions: Res<Actions>, mut inventory: ResMut<PlayerInventory>) {
@@ -146,6 +176,11 @@ fn hotbar_selection(actions: Res<Actions>, mut inventory: ResMut<PlayerInventory
 fn use_blocks(
     actions: Res<Actions>,
     target: Res<Target>,
+    target_mob: Res<TargetMob>,
+    defs: Res<crate::entities::MobDefs>,
+    items: Res<Items>,
+    mode: Res<GameMode>,
+    mut inventory: ResMut<PlayerInventory>,
     rules: Res<crate::gamemode::Rules>,
     tools: Res<crate::gamemode::ToolHotbar>,
     mut focus: ResMut<UiFocus>,
@@ -159,6 +194,28 @@ fn use_blocks(
     *held_before = actions.place_block;
     if !fresh || tools.active() || !rules.0.can_build || actions.descend || focus.gameplay_blocked()
     {
+        return;
+    }
+    if let Some((mob, _)) = &target_mob.0 {
+        let Some(mut conn) = conn else { return };
+        let held = inventory.held();
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseEntity {
+                id: mob.id,
+                held: held.unwrap_or(ItemId::NONE).0,
+            },
+        );
+        // Shearing wears the shears (the server drops the wool).
+        let shearable = defs
+            .0
+            .get(&mob.kind)
+            .is_some_and(|d| d.shears_into.is_some());
+        let shears = held.is_some_and(|h| items.name(h) == "core:shears");
+        let survival = *mode == GameMode::Survival;
+        if shears && shearable && !mob.sheared && !mob.baby && survival {
+            inventory.wear_selected(&items);
+        }
         return;
     }
     let Some(hit) = target.0 else { return };
@@ -348,15 +405,23 @@ fn drop_items(
     );
 }
 
-/// Outline the targeted block.
+/// Outline the targeted block (or animal).
 fn draw_highlight(
     target: Res<Target>,
+    target_mob: Res<TargetMob>,
     tools: Res<crate::gamemode::ToolHotbar>,
     rules: Res<crate::gamemode::Rules>,
     mut gizmos: Gizmos,
 ) {
     if tools.active() || !rules.0.can_build {
         return;
+    }
+    if let Some((mob, feet)) = &target_mob.0 {
+        let size = Vec3::new(mob.size[0], mob.size[1], mob.size[0]);
+        gizmos.cube(
+            Transform::from_translation(*feet + Vec3::Y * size.y / 2.0).with_scale(size * 1.02),
+            Color::srgba(1.0, 1.0, 1.0, 0.8),
+        );
     }
     if let Some(hit) = target.0 {
         let center = hit.block.as_vec3() + Vec3::splat(0.5);

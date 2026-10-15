@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 5;
+pub const PROTOCOL_VERSION: u64 = 6;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -123,6 +123,8 @@ pub struct ContentPack {
     /// Every item (blocks first, same numbers), in id order.
     pub items: Vec<crate::item::ItemDef>,
     pub recipes: Vec<crate::recipes::Recipe>,
+    /// Every kind of animal (built-in and from mods).
+    pub mobs: Vec<crate::mobs::MobDef>,
 }
 
 /// One stack of items on the wire.
@@ -220,6 +222,12 @@ pub enum ClientMessage {
     },
     /// Throw items out in front of you (Q, or leftovers that didn't fit).
     DropItems(NetStack),
+    /// Right-clicked an animal while holding `held` (shears, food, or
+    /// nothing to pet it).
+    UseEntity {
+        id: u64,
+        held: u16,
+    },
 }
 
 /// Another player as seen by everyone else.
@@ -290,9 +298,11 @@ pub enum ServerMessage {
         position: [f32; 3],
         velocity: [f32; 3],
         gravity: Option<f32>,
+        /// Which way it faces (radians; 0 = towards +z).
+        yaw: f32,
     },
-    /// New positions for entities (sent ~20 times a second).
-    EntitiesMoved(Vec<(u64, [f32; 3])>),
+    /// New positions (and facing) for entities (sent ~20 times a second).
+    EntitiesMoved(Vec<(u64, [f32; 3], f32)>),
     EntityRemoved(u64),
     /// Your rules (speed, flying, building).
     Rules(ourcraft_mod_api::PlayerRules),
@@ -335,6 +345,8 @@ pub enum ServerMessage {
     ContainerCursor(NetSlot),
     /// The container you had open is gone (someone broke it).
     ContainerClosed,
+    /// Remove these from your inventory (you fed an animal, say).
+    TakeItems(NetStack),
 }
 
 /// Encode a message for sending.

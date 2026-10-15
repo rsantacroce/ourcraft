@@ -77,6 +77,8 @@ pub struct OpenWorld {
     pub items: Arc<ItemRegistry>,
     /// Furnaces (and other blocks holding items), by position.
     pub containers: HashMap<IVec3, Container>,
+    /// Every kind of animal.
+    pub mobs: Arc<Vec<ourcraft_common::mobs::MobDef>>,
     /// Shared with the save-on-exit guard.
     snapshot: Arc<Mutex<Snapshot>>,
 }
@@ -191,6 +193,7 @@ fn open_world(
         remap,
         items,
         containers,
+        mobs: Arc::new(content.mobs.clone()),
     };
     // The save guard must never write an empty furnace list over real ones.
     open.update_snapshot();

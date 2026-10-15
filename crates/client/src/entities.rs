@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use ourcraft_common::item::ItemId;
+use ourcraft_common::mobs::{BABY_SCALE, MobDef, parse_mob_model};
 use ourcraft_common::protocol::ServerMessage;
 use ourcraft_mod_api::{EffectKind, ModelSpec};
 
@@ -20,9 +21,26 @@ impl Plugin for EntitiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Models>()
             .init_resource::<EntityMap>()
+            .init_resource::<MobShading>()
+            .insert_resource(MobDefs(
+                ourcraft_common::mobs::builtin_mobs()
+                    .into_iter()
+                    .map(|m| (m.name.clone(), m))
+                    .collect(),
+            ))
             .add_systems(Startup, setup_particle_mesh)
             .add_systems(PreUpdate, handle_messages.after(NetReceiveSet))
-            .add_systems(Update, (move_entities, bob_items, update_particles))
+            .add_systems(
+                Update,
+                (
+                    move_entities,
+                    animate_legs,
+                    bob_items,
+                    update_particles,
+                    shade_mobs,
+                )
+                    .chain(),
+            )
             .add_systems(
                 PreUpdate,
                 reset_entities.run_if(on_message::<crate::net::SessionEnded>),
@@ -33,6 +51,10 @@ impl Plugin for EntitiesPlugin {
 /// Models from the server, by name.
 #[derive(Resource, Default)]
 struct Models(HashMap<String, ModelSpec>);
+
+/// Every kind of animal, by name (from the server's content pack).
+#[derive(Resource, Default)]
+pub struct MobDefs(pub HashMap<String, MobDef>);
 
 /// Server entity id → our entity.
 #[derive(Resource, Default)]
@@ -45,8 +67,142 @@ struct NetEntity {
     gravity: Option<f32>,
     /// Where the server last said it is (for smoothing fixed entities).
     target: Vec3,
+    /// Which way the server says it faces.
+    yaw: f32,
     spin: bool,
     age: f32,
+    /// How fast it moved this frame (blocks per second), for walking legs.
+    speed: f32,
+    /// How far along the walking cycle the legs are.
+    stride: f32,
+}
+
+/// An animal: lets the player aim at it and use it.
+#[derive(Component, Debug, Clone)]
+pub struct Mob {
+    /// The server's entity id.
+    pub id: u64,
+    pub kind: String,
+    /// Width and height (already scaled for babies).
+    pub size: [f32; 2],
+    pub baby: bool,
+    pub sheared: bool,
+}
+
+/// A leg (or anything else) that swings while the animal walks.
+#[derive(Component)]
+struct MobLeg {
+    swing: f32,
+}
+
+/// One box of an animal, ready to spawn.
+#[derive(Clone)]
+struct PartLook {
+    mesh: Handle<Mesh>,
+    material: Handle<StandardMaterial>,
+    /// Where the box's centre is (or, for legs, where its hip is).
+    at: Vec3,
+    /// For legs: from the hip down to the box centre.
+    hang: Vec3,
+    swing: f32,
+    /// Colour in full daylight.
+    color: Color,
+}
+
+/// Animal materials and their daylight colours, darkened at night.
+#[derive(Resource, Default)]
+struct MobShading(Vec<(Handle<StandardMaterial>, Color)>);
+
+fn shade_mobs(
+    tod: Res<crate::sky::TimeOfDay>,
+    shading: Res<MobShading>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !tod.is_changed() && !shading.is_changed() {
+        return;
+    }
+    let light = tod.daylight().max(0.3);
+    for (handle, base) in &shading.0 {
+        if let Some(mut m) = materials.get_mut(handle) {
+            let c = base.to_linear();
+            m.base_color = Color::LinearRgba(LinearRgba::new(
+                c.red * light,
+                c.green * light,
+                c.blue * light,
+                1.0,
+            ));
+        }
+    }
+}
+
+/// A box whose faces are shaded like the terrain's: tops brightest, sides
+/// a bit darker, bottoms darkest (we have no lights, so this gives shape).
+pub fn shaded_cuboid(size: Vec3) -> Mesh {
+    let mut mesh = Mesh::from(Cuboid::from_size(size));
+    let normals: Vec<[f32; 3]> = match mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+        Some(bevy::mesh::VertexAttributeValues::Float32x3(n)) => n.clone(),
+        _ => return mesh,
+    };
+    let colors: Vec<[f32; 4]> = normals
+        .iter()
+        .map(|n| {
+            let shade = if n[1] > 0.5 {
+                1.0
+            } else if n[1] < -0.5 {
+                0.5
+            } else if n[0].abs() > 0.5 {
+                0.8
+            } else {
+                0.68
+            };
+            [shade, shade, shade, 1.0]
+        })
+        .collect();
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    mesh
+}
+
+/// Build the boxes for an animal kind (with or without wool).
+fn mob_look(
+    def: &MobDef,
+    sheared: bool,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Vec<PartLook> {
+    def.parts
+        .iter()
+        .map(|p| {
+            let (mut min, mut max) = (Vec3::from_array(p.min), Vec3::from_array(p.max));
+            let mut rgba = p.color;
+            if p.wool && sheared {
+                // Without wool: thinner, and skin-coloured.
+                min += Vec3::splat(0.05);
+                max -= Vec3::splat(0.05);
+                rgba = def.skin;
+            }
+            let size = (max - min).abs().max(Vec3::splat(0.01));
+            let center = (min + max) / 2.0;
+            let (at, hang) = if p.leg != 0.0 {
+                let hip = Vec3::new(center.x, max.y, center.z);
+                (hip, center - hip)
+            } else {
+                (center, Vec3::ZERO)
+            };
+            PartLook {
+                mesh: meshes.add(shaded_cuboid(size)),
+                material: materials.add(StandardMaterial {
+                    base_color: color(rgba),
+                    // No lights in our world: shaded by hand (`shade_mobs`).
+                    unlit: true,
+                    ..default()
+                }),
+                color: color(rgba),
+                at,
+                hang,
+                swing: p.leg,
+            }
+        })
+        .collect()
 }
 
 /// The visible part of a dropped item, which bobs up and down.
@@ -58,6 +214,7 @@ struct Particle {
     velocity: Vec3,
     life: f32,
     max_life: f32,
+    gravity: f32,
 }
 
 #[derive(Resource)]
@@ -120,7 +277,7 @@ fn item_look(
             unlit: true,
             ..default()
         });
-        return (meshes.add(Cuboid::new(0.25, 0.25, 0.25)), material);
+        return (meshes.add(shaded_cuboid(Vec3::splat(0.25))), material);
     }
     let pixels = crate::inventory_ui::item_icon_pixels(items, blocks, textures, item)
         .unwrap_or_else(|| vec![255; 32 * 32 * 4]);
@@ -143,6 +300,9 @@ struct ItemLooks<'w, 's> {
     textures: Option<Res<'w, crate::render::ModTextures>>,
     images: ResMut<'w, Assets<Image>>,
     cache: Local<'s, HashMap<ItemId, (Handle<Mesh>, Handle<StandardMaterial>)>>,
+    mobs: ResMut<'w, MobDefs>,
+    mob_cache: Local<'s, HashMap<(String, bool), Vec<PartLook>>>,
+    shading: ResMut<'w, MobShading>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -168,6 +328,13 @@ fn handle_messages(
                     commands.entity(e).despawn();
                 }
                 looks.cache.clear();
+                looks.mob_cache.clear();
+                looks.shading.0.clear();
+                looks.mobs.0 = content
+                    .mobs
+                    .iter()
+                    .map(|m| (m.name.clone(), m.clone()))
+                    .collect();
                 models.0 = content
                     .models
                     .iter()
@@ -180,8 +347,82 @@ fn handle_messages(
                 position,
                 velocity,
                 gravity,
+                yaw,
             } => {
                 let pos = Vec3::from_array(*position);
+                let new_net = |gravity: Option<f32>, velocity: Vec3, spin: bool| NetEntity {
+                    velocity,
+                    gravity,
+                    target: pos,
+                    yaw: *yaw,
+                    spin,
+                    age: 0.0,
+                    speed: 0.0,
+                    stride: 0.0,
+                };
+                // An animal ("@mob:<name>[:baby][:sheared]").
+                if let Some((name, baby, sheared)) = parse_mob_model(model) {
+                    let looks = &mut looks;
+                    let Some(def) = looks.mobs.0.get(name).cloned() else {
+                        continue;
+                    };
+                    let parts = looks
+                        .mob_cache
+                        .entry((name.to_owned(), sheared))
+                        .or_insert_with(|| {
+                            let look = mob_look(&def, sheared, &mut meshes, &mut materials);
+                            looks
+                                .shading
+                                .0
+                                .extend(look.iter().map(|p| (p.material.clone(), p.color)));
+                            look
+                        })
+                        .clone();
+                    let scale = if baby { BABY_SCALE } else { 1.0 };
+                    let e = commands
+                        .spawn((
+                            new_net(None, Vec3::ZERO, false),
+                            Mob {
+                                id: *id,
+                                kind: name.to_owned(),
+                                size: [def.size[0] * scale, def.size[1] * scale],
+                                baby,
+                                sheared,
+                            },
+                            Transform::from_translation(pos)
+                                .with_rotation(Quat::from_rotation_y(*yaw))
+                                .with_scale(Vec3::splat(scale)),
+                            Visibility::Inherited,
+                        ))
+                        .with_children(|parent| {
+                            for p in parts {
+                                if p.swing != 0.0 {
+                                    parent
+                                        .spawn((
+                                            MobLeg { swing: p.swing },
+                                            Transform::from_translation(p.at),
+                                            Visibility::Inherited,
+                                        ))
+                                        .with_child((
+                                            Mesh3d(p.mesh),
+                                            MeshMaterial3d(p.material),
+                                            Transform::from_translation(p.hang),
+                                        ));
+                                } else {
+                                    parent.spawn((
+                                        Mesh3d(p.mesh),
+                                        MeshMaterial3d(p.material),
+                                        Transform::from_translation(p.at),
+                                    ));
+                                }
+                            }
+                        })
+                        .id();
+                    if let Some(old) = map.0.insert(*id, e) {
+                        commands.entity(old).despawn();
+                    }
+                    continue;
+                }
                 // A dropped item ("@item:<number>"): drawn from the item list.
                 if let Some(item) = model
                     .strip_prefix("@item:")
@@ -207,13 +448,7 @@ fn handle_messages(
                         .clone();
                     let e = commands
                         .spawn((
-                            NetEntity {
-                                velocity: Vec3::ZERO,
-                                gravity: None,
-                                target: pos,
-                                spin: true,
-                                age: 0.0,
-                            },
+                            new_net(None, Vec3::ZERO, true),
                             Transform::from_translation(pos),
                             Visibility::Inherited,
                         ))
@@ -232,13 +467,11 @@ fn handle_messages(
                 let spec = models.0.get(model);
                 let e = commands
                     .spawn((
-                        NetEntity {
-                            velocity: Vec3::from_array(*velocity),
-                            gravity: *gravity,
-                            target: pos,
-                            spin: spec.is_some_and(|s| s.spin),
-                            age: 0.0,
-                        },
+                        new_net(
+                            *gravity,
+                            Vec3::from_array(*velocity),
+                            spec.is_some_and(|s| s.spin),
+                        ),
                         Transform::from_translation(pos),
                         Visibility::Inherited,
                     ))
@@ -275,11 +508,12 @@ fn handle_messages(
                 }
             }
             ServerMessage::EntitiesMoved(list) => {
-                for (id, pos) in list {
+                for (id, pos, yaw) in list {
                     if let Some(&e) = map.0.get(id)
                         && let Ok((mut ne, _)) = entities.get_mut(e)
                     {
                         ne.target = Vec3::from_array(*pos);
+                        ne.yaw = *yaw;
                     }
                 }
             }
@@ -297,6 +531,7 @@ fn handle_messages(
                     EffectKind::Splat => (14, 4.0, 0.5),
                     EffectKind::Confetti => (40, 7.0, 1.2),
                     EffectKind::Poof => (24, 2.5, 0.8),
+                    EffectKind::Hearts => (7, 1.2, 1.2),
                 };
                 let at = Vec3::from_array(*position);
                 for i in 0..count {
@@ -311,13 +546,20 @@ fn handle_messages(
                     let c = match kind {
                         EffectKind::Confetti => Color::hsl((i * 37 % 360) as f32, 0.8, 0.6),
                         EffectKind::Poof => Color::srgba(0.95, 0.95, 0.95, 1.0),
-                        EffectKind::Splat => color(*rgba),
+                        EffectKind::Splat | EffectKind::Hearts => color(*rgba),
+                    };
+                    // Hearts float gently upwards instead of falling.
+                    let (dir, gravity) = if *kind == EffectKind::Hearts {
+                        (Vec3::new(dir.x * 0.6, 1.5, dir.z * 0.6), -1.0)
+                    } else {
+                        (dir, 12.0)
                     };
                     commands.spawn((
                         Particle {
                             velocity: dir * speed * (0.5 + rand(&mut seed)),
                             life,
                             max_life: life,
+                            gravity,
                         },
                         Mesh3d(particle_mesh.0.clone()),
                         MeshMaterial3d(materials.add(StandardMaterial {
@@ -360,11 +602,37 @@ fn move_entities(time: Res<Time>, mut q: Query<(&mut NetEntity, &mut Transform)>
             None => {
                 // Glide towards the latest position from the server.
                 let blend = 1.0 - (-15.0 * dt).exp();
+                let before = t.translation;
                 t.translation = t.translation.lerp(e.target, blend);
+                let moved = (t.translation - before).with_y(0.0).length();
+                e.speed = if dt > 0.0 { moved / dt } else { 0.0 };
             }
         }
         if e.spin {
             t.rotation = Quat::from_rotation_y(e.age * 1.5);
+        } else if e.gravity.is_none() {
+            // Turn smoothly to face where the server says.
+            let target = Quat::from_rotation_y(e.yaw);
+            t.rotation = t.rotation.slerp(target, 1.0 - (-10.0 * dt).exp());
+        }
+    }
+}
+
+/// Swing legs while walking (faster walking, faster swinging).
+fn animate_legs(
+    time: Res<Time>,
+    mut animals: Query<(&mut NetEntity, &Children), With<Mob>>,
+    mut legs: Query<(&MobLeg, &mut Transform)>,
+) {
+    let dt = time.delta_secs();
+    for (mut e, children) in &mut animals {
+        let walking = (e.speed / 1.2).min(1.0);
+        e.stride += dt * 9.0 * walking.max(0.0);
+        let angle = e.stride.sin() * 0.6 * walking;
+        for child in children.iter() {
+            if let Ok((leg, mut t)) = legs.get_mut(child) {
+                t.rotation = Quat::from_rotation_x(angle * leg.swing);
+            }
         }
     }
 }
@@ -388,7 +656,7 @@ fn update_particles(
             commands.entity(e).despawn();
             continue;
         }
-        p.velocity.y -= 12.0 * dt;
+        p.velocity.y -= p.gravity * dt;
         let v = p.velocity;
         t.translation += v * dt;
         t.scale = Vec3::splat((p.life / p.max_life).max(0.2));

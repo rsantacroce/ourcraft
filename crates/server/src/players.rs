@@ -243,7 +243,7 @@ fn handle_messages(
     registry: Res<Registry>,
     world: Res<ServerWorld>,
     content: Res<Content>,
-    entities: Res<crate::entities::Entities>,
+    mut entities: ResMut<crate::entities::Entities>,
     mut queue: ResMut<ModQueue>,
     mut net: ResMut<Network>,
 ) {
@@ -454,7 +454,8 @@ fn handle_messages(
             ClientMessage::OpenContainer { .. }
             | ClientMessage::CloseContainer
             | ClientMessage::ContainerClick { .. }
-            | ClientMessage::DropItems(_) => {}
+            | ClientMessage::DropItems(_)
+            | ClientMessage::UseEntity { .. } => {}
             ClientMessage::SetBlock { pos, block, held } => {
                 let pos = IVec3::from_array(*pos);
                 let block = BlockId(*block);
@@ -496,6 +497,39 @@ fn handle_messages(
                     .collect();
                 let text = text.trim().to_owned();
                 if text.is_empty() {
+                    continue;
+                }
+                // /summon <animal>: creative players can call an animal over.
+                if let Some(what) = text.strip_prefix("/summon") {
+                    let what = what.trim();
+                    let name = if what.contains(':') {
+                        what.to_owned()
+                    } else {
+                        format!("core:{what}")
+                    };
+                    let reply = if !p.creative {
+                        "You can summon animals in creative mode (G)".to_owned()
+                    } else if let Some(def) = open.mobs.iter().find(|m| m.name == name) {
+                        let look = crate::mods::look_vector(p.state.yaw, 0.0);
+                        let at = p.feet() + Vec3::from_array(look) * 3.0 + Vec3::Y * 0.5;
+                        crate::mobs::spawn_mob(&mut entities, &name, at, false);
+                        format!("Here comes a {}!", def.display_name.to_lowercase())
+                    } else {
+                        let names: Vec<&str> = open
+                            .mobs
+                            .iter()
+                            .map(|m| m.name.trim_start_matches("core:"))
+                            .collect();
+                        format!("Try /summon {}", names.join(", /summon "))
+                    };
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Chat {
+                            from: None,
+                            text: reply,
+                        },
+                    );
                     continue;
                 }
                 if let Some(reply) = run_command(&text, &mut open) {
@@ -581,7 +615,10 @@ fn simulate_players(
 fn run_command(text: &str, open: &mut OpenWorld) -> Option<String> {
     let mut words = text.split_whitespace();
     match words.next()? {
-        "/help" => Some("Commands: /time day, /time night (mods may add more)".into()),
+        "/help" => Some(
+            "Commands: /time day, /time night, /summon sheep (or pig, cow, chicken) (mods may add more)"
+                .into(),
+        ),
         "/time" => match words.next() {
             Some("day") => {
                 open.meta.time_of_day = 0.3;

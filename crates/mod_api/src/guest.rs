@@ -151,6 +151,22 @@ pub fn register_recipe(spec: RecipeSpec) {
     host(&HostCall::RegisterRecipe(spec));
 }
 
+/// Add a kind of animal (during `Init`). Register its model first.
+pub fn register_mob(spec: MobSpec) {
+    host(&HostCall::RegisterMob(spec));
+}
+
+/// Put an animal into the world, e.g. `spawn_mob("core:pig", [0.5, 70.0, 0.5])`.
+pub fn spawn_mob(name: &str, position: Vec3) -> Option<EntityId> {
+    match host(&HostCall::SpawnMob {
+        name: name.into(),
+        position,
+    }) {
+        HostReply::Entity(id) => Some(id),
+        _ => None,
+    }
+}
+
 /// The id of a block by name (`"core:stone"`, `"yourmod:thing"`).
 pub fn block_id(name: &str) -> Option<BlockId> {
     match host(&HostCall::BlockId(name.into())) {

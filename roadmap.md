@@ -1,7 +1,7 @@
 # Ourcraft roadmap
 
 Where Ourcraft stands compared with the classic block-building game, and
-what to build next. Milestones 1–10 (the original plan) and 11 are done; this file
+what to build next. Milestones 1–10 (the original plan), 11 and 12 are done; this file
 picks up from there.
 
 ## What we have
@@ -9,13 +9,14 @@ picks up from there.
 | Area | Done |
 |---|---|
 | World | Infinite generated terrain; plains, forest, desert, snowy and mountain biomes; caves; trees; cacti; seas and lakes; beaches; bedrock floor; a seed per world |
-| Blocks | 26 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water, coal/iron/gold/diamond ore, clay, crafting table, furnace, iron/gold/diamond blocks), plus 9 from the Paint Blocks mod and 2 from the Snow Fun tutorial mod |
-| Items | Sticks, coal, iron and gold ingots, diamonds, clay balls, bricks; wooden, stone, iron and diamond pickaxes, axes and shovels that wear out |
+| Blocks | 26 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water, coal/iron/gold/diamond ore, clay, crafting table, furnace, iron/gold/diamond blocks, wool), plus 9 from the Paint Blocks mod and 2 from the Snow Fun tutorial mod |
+| Items | Sticks, coal, iron and gold ingots, diamonds, clay balls, bricks, shears, eggs, apples; wooden, stone, iron and diamond pickaxes, axes and shovels that wear out |
 | Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative palette of every item |
 | Crafting | 2×2 grid in the inventory, 3×3 on a crafting table, 25 recipes (mods can add more); furnace that smelts ore, sand, clay and cobblestone with coal or wood |
 | Game modes | Creative (fly, endless blocks) and survival (blocks take time to break, the right tool is faster, drops land as items you pick up); Splat Squad team game (mod) |
 | Movement | Walk, sprint, jump, gravity, collision, swimming, flying (double-tap jump), auto-jump on touch screens |
 | Looks | Day/night cycle, sun and moon, sunset colours, fog, ambient occlusion, see-through leaves and glass, glowing lamps |
+| Animals | Sheep, pigs, cows and chickens that wander, follow you when you hold an apple, have lambs, piglets, calves and chicks; shear sheep for wool, chickens lay eggs; pet them for hearts; `/summon` in creative; mods can add their own |
 | Saving | Several worlds, autosave, region files |
 | Multiplayer | Dedicated server, single player through the same server, LAN discovery, direct connect, chat with commands, avatars with name tags, client prediction |
 | Platform | macOS, Windows, Linux, iPad/iPhone, Android; touch and gamepad controls |
@@ -31,7 +32,7 @@ picks up from there.
 
 ## Missing
 
-- Mobs: animals and monsters
+- Monsters
 - Health, hunger, fall damage and drowning outside Splat Squad
 - Armour, food, swords
 - Non-cube blocks: stairs, slabs, doors, fences, torches on walls
@@ -82,7 +83,22 @@ What was planned:
 - Furnace: smelt ore into ingots, and sand into glass. *Engine: block
   entities, meaning blocks with their own data.*
 
-### 12. Friendly animals
+### 12. Friendly animals ✅ done
+
+Sheep, pigs, cows and chickens made of boxes, with legs that swing as
+they walk; they wander, step up blocks, and keep away from water and
+cliffs. Hold an apple (a rare drop from leaves) and they follow you; feed
+two and they have a baby that grows up. Shears give wool (it grows back),
+chickens lay eggs, and a pat with an empty hand makes them hop with
+hearts. `/summon sheep` in creative. Mods can add animals
+(`register_mob`, `spawn_mob`).
+
+Not quite as planned: animals aren't saved; they appear near players and
+go away when everyone leaves (ones a mod made stay). Food is apples for
+every animal until farming adds wheat.
+
+What was planned:
+
 
 - Simple mobs made of boxes (the avatar code already draws box models):
   sheep, pigs, chickens, cows, wandering and grazing. *Engine: server-side

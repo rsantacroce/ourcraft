@@ -238,6 +238,8 @@ pub enum EffectKind {
     Confetti,
     /// A soft puff (popping out of the game when tagged out).
     Poof,
+    /// Little hearts (happy animals).
+    Hearts,
 }
 
 /// A line of text in a player's HUD panel (top right).
@@ -265,6 +267,28 @@ pub enum RecipeSpec {
         result: String,
         count: u16,
     },
+}
+
+/// A new kind of animal. It wanders around like the built-in ones; boxes of
+/// its model that touch the ground swing like legs when it walks.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct MobSpec {
+    /// `"yourmod:thing"`.
+    pub name: String,
+    pub display_name: String,
+    /// A model registered with [`HostCall::RegisterModel`] (facing `+z`,
+    /// feet at `y = 0`).
+    pub model: String,
+    /// Width and height, in blocks.
+    pub size: [f32; 2],
+    /// Walking speed, blocks per second (the built-in animals use about 1).
+    pub speed: f32,
+    /// Appears on its own on this block (e.g. `"core:grass"`), if any.
+    pub spawns_on: Option<String>,
+    /// Follows players holding this item; two fed ones have a baby.
+    pub food: Option<String>,
+    /// One of the game's sounds (`"baa"`, `"moo"`, `"oink"`, `"cluck"`, `"pop"`…).
+    pub sound: String,
 }
 
 /// Everything a mod can ask the game to do.
@@ -371,6 +395,14 @@ pub enum HostCall {
     WorldSpawn,
     /// Add a crafting recipe. *Init only.*
     RegisterRecipe(RecipeSpec),
+    /// Add a kind of animal. *Init only.*
+    RegisterMob(MobSpec),
+    /// Put an animal in the world (any kind, e.g. `"core:sheep"`). Replies
+    /// `HostReply::Entity`.
+    SpawnMob {
+        name: String,
+        position: Vec3,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

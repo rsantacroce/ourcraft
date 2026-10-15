@@ -123,6 +123,16 @@ fn builtin_items() -> Vec<ItemDef> {
             ..ItemDef::material("core:clay_ball", "Clay Ball")
         },
         ItemDef::material("core:brick", "Brick"),
+        ItemDef {
+            max_stack: 1,
+            durability: 120,
+            ..ItemDef::material("core:shears", "Shears")
+        },
+        ItemDef {
+            max_stack: 16,
+            ..ItemDef::material("core:egg", "Egg")
+        },
+        ItemDef::material("core:apple", "Apple"),
     ];
     for (tier, material) in [(1, "Wooden"), (2, "Stone"), (3, "Iron"), (4, "Diamond")] {
         let key = ["wood", "stone", "iron", "diamond"][tier as usize - 1];
@@ -144,6 +154,7 @@ fn block_extras(name: &str) -> (f32, Option<&'static str>) {
         "core:log" => (15.0, Some("core:coal")),
         "core:planks" => (7.5, None),
         "core:crafting_table" => (15.0, None),
+        "core:wool" => (5.0, None),
         "core:sand" => (0.0, Some("core:glass")),
         "core:cobblestone" => (0.0, Some("core:stone")),
         "core:iron_ore" => (0.0, Some("core:iron_ingot")),

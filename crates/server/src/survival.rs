@@ -73,6 +73,7 @@ pub fn spawn_item(entities: &mut Entities, at: Vec3, stack: ItemStack) -> u64 {
         owner: None,
         moved: true,
         item: Some(stack),
+        yaw: angle,
     })
 }
 
@@ -237,6 +238,7 @@ fn drop_broken_blocks(
     registry: Res<Registry>,
     mut entities: ResMut<Entities>,
     mut net: ResMut<Network>,
+    mut luck: Local<u32>,
 ) {
     for edit in std::mem::take(&mut applied.0) {
         if edit.old.is_air() || edit.old == edit.new {
@@ -262,6 +264,19 @@ fn drop_broken_blocks(
             continue;
         }
         let held = (edit.held != ItemId::NONE).then_some(edit.held);
+        // Sometimes a little extra (apples from leaves).
+        if let Some((name, one_in)) = &registry.0.get(edit.old).bonus_drop {
+            let mix = (edit.pos.x as u32) ^ (edit.pos.z as u32).rotate_left(16);
+            *luck = luck
+                .wrapping_mul(1_103_515_245)
+                .wrapping_add(12_345)
+                .wrapping_add(mix);
+            if (*luck >> 8).is_multiple_of((*one_in).max(1) as u32)
+                && let Some(item) = open.items.by_name(name)
+            {
+                spawn_item(&mut entities, center, ItemStack::new(item, 1));
+            }
+        }
         if let Some((item, count)) = open.items.drop_for(&registry.0, edit.old, held) {
             let max = open.items.max_stack(item);
             let mut left = count;

@@ -50,6 +50,7 @@ pub mod blocks {
     pub const IRON_BLOCK: BlockId = BlockId(24);
     pub const GOLD_BLOCK: BlockId = BlockId(25);
     pub const DIAMOND_BLOCK: BlockId = BlockId(26);
+    pub const WOOL: BlockId = BlockId(27);
 }
 
 /// The six faces of a block, in the order used for per-face lookups.
@@ -183,6 +184,8 @@ pub struct BlockDef {
     /// The tool tier needed to get anything when it breaks (0 = bare
     /// hands are fine; 1 = wood, 2 = stone, 3 = iron, 4 = diamond).
     pub min_tier: u8,
+    /// Sometimes drops this item as well: (item name, one time in N).
+    pub bonus_drop: Option<(String, u16)>,
 }
 
 impl BlockDef {
@@ -201,6 +204,7 @@ impl BlockDef {
             hardness: 1.0,
             tool: None,
             min_tier: 0,
+            bonus_drop: None,
         }
     }
 
@@ -246,6 +250,7 @@ impl BlockRegistry {
                 hardness: 0.0,
                 tool: None,
                 min_tier: 0,
+                bonus_drop: None,
             }],
         }
     }
@@ -291,9 +296,11 @@ impl BlockRegistry {
             )
             .mined(2.0, Some(Axe), 0),
         );
-        reg.register(
-            BlockDef::cutout("core:leaves", "Leaves", T::all("leaves")).mined(0.2, None, 0),
-        );
+        reg.register(BlockDef {
+            // Now and then an apple falls out.
+            bonus_drop: Some(("core:apple".into(), 8)),
+            ..BlockDef::cutout("core:leaves", "Leaves", T::all("leaves")).mined(0.2, None, 0)
+        });
         reg.register(
             BlockDef::solid("core:planks", "Planks", T::all("planks")).mined(2.0, Some(Axe), 0),
         );
@@ -401,6 +408,8 @@ impl BlockRegistry {
             )
             .mined(5.0, Some(Pickaxe), 3),
         );
+        // ---- Milestone 12: animals ----
+        reg.register(BlockDef::solid("core:wool", "Wool", T::all("wool")).mined(0.8, None, 0));
         reg
     }
 
@@ -446,6 +455,7 @@ impl BlockRegistry {
             hardness: 1.0,
             tool: None,
             min_tier: 0,
+            bonus_drop: None,
         }))
     }
 
@@ -532,6 +542,8 @@ mod tests {
         assert_eq!(reg.get(blocks::COAL_ORE).name, "core:coal_ore");
         assert_eq!(reg.get(blocks::FURNACE).name, "core:furnace");
         assert_eq!(reg.get(blocks::DIAMOND_BLOCK).name, "core:diamond_block");
+        assert_eq!(reg.get(blocks::WOOL).name, "core:wool");
+        assert!(reg.get(blocks::LEAVES).bonus_drop.is_some(), "apples");
     }
 
     #[test]

@@ -14,6 +14,7 @@
 //!   opened up to friends.
 
 pub mod entities;
+pub mod mobs;
 pub mod mods;
 
 pub mod net;
@@ -136,6 +137,7 @@ impl Plugin for ServerPlugin {
             players::PlayersPlugin,
             entities::EntitiesPlugin,
             survival::SurvivalPlugin,
+            mobs::MobsPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

@@ -99,6 +99,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "core:lamp",
             2,
         ),
+        shaped(&[" X", "X "], &[('X', "core:iron_ingot")], "core:shears", 1),
     ];
     for (material, key) in [
         ("core:planks", "wood"),

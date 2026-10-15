@@ -5,6 +5,7 @@ pub mod chunk;
 pub mod container;
 pub mod inventory;
 pub mod item;
+pub mod mobs;
 pub mod physics;
 pub mod prediction;
 pub mod protocol;

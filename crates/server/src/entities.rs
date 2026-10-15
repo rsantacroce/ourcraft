@@ -41,6 +41,8 @@ pub struct ServerEntity {
     pub moved: bool,
     /// For dropped items: what you get by walking over it.
     pub item: Option<ourcraft_common::inventory::ItemStack>,
+    /// Which way it faces (radians; animals turn as they walk).
+    pub yaw: f32,
 }
 
 #[derive(Resource, Default)]
@@ -79,6 +81,7 @@ impl Entities {
                 EntityMotion::Projectile { gravity, .. } => Some(gravity),
                 EntityMotion::Fixed => None,
             },
+            yaw: e.yaw,
         }
     }
 }
@@ -197,13 +200,13 @@ fn announce_entities(
     // Positions of entities mods moved (e.g. a carried flag), 20×/s.
     *timer += 1;
     if (*timer).is_multiple_of(3) {
-        let moved: Vec<(u64, [f32; 3])> = entities
+        let moved: Vec<(u64, [f32; 3], f32)> = entities
             .list
             .iter_mut()
             .filter(|(_, e)| e.moved)
             .map(|(id, e)| {
                 e.moved = false;
-                (*id, e.position.to_array())
+                (*id, e.position.to_array(), e.yaw)
             })
             .collect();
         if !moved.is_empty() {

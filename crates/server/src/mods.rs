@@ -97,6 +97,7 @@ pub struct ServerHost {
     pub models: Vec<api::ModelSpec>,
     pub tools: Vec<api::ToolSpec>,
     pub recipes: Vec<ourcraft_common::recipes::Recipe>,
+    pub mobs: Vec<api::MobSpec>,
     world: Option<ServerWorld>,
     cache: Option<ColumnCache>,
     open: Option<OpenWorld>,
@@ -114,6 +115,7 @@ impl ServerHost {
             models: Vec::new(),
             tools: Vec::new(),
             recipes: Vec::new(),
+            mobs: Vec::new(),
             world: None,
             cache: None,
             open: None,
@@ -226,11 +228,19 @@ impl Host for ServerHost {
                 self.recipes.push(r.into());
                 HostReply::Ok
             }
+            HostCall::RegisterMob(m) if init => {
+                if !self.models.iter().any(|x| x.name == m.model) {
+                    return error("register the mob's model first");
+                }
+                self.mobs.push(m);
+                HostReply::Ok
+            }
             HostCall::RegisterBlock(_)
             | HostCall::RegisterTexture(_)
             | HostCall::RegisterModel(_)
             | HostCall::RegisterTool(_)
-            | HostCall::RegisterRecipe(_) => error("content can only be registered during Init"),
+            | HostCall::RegisterRecipe(_)
+            | HostCall::RegisterMob(_) => error("content can only be registered during Init"),
             HostCall::BlockId(name) => match self.registry.by_name(&name) {
                 Some(id) => HostReply::Block(id.0),
                 None => error("no such block"),
@@ -367,6 +377,7 @@ impl Host for ServerHost {
                     owner: spec.owner,
                     moved: false,
                     item: None,
+                    yaw: 0.0,
                 });
                 HostReply::Entity(id)
             }
@@ -397,6 +408,17 @@ impl Host for ServerHost {
                         color,
                     })));
                 HostReply::Ok
+            }
+            HostCall::SpawnMob { name, position } => {
+                let known = self
+                    .open
+                    .as_ref()
+                    .is_some_and(|o| o.mobs.iter().any(|m| m.name == name));
+                let (true, Some(entities)) = (known, self.entities.as_mut()) else {
+                    return error("no such mob (or the world isn't running)");
+                };
+                let id = crate::mobs::spawn_mob(entities, &name, Vec3::from_array(position), false);
+                HostReply::Entity(id)
             }
             HostCall::WorldSpawn => match self.open.as_ref() {
                 Some(o) => HostReply::Position(o.spawn.to_array()),
@@ -432,6 +454,7 @@ pub fn load_mods(
                     .defs()
                     .to_vec(),
                 recipes: ourcraft_common::recipes::builtin_recipes(),
+                mobs: ourcraft_common::mobs::builtin_mobs(),
                 ..default()
             };
             let rt = ModRuntime::new().expect("runtime");
@@ -478,6 +501,12 @@ pub fn load_mods(
     let items = ourcraft_common::item::ItemRegistry::build(&host.registry, &[]);
     let mut recipes = ourcraft_common::recipes::builtin_recipes();
     recipes.extend(host.recipes);
+    let mut mobs = ourcraft_common::mobs::builtin_mobs();
+    for spec in &host.mobs {
+        if let Some(model) = host.models.iter().find(|m| m.name == spec.model) {
+            mobs.push(crate::mobs::mob_from_spec(spec, model));
+        }
+    }
     let content = ContentPack {
         blocks: host.registry.defs().to_vec(),
         textures: host.textures,
@@ -485,6 +514,7 @@ pub fn load_mods(
         tools: host.tools,
         items: items.defs().to_vec(),
         recipes,
+        mobs,
     };
     (Mods(Mutex::new(runtime)), host.registry, content)
 }
@@ -523,6 +553,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         models: Vec::new(),
         tools: Vec::new(),
         recipes: Vec::new(),
+        mobs: Vec::new(),
         world: world.remove_resource::<ServerWorld>(),
         cache: world.remove_resource::<ColumnCache>(),
         open: world.remove_resource::<OpenWorld>(),

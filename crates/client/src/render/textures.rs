@@ -375,6 +375,19 @@ fn diamond_block(x: usize, y: usize) -> Rgba {
     metal(x, y, rgb(90, 220, 214), 60)
 }
 
+fn wool(x: usize, y: usize) -> Rgba {
+    // Soft curls: little rings of slightly darker fluff.
+    let cx = (x % 4) as f32 - 1.5;
+    let cy = ((y + (x / 4) * 2) % 4) as f32 - 1.5;
+    let ring = (cx * cx + cy * cy).sqrt();
+    let c = speckle(rgb(240, 240, 234), x, y, 61, 6.0);
+    if (1.2..1.9).contains(&ring) {
+        shift(c, -16.0)
+    } else {
+        c
+    }
+}
+
 /// Magenta and black checkerboard: impossible to miss in-game.
 fn missing(x: usize, y: usize) -> Rgba {
     if (x / 8 + y / 8).is_multiple_of(2) {
@@ -419,6 +432,7 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
         "iron_block" => iron_block,
         "gold_block" => gold_block,
         "diamond_block" => diamond_block,
+        "wool" => wool,
         _ => return None,
     })
 }

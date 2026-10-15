@@ -111,9 +111,51 @@ fn generate(name: &str) -> Vec<f32> {
             let f = notes[i];
             ((TAU * f * t).sin() + 0.3 * (TAU * 2.0 * f * t).sin()) * 0.4 * env(local, 6.0)
         }),
+        // Animals: a buzzy "voice" (a few harmonics) shaped differently.
+        // Baa: wobbly and nasal.
+        "baa" => synth(0.55, |t| {
+            let f = 300.0 + 25.0 * (TAU * 28.0 * t).sin() - 60.0 * t;
+            voice(f * t, 7) * 0.45 * soft(t, 0.55)
+        }),
+        // Moo: low, long and sliding down.
+        "moo" => synth(0.9, |t| {
+            let f = 125.0 - 30.0 * t;
+            voice(f * t, 8) * 0.5 * soft(t, 0.9)
+        }),
+        // Oink: two quick snorts.
+        "oink" => synth(0.36, |t| {
+            let local = if t < 0.16 { t } else { t - 0.2 };
+            let on = (0.0..0.16).contains(&local);
+            let f = 210.0 + 120.0 * local;
+            if on {
+                (voice(f * t, 5) * 0.5 + noise.next() * 0.15) * soft(local, 0.16)
+            } else {
+                0.0
+            }
+        }),
+        // Cluck: three little clicks.
+        "cluck" => synth(0.4, |t| {
+            let local = t % 0.13;
+            let f = 700.0 - 1500.0 * local;
+            (TAU * f * t).sin() * 0.45 * env(local, 45.0)
+        }),
         // Menu click.
         _ => synth(0.03, |t| (TAU * 1800.0 * t).sin() * 0.4 * env(t, 120.0)),
     }
+}
+
+/// A buzzy tone (`cycles` = frequency × time) made of `n` harmonics.
+fn voice(cycles: f32, n: usize) -> f32 {
+    (1..=n)
+        .map(|k| (TAU * k as f32 * cycles).sin() / k as f32)
+        .sum::<f32>()
+        * 0.6
+}
+
+/// Fade in and out over a sound of `len` seconds.
+fn soft(t: f32, len: f32) -> f32 {
+    let x = (t / len).clamp(0.0, 1.0);
+    (std::f32::consts::PI * x).sin().powf(0.6)
 }
 
 /// Encode samples (-1..1) as a 16-bit mono WAV file.
@@ -139,7 +181,9 @@ pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     out
 }
 
-pub const SOUND_NAMES: [&str; 7] = ["place", "break", "pop", "splat", "grab", "cheer", "click"];
+pub const SOUND_NAMES: [&str; 11] = [
+    "place", "break", "pop", "splat", "grab", "cheer", "click", "baa", "moo", "oink", "cluck",
+];
 
 fn create_sounds(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {
     let mut sounds = Sounds::default();
