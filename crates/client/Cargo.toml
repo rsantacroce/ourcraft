@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 ourcraft_common.workspace = true
-bevy = { workspace = true, features = ["default"] }
+bevy = { workspace = true, features = ["default", "wav"] }
 ourcraft_server.workspace = true
 renet.workspace = true
 renet_netcode.workspace = true

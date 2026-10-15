@@ -25,7 +25,11 @@ impl Plugin for GameModePlugin {
             .init_resource::<ToolSpecs>()
             .add_systems(Startup, spawn_ui)
             .add_systems(PreUpdate, handle_messages.after(NetReceiveSet))
-            .add_systems(Update, (update_health_bar, update_hud_panel, update_title));
+            .add_systems(Update, (update_health_bar, update_hud_panel, update_title))
+            .add_systems(
+                PreUpdate,
+                reset.run_if(on_message::<crate::net::SessionEnded>),
+            );
     }
 }
 
@@ -123,6 +127,20 @@ fn handle_messages(
     }
 }
 
+fn reset(
+    mut rules: ResMut<Rules>,
+    mut health: ResMut<Health>,
+    mut hud: ResMut<HudPanel>,
+    mut title: ResMut<TitleState>,
+    mut tools: ResMut<ToolHotbar>,
+) {
+    *rules = Rules::default();
+    *health = Health::default();
+    hud.0.clear();
+    *title = TitleState::default();
+    tools.0.clear();
+}
+
 #[derive(Component)]
 struct HealthBarFill;
 
@@ -175,7 +193,8 @@ fn spawn_ui(mut commands: Commands) {
         Node {
             position_type: PositionType::Absolute,
             top: px(12),
-            right: px(14),
+            // Leave room for the touch "Bag" button in the corner.
+            right: px(100),
             padding: UiRect::all(px(8)),
             border_radius: BorderRadius::all(px(6)),
             ..default()

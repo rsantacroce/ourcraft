@@ -36,6 +36,10 @@ impl Plugin for PlayerPlugin {
                 PreUpdate,
                 (handle_welcome, reconcile).chain().after(NetReceiveSet),
             )
+            .add_systems(
+                PreUpdate,
+                reset_player.run_if(on_message::<crate::net::SessionEnded>),
+            )
             .add_systems(FixedUpdate, player_physics.in_set(PlayerPhysicsSet))
             .add_systems(
                 Update,
@@ -198,6 +202,19 @@ fn handle_welcome(
             inventory.select(*selected as usize);
         }
     }
+}
+
+/// Leaving a game: park the player until the next one starts.
+fn reset_player(
+    mut player: Single<&mut Player>,
+    mut inventory: ResMut<PlayerInventory>,
+    mut mode: ResMut<GameMode>,
+) {
+    let yaw = player.yaw;
+    **player = Player::new(Vec3::new(0.5, 200.0, 0.5));
+    player.yaw = yaw;
+    inventory.0 = crate::interaction::creative_hotbar();
+    *mode = GameMode::default();
 }
 
 /// Send the inventory when it changes (at most once a second), so the

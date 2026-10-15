@@ -54,7 +54,8 @@ impl Plugin for NetPlugin {
             .add_message::<ClientDisconnected>()
             .add_systems(Startup, setup_network)
             .add_systems(PreUpdate, receive.in_set(ReceiveSet))
-            .add_systems(PostUpdate, send.in_set(SendSet));
+            .add_systems(PostUpdate, send.in_set(SendSet))
+            .add_systems(Update, announce_on_lan);
     }
 }
 
@@ -264,6 +265,46 @@ fn send(mut net: ResMut<Network>) {
             let _ = local.to_client.send(p);
         }
     }
+}
+
+/// Tell computers on the local network that this server exists (once a
+/// second, as a UDP broadcast), so their Join screens can list it.
+fn announce_on_lan(
+    time: Res<Time<Real>>,
+    config: Res<ServerConfig>,
+    net: Res<Network>,
+    open: Option<Res<crate::world::OpenWorld>>,
+    mut socket: Local<Option<UdpSocket>>,
+    mut timer: Local<f32>,
+) {
+    let Some(bind) = config.bind else { return };
+    *timer -= time.delta_secs();
+    if *timer > 0.0 {
+        return;
+    }
+    *timer = 1.0;
+    if socket.is_none() {
+        *socket = UdpSocket::bind("0.0.0.0:0")
+            .ok()
+            .filter(|s| s.set_broadcast(true).is_ok());
+    }
+    let Some(s) = socket.as_ref() else { return };
+    let beacon = ourcraft_common::protocol::LanBeacon {
+        protocol: PROTOCOL_ID,
+        name: config.server_name.clone(),
+        motd: config.motd.clone(),
+        port: bind.port(),
+        players: net.server.connected_clients() as u16,
+        max_players: config.max_players as u16,
+        game_mode: open.and_then(|o| o.meta.game_mode.clone()),
+    };
+    let bytes = protocol::encode(&beacon);
+    let target = (
+        std::net::Ipv4Addr::BROADCAST,
+        ourcraft_common::protocol::LAN_DISCOVERY_PORT,
+    );
+    // Failing to broadcast (no network, not allowed) just means no listing.
+    let _ = s.send_to(&bytes, target);
 }
 
 /// Disconnect everyone politely (used when shutting down).

@@ -25,6 +25,10 @@ impl Plugin for RemotePlayersPlugin {
             .add_systems(Startup, create_avatar_meshes)
             .add_systems(PreUpdate, handle_player_messages.after(NetReceiveSet))
             .add_systems(
+                PreUpdate,
+                reset_players.run_if(on_message::<crate::net::SessionEnded>),
+            )
+            .add_systems(
                 Update,
                 (
                     apply_appearances,
@@ -311,6 +315,20 @@ fn apply_appearances(
             };
         }
     }
+}
+
+fn reset_players(
+    mut commands: Commands,
+    mut players: ResMut<RemotePlayers>,
+    avatars: Query<&RemotePlayer>,
+) {
+    for (_, e) in players.entities.drain() {
+        if let Ok(p) = avatars.get(e) {
+            commands.entity(p.nameplate).despawn();
+        }
+        commands.entity(e).despawn();
+    }
+    players.appearances.clear();
 }
 
 /// Blend between the two updates around (now − delay).

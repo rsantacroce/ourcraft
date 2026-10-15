@@ -28,6 +28,7 @@ pub struct NetPlugin;
 impl Plugin for NetPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<FromServer>()
+            .add_message::<SessionEnded>()
             .add_systems(Startup, connect_from_launch_options)
             .add_systems(
                 PreUpdate,
@@ -60,6 +61,27 @@ pub struct NetSendSet;
 #[derive(Message, Debug, Clone)]
 pub struct FromServer(pub ServerMessage);
 
+/// A single-player world to start (or create).
+#[derive(Debug, Clone)]
+pub struct SinglePlayer {
+    /// Folder name under the saves folder.
+    pub folder: String,
+    pub world_name: String,
+    /// For a new world (random if `None`).
+    pub seed: Option<u64>,
+    /// Let others on the local network join.
+    pub lan: bool,
+    /// Game mode for a new world.
+    pub mode: Option<String>,
+    /// Creative (fly, endless blocks) or survival, for a new world.
+    pub creative: bool,
+}
+
+/// Sent when we leave a game (quit to the title screen), so every part of
+/// the client can clear what it knew about that world.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct SessionEnded;
+
 /// What to do on startup (from the command line until the menu in M10):
 /// - `ourcraft` → single player, world "My World"
 /// - `ourcraft --world NAME [--seed N] [--lan] [--mode team_shooter]` →
@@ -75,6 +97,7 @@ pub enum LaunchOptions {
         name: String,
         /// Game mode for a new world (e.g. "team_shooter").
         mode: Option<String>,
+        creative: bool,
     },
     Join {
         address: String,
@@ -97,12 +120,17 @@ impl LaunchOptions {
         if let Some(address) = value("--connect") {
             return Self::Join { address, name };
         }
+        // No world chosen on the command line: show the main menu.
+        if value("--world").is_none() {
+            return Self::None;
+        }
         Self::SinglePlayer {
             world: value("--world").unwrap_or_else(|| "My World".into()),
             seed: value("--seed").and_then(|s| s.parse().ok()),
             lan: args.iter().any(|a| a == "--lan"),
             name,
             mode: value("--mode"),
+            creative: !args.iter().any(|a| a == "--survival"),
         }
     }
 }
@@ -215,22 +243,20 @@ pub struct Connection {
 
 impl Connection {
     /// Start single player: run a server in the background and connect to it.
-    pub fn single_player(
-        world: &str,
-        seed: Option<u64>,
-        lan: bool,
-        name: &str,
-        mode: Option<String>,
-    ) -> Self {
+    pub fn single_player(opts: &SinglePlayer, name: &str) -> Self {
+        let world = opts.world_name.as_str();
         let config = ServerConfig {
-            game_mode: mode,
+            game_mode: opts.mode.clone(),
+            creative: opts.creative,
             // Extra mods can be dropped in here (next to the worlds folder).
             mods_dir: saves_dir().parent().map(|p| p.join("mods")),
-            world_dir: saves_dir().join(folder_name(world)),
+            world_dir: saves_dir().join(&opts.folder),
             world_name: world.to_owned(),
-            seed,
+            seed: opts.seed,
             server_name: format!("{name}'s world"),
-            bind: lan.then(|| SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT))),
+            bind: opts
+                .lan
+                .then(|| SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT))),
             ..default()
         };
         info!("Starting single player world '{world}'");
@@ -376,10 +402,23 @@ impl Drop for Connection {
     }
 }
 
-fn connect_from_launch_options(mut commands: Commands, options: Option<Res<LaunchOptions>>) {
-    let options = options
+fn connect_from_launch_options(
+    mut commands: Commands,
+    options: Option<Res<LaunchOptions>>,
+    settings: Res<crate::settings::ClientSettings>,
+) {
+    let mut options = options
         .map(|o| o.clone())
         .unwrap_or_else(LaunchOptions::from_args);
+    // Without --name, use the name from Settings.
+    if !std::env::args().any(|a| a == "--name") {
+        match &mut options {
+            LaunchOptions::SinglePlayer { name, .. } | LaunchOptions::Join { name, .. } => {
+                *name = settings.name.clone();
+            }
+            LaunchOptions::None => {}
+        }
+    }
     let lag = LagSettings::from_args();
     if lag.is_on() {
         info!("Simulating lag: {lag:?}");
@@ -392,8 +431,17 @@ fn connect_from_launch_options(mut commands: Commands, options: Option<Res<Launc
             lan,
             name,
             mode,
+            creative,
         } => {
-            let mut conn = Connection::single_player(&world, seed, lan, &name, mode);
+            let opts = SinglePlayer {
+                folder: folder_name(&world),
+                world_name: world,
+                seed,
+                lan,
+                mode,
+                creative,
+            };
+            let mut conn = Connection::single_player(&opts, &name);
             conn.lag = lag;
             commands.insert_resource(conn);
         }

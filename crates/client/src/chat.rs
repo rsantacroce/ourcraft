@@ -23,7 +23,12 @@ impl Plugin for ChatPlugin {
             .init_resource::<ChatInput>()
             .add_systems(Startup, spawn_chat_ui)
             .add_systems(PreUpdate, collect_messages.after(NetReceiveSet))
-            .add_systems(Update, (type_chat, update_chat_ui).chain());
+            .add_systems(Update, (type_chat, update_chat_ui).chain())
+            .add_systems(
+                PreUpdate,
+                (|mut log: ResMut<ChatLog>| log.lines.clear())
+                    .run_if(on_message::<crate::net::SessionEnded>),
+            );
     }
 }
 
@@ -179,16 +184,22 @@ fn spawn_chat_ui(mut commands: Commands) {
         });
 }
 
-/// Format a chat line for display.
-pub fn format_line(line: &ChatLine) -> String {
+/// Format a chat line for display, optionally hiding rude words.
+pub fn format_line(line: &ChatLine, filter: bool) -> String {
+    let text = if filter {
+        crate::profanity::filter(&line.text)
+    } else {
+        line.text.clone()
+    };
     match &line.from {
-        Some(name) => format!("<{name}> {}", line.text),
-        None => format!("* {}", line.text),
+        Some(name) => format!("<{name}> {text}"),
+        None => format!("* {text}"),
     }
 }
 
 fn update_chat_ui(
     time: Res<Time<Real>>,
+    settings: Res<crate::settings::ClientSettings>,
     log: Res<ChatLog>,
     input: Res<ChatInput>,
     focus: Res<UiFocus>,
@@ -201,7 +212,7 @@ fn update_chat_ui(
         .lines
         .iter()
         .filter(|l| focus.chat_open || now - l.at < SHOW_SECS)
-        .map(format_line)
+        .map(|l| format_line(l, settings.chat_filter))
         .collect();
     let start = recent.len().saturating_sub(MAX_LINES);
     lines.0 = recent[start..].join("\n");

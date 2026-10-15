@@ -1,5 +1,6 @@
 //! The Ourcraft client: rendering, input and (for now) the whole game.
 
+pub mod audio;
 pub mod chat;
 pub mod entities;
 pub mod gamemode;
@@ -8,10 +9,13 @@ pub mod hud;
 pub mod input;
 pub mod interaction;
 pub mod inventory_ui;
+pub mod lan;
+pub mod menu;
 pub mod meshing;
 pub mod net;
 pub mod paths;
 pub mod player;
+pub mod profanity;
 pub mod remote_players;
 pub mod render;
 pub mod settings;
@@ -42,6 +46,12 @@ impl Plugin for ClientPlugin {
                 hud::HudPlugin,
                 chat::ChatPlugin,
                 gamemode::GameModePlugin,
+            ))
+            // (Bevy accepts at most 15 plugins per call.)
+            .add_plugins((
+                menu::MenuPlugin,
+                audio::SoundPlugin,
+                lan::LanPlugin,
                 entities::EntitiesPlugin,
             ));
     }

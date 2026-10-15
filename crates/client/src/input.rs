@@ -62,6 +62,9 @@ pub struct Actions {
     pub hotbar_select: Option<usize>,
     /// Scroll through the hotbar: positive = next slot.
     pub hotbar_scroll: i32,
+    /// Open (or close) the pause menu (touch Menu button; Esc is read
+    /// directly by the menu).
+    pub open_menu: bool,
 }
 
 #[derive(Resource, Debug)]

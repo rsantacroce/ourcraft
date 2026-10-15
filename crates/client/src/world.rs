@@ -40,6 +40,10 @@ impl Plugin for WorldPlugin {
             .init_resource::<ChunkStreaming>()
             .add_systems(PreUpdate, handle_world_messages.after(NetReceiveSet))
             .add_systems(
+                PreUpdate,
+                reset_world.run_if(on_message::<crate::net::SessionEnded>),
+            )
+            .add_systems(
                 Update,
                 (
                     apply_block_edits,
@@ -196,6 +200,19 @@ fn handle_world_messages(
             _ => {}
         }
     }
+}
+
+/// Leaving a game: forget its world.
+fn reset_world(
+    mut commands: Commands,
+    mut world: ResMut<ClientWorld>,
+    mut streaming: ResMut<ChunkStreaming>,
+) {
+    for (_, e) in streaming.entities.drain() {
+        e.despawn(&mut commands);
+    }
+    *streaming = ChunkStreaming::default();
+    world.0 = VoxelWorld::new();
 }
 
 fn viewer_column(viewer: &Transform) -> ColumnPos {

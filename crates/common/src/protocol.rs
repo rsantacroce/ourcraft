@@ -24,6 +24,24 @@ pub const PROTOCOL_VERSION: u64 = 4;
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
 pub const DEFAULT_PORT: u16 = 41_700;
+/// UDP port where servers announce themselves on the local network.
+pub const LAN_DISCOVERY_PORT: u16 = 41_701;
+
+/// A server's "I'm here!" broadcast on the local network, sent every
+/// second so the Join screen can list it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LanBeacon {
+    /// Always `PROTOCOL_ID`, so other programs' broadcasts are ignored.
+    pub protocol: u64,
+    pub name: String,
+    pub motd: String,
+    /// Game port to connect to.
+    pub port: u16,
+    pub players: u16,
+    pub max_players: u16,
+    pub game_mode: Option<String>,
+}
+
 /// Max length of a player name, in characters.
 pub const MAX_NAME_LEN: usize = 16;
 /// Max length of a chat message, in characters.

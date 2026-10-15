@@ -1,0 +1,105 @@
+# Ourcraft
+
+A blocky sandbox game in Rust: infinite generated worlds to explore and
+build in, multiplayer, mods, and a cartoon team game mode called
+**Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
+
+## Play
+
+```sh
+cargo run --release            # main menu
+```
+
+The first build takes a few minutes; after that it's quick.
+
+From the menu: **Play** (your worlds, or make a new one; pick *Build* or
+*Splat Squad*), **Join a friend** (games on your network, or type an
+address), **Settings**.
+
+Shortcuts from the command line:
+
+```sh
+cargo run --release -- --world "My World"                 # straight into a world
+cargo run --release -- --world Arena --mode team_shooter  # a Splat Squad world
+cargo run --release -- --world "My World" --lan           # let your network join
+cargo run --release -- --connect 192.168.1.20 --name Sam  # join a server
+cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad network
+```
+
+### Controls
+
+| Keyboard / mouse | Gamepad | Touch |
+|---|---|---|
+| WASD move, mouse look | left stick, right stick | left thumb joystick, drag to look |
+| Space jump (double-tap: fly) | A | Jump button (auto-jump steps) |
+| Shift down, Ctrl run | B, left stick click | Down button, push stick fully |
+| Left click break / use | right trigger | press and hold |
+| Right click place | left trigger | tap |
+| Middle click pick block | D-pad up | |
+| 1–9, wheel: hotbar | bumpers | tap a slot |
+| E inventory, F fly, G creative/survival | Y, X | Bag, Fly buttons |
+| Enter chat, Esc menu | | Menu button |
+| F3 info text, F7 simulate lag, T skip an hour, [ ] view distance | | |
+
+## Dedicated server
+
+```sh
+cargo run --release -p ourcraft_server --bin ourcraft-server -- \
+    --world world --port 41700 [--mode team_shooter] [--survival]
+```
+
+Worlds are saved in `./worlds/`, extra mods are loaded from `./mods/`.
+Ctrl+C saves and stops. The server is headless (no window, minimal Bevy).
+
+## Phones and tablets
+
+- **iPad/iPhone:** `cd mobile/ios && make run` builds and starts it in the
+  iPad simulator. For a real device, open `mobile/ios/ourcraft_mobile.xcodeproj`
+  in Xcode, choose your team under *Signing*, and press Run. Change the
+  bundle id `org.ourcraft.game` to your own.
+- **Android:** `mobile/android/build.sh` builds `app-release.apk` (needs the
+  Android SDK + NDK, `rustup target add aarch64-linux-android` and
+  `cargo install cargo-ndk`). Install with `adb install -r …`.
+
+## Mods
+
+Mods are WebAssembly modules that run sandboxed on the server (no files,
+no network). See [mods/README.md](mods/README.md). Build them with
+`mods/build.sh`; the game bundles `mods/dist/*.wasm`.
+
+## How it's built
+
+```
+crates/common    shared: blocks, chunks, world generation, physics,
+                 prediction, saves, network protocol (no Bevy)
+crates/client    the game: rendering, meshing, input, UI, sound
+crates/server    authoritative server: world, players, entities, mods;
+                 dedicated binary or embedded for single player
+crates/mod_api   the versioned mod API (shared by game and mods)
+crates/mod_host  runs mods with wasmtime (fuel + memory limits)
+mods/            paint_blocks (example), team_shooter (Splat Squad)
+mobile/          iOS (Xcode) and Android (Gradle) launchers
+```
+
+- **World:** 16³ chunks in columns 256 blocks tall, palette-compressed;
+  greedy meshing with ambient occlusion on background threads; a texture
+  array with mipmaps; fog; day/night.
+- **Saves:** region files of 32×32 columns, LZ4-compressed, only edited
+  columns stored; block ids saved by name so mods can come and go.
+- **Network:** renet over UDP (netcode handshake). Single player uses the
+  same server through an in-memory link. Movement is server-authoritative
+  with client-side prediction and reconciliation; other players are
+  interpolated.
+- **Mods:** postcard-encoded messages over a single `ourcraft.call` import;
+  Cranelift on desktop/Android, the Pulley interpreter on iOS.
+
+## Tests
+
+```sh
+cargo test --workspace     # unit tests + an end-to-end Splat Squad test
+```
+
+## Versions
+
+Rust 1.96, Bevy 0.19.1 (pinned: the networking ecosystem wasn't on 0.20 yet),
+renet 2.0, wasmtime 49.0.3, fastnoise-lite 1.1, postcard 1.1, lz4_flex 0.14.

@@ -74,6 +74,8 @@ enum TouchButton {
     Down,
     Fly,
     Inventory,
+    /// Opens the pause menu (top left).
+    Menu,
 }
 
 const JOYSTICK_RADIUS: f32 = 70.0;
@@ -105,14 +107,16 @@ fn button_layout(button: TouchButton) -> (Vec2, f32) {
         TouchButton::Down => (Vec2::new(-215.0, -215.0), 40.0),
         TouchButton::Fly => (Vec2::new(-95.0, -225.0), 34.0),
         TouchButton::Inventory => (Vec2::new(-60.0, 0.0), 32.0), // placed at the top
+        TouchButton::Menu => (Vec2::ZERO, 30.0),                 // top left
     }
 }
 
-const BUTTONS: [TouchButton; 4] = [
+const BUTTONS: [TouchButton; 5] = [
     TouchButton::Jump,
     TouchButton::Down,
     TouchButton::Fly,
     TouchButton::Inventory,
+    TouchButton::Menu,
 ];
 
 /// Screen-space centre of a button for a window of `size`.
@@ -120,6 +124,8 @@ fn button_center(button: TouchButton, size: Vec2) -> Vec2 {
     let (offset, _) = button_layout(button);
     if button == TouchButton::Inventory {
         Vec2::new(size.x + offset.x, 60.0)
+    } else if button == TouchButton::Menu {
+        Vec2::new(56.0, 56.0)
     } else {
         size + offset
     }
@@ -189,6 +195,7 @@ fn touch_actions(
                 TouchButton::Jump => actions.jump_pressed = true,
                 TouchButton::Fly => actions.toggle_fly = true,
                 TouchButton::Inventory => actions.toggle_inventory = true,
+                TouchButton::Menu => actions.open_menu = true,
                 TouchButton::Down => {}
             }
         }
@@ -308,6 +315,7 @@ fn spawn_touch_ui(mut commands: Commands) {
                 TouchButton::Down => "Down",
                 TouchButton::Fly => "Fly",
                 TouchButton::Inventory => "Bag",
+                TouchButton::Menu => "Menu",
             };
             ui.spawn((
                 circle(r, Color::srgba(0.0, 0.0, 0.0, 0.3)),

@@ -85,7 +85,7 @@ fn update_status(
 ) {
     let text = match conn.as_deref().map(|c| (&c.status, c)) {
         Some((Status::Connecting, c)) => Some(format!("Connecting to {}…", c.target)),
-        Some((Status::Disconnected(reason), _)) => Some(format!("Disconnected: {reason}")),
+
         _ => None,
     };
     if *shown == text {
@@ -116,14 +116,32 @@ fn update_status(
     *shown = text;
 }
 
+/// F3 (or the setting) shows or hides the info text.
 fn toggle_debug(
     keys: Res<ButtonInput<KeyCode>>,
-    mut texts: Query<&mut Visibility, Or<(With<DebugText>, With<HelpText>)>>,
+    focus: Res<crate::input::UiFocus>,
+    mut settings: ResMut<crate::settings::ClientSettings>,
+    mut debug: Query<&mut Visibility, (With<DebugText>, Without<HelpText>)>,
+    mut help: Query<&mut Visibility, (With<HelpText>, Without<DebugText>)>,
 ) {
-    if keys.just_pressed(KeyCode::F3) {
-        for mut v in &mut texts {
-            v.toggle_visible_hidden();
-        }
+    if keys.just_pressed(KeyCode::F3) && !focus.chat_open {
+        settings.show_debug = !settings.show_debug;
+    }
+    if !settings.is_changed() {
+        return;
+    }
+    let vis = if settings.show_debug {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    };
+    for mut v in &mut debug {
+        *v = vis;
+    }
+    // The keyboard help only makes sense with a keyboard.
+    let mobile = cfg!(any(target_os = "ios", target_os = "android"));
+    for mut v in &mut help {
+        *v = if mobile { Visibility::Hidden } else { vis };
     }
 }
 

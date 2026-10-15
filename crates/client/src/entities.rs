@@ -21,7 +21,11 @@ impl Plugin for EntitiesPlugin {
             .init_resource::<EntityMap>()
             .add_systems(Startup, setup_particle_mesh)
             .add_systems(PreUpdate, handle_messages.after(NetReceiveSet))
-            .add_systems(Update, (move_entities, update_particles));
+            .add_systems(Update, (move_entities, update_particles))
+            .add_systems(
+                PreUpdate,
+                reset_entities.run_if(on_message::<crate::net::SessionEnded>),
+            );
     }
 }
 
@@ -207,6 +211,19 @@ fn handle_messages(
             }
             _ => {}
         }
+    }
+}
+
+fn reset_entities(
+    mut commands: Commands,
+    mut map: ResMut<EntityMap>,
+    particles: Query<Entity, With<Particle>>,
+) {
+    for (_, e) in map.0.drain() {
+        commands.entity(e).despawn();
+    }
+    for e in &particles {
+        commands.entity(e).despawn();
     }
 }
 
