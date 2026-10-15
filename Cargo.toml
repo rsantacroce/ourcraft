@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/common", "crates/client"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+ourcraft_common = { path = "crates/common" }
+# Pinned exactly: the networking crates we'll add in M6 target Bevy 0.19.
+bevy = "=0.19.1"
+
+# Bevy is slow when compiled without optimizations. Optimize dependencies fully
+# and our own code a little, so debug builds are still playable.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

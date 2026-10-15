@@ -1,0 +1,19 @@
+[package]
+name = "ourcraft_client"
+description = "The Ourcraft game client."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ourcraft_common.workspace = true
+bevy.workspace = true
+
+# The library holds the whole game; `main.rs` is a thin desktop launcher.
+# Android and iOS launchers (M4) will wrap the same library.
+[lib]
+name = "ourcraft_client"
+
+[[bin]]
+name = "ourcraft"
+path = "src/main.rs"

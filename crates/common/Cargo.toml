@@ -1,0 +1,10 @@
+[package]
+name = "ourcraft_common"
+description = "Shared types for Ourcraft: blocks, chunks and (later) world generation and protocol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Deliberately has no dependencies (not even Bevy) so it can be shared by the
+# client, the headless server and the mod host, and so its tests run fast.
+[dependencies]
