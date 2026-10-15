@@ -132,3 +132,5 @@ existing mod API; "engine" means the game itself needs changes.
   world names).
 - Ask Apple for the multicast permission so LAN discovery works on iOS.
 - Move to Bevy 0.20 once the networking crates support it.
+- Sunset sky looks muddy brown; make the colours warmer and brighter.
+- The sun is drawn as a clipped triangle instead of a square.
