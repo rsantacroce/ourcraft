@@ -389,11 +389,14 @@ impl WorldStorage {
     ) -> io::Result<T> {
         let rpos = RegionPos::of(col);
         let mut regions = self.regions.lock().unwrap();
-        if !regions.contains_key(&rpos) {
-            let path = self.dir.join("region").join(rpos.file_name());
-            regions.insert(rpos, RegionFile::open(&path)?);
-        }
-        f(regions.get_mut(&rpos).unwrap())
+        let region = match regions.entry(rpos) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                let path = self.dir.join("region").join(rpos.file_name());
+                e.insert(RegionFile::open(&path)?)
+            }
+        };
+        f(region)
     }
 
     /// Load a saved column, or `None` if it was never saved (generate it).
