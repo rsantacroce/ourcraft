@@ -4,6 +4,8 @@ A blocky sandbox game in Rust: infinite generated worlds to explore and
 build in, multiplayer, mods, and a cartoon team game mode called
 **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
 
+**Website and player manual:** https://rsantacroce.github.io/ourcraft-site/
+
 ## Play
 
 ```sh
@@ -103,3 +105,8 @@ cargo test --workspace     # unit tests + an end-to-end Splat Squad test
 
 Rust 1.96, Bevy 0.19.1 (pinned: the networking ecosystem wasn't on 0.20 yet),
 renet 2.0, wasmtime 49.0.3, fastnoise-lite 1.1, postcard 1.1, lz4_flex 0.14.
+
+## License
+
+MIT. See [LICENSE](LICENSE). All textures, sounds, models and names in the
+game are original.
