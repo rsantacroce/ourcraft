@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 2;
+pub const PROTOCOL_VERSION: u64 = 3;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -73,6 +73,18 @@ pub struct NetInput {
     pub pitch: f32,
 }
 
+/// Everything mods add, sent to each client when it joins so it can draw
+/// the new blocks, models and tools.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct ContentPack {
+    /// Every block (built-in and from mods), in id order.
+    pub blocks: Vec<crate::block::BlockDef>,
+    /// Textures added by mods: (name, 16×16 RGBA).
+    pub textures: Vec<(String, Vec<u8>)>,
+    pub models: Vec<ourcraft_mod_api::ModelSpec>,
+    pub tools: Vec<ourcraft_mod_api::ToolSpec>,
+}
+
 /// One inventory slot: (block id, count).
 pub type NetSlot = Option<(u16, u16)>;
 
@@ -112,6 +124,8 @@ pub struct PlayerInfo {
     pub name: String,
 }
 
+// `Welcome` is big, but it's only sent once per connection.
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ServerMessage {
     /// Reply to `Hello`: everything the client needs to start playing.
@@ -125,9 +139,8 @@ pub enum ServerMessage {
         state: NetPlayerState,
         /// Saved inventory, if the server knows this player.
         inventory: Option<(Vec<NetSlot>, u8)>,
-        /// Block names in id order, so the client can check it has the same
-        /// blocks (mods add their own).
-        block_names: Vec<String>,
+        /// Blocks, textures, models and tools (including mods' additions).
+        content: ContentPack,
         /// Players already online.
         players: Vec<PlayerInfo>,
     },
@@ -237,7 +250,13 @@ mod tests {
                 time_of_day: 0.5,
                 state: NetPlayerState::default(),
                 inventory: Some((vec![Some((2, 10))], 0)),
-                block_names: vec!["core:air".into(), "core:stone".into()],
+                content: ContentPack {
+                    blocks: crate::block::BlockRegistry::with_builtin_blocks()
+                        .defs()
+                        .to_vec(),
+                    textures: vec![("m:t".into(), vec![1, 2, 3, 4])],
+                    ..Default::default()
+                },
                 players: vec![PlayerInfo {
                     id: 3,
                     name: "Sam".into(),

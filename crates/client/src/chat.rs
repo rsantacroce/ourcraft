@@ -76,33 +76,42 @@ fn collect_messages(
 }
 
 fn type_chat(
-    keys: Res<ButtonInput<KeyCode>>,
     mut typed: MessageReader<KeyboardInput>,
     mut focus: ResMut<UiFocus>,
     mut input: ResMut<ChatInput>,
     conn: Option<ResMut<Connection>>,
 ) {
+    // Opening and typing both read the same key events, so one key press
+    // can never count twice.
+    let presses: Vec<Key> = typed
+        .read()
+        .filter(|e| e.state == ButtonState::Pressed)
+        .map(|e| e.logical_key.clone())
+        .collect();
+    let mut presses = presses.into_iter();
     if !focus.chat_open {
-        typed.clear();
-        let can_open = !focus.inventory_open && !focus.menu_open;
-        if can_open && (keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Slash)) {
-            focus.chat_open = true;
-            input.text.clear();
-            if keys.just_pressed(KeyCode::Slash) {
-                input.text.push('/');
-            }
+        if focus.inventory_open || focus.menu_open {
+            return;
         }
-        return;
+        // Enter opens chat; `/` opens it ready for a command.
+        let Some(opener) = presses.find(|k| {
+            matches!(k, Key::Enter) || matches!(k, Key::Character(c) if c.as_str() == "/")
+        }) else {
+            return;
+        };
+        focus.chat_open = true;
+        input.text.clear();
+        if matches!(opener, Key::Character(_)) {
+            input.text.push('/');
+        }
     }
-    for ev in typed.read() {
-        if ev.state != ButtonState::Pressed {
-            continue;
-        }
-        match &ev.logical_key {
+    let mut conn = conn;
+    for key in presses {
+        match &key {
             Key::Enter => {
                 let text = input.text.trim().to_owned();
                 if !text.is_empty()
-                    && let Some(mut conn) = conn
+                    && let Some(conn) = conn.as_mut()
                 {
                     conn.send(Channel::Reliable, &ClientMessage::Chat { text });
                 }

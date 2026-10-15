@@ -16,10 +16,10 @@ use ourcraft_common::world::{ColumnPos, WORLD_HEIGHT};
 use renet::ClientId;
 
 use crate::ServerConfig;
+use crate::mods::{Content, ModQueue, PendingEdit};
 use crate::net::{ClientConnected, ClientDisconnected, FromClient, Network};
 use crate::world::{
     ColumnCache, OpenWorld, Registry, ServerWorld, WantedColumns, WorldSet, encoded_column,
-    set_block,
 };
 
 /// How far players can reach, plus some slack for lag.
@@ -42,6 +42,7 @@ impl Plugin for PlayersPlugin {
                     on_connect,
                     on_disconnect,
                     handle_messages,
+                    crate::mods::run_mods,
                     simulate_players,
                     hello_timeout,
                     compute_wanted_columns,
@@ -147,6 +148,7 @@ fn on_disconnect(
     mut players: ResMut<Players>,
     query: Query<&ConnectedPlayer>,
     open: Res<OpenWorld>,
+    mut queue: ResMut<ModQueue>,
     mut net: ResMut<Network>,
 ) {
     for ev in events.read() {
@@ -154,6 +156,11 @@ fn on_disconnect(
             continue;
         };
         if let Ok(p) = query.get(e) {
+            if p.name.is_some() {
+                queue
+                    .events
+                    .push(ourcraft_mod_api::Event::PlayerLeft { player: ev.client });
+            }
             save_player(&open, p);
             if let Some(name) = &p.name {
                 info!("{name} left ({})", ev.reason);
@@ -204,8 +211,9 @@ fn handle_messages(
     config: Res<ServerConfig>,
     mut open: ResMut<OpenWorld>,
     registry: Res<Registry>,
-    mut world: ResMut<ServerWorld>,
-    mut cache: ResMut<ColumnCache>,
+    world: Res<ServerWorld>,
+    content: Res<Content>,
+    mut queue: ResMut<ModQueue>,
     mut net: ResMut<Network>,
 ) {
     for FromClient { client, msg } in messages.read() {
@@ -287,7 +295,7 @@ fn handle_messages(
                         time_of_day: open.time_of_day(),
                         state: p.state,
                         inventory,
-                        block_names: registry.0.iter().map(|(_, d)| d.name.clone()).collect(),
+                        content: content.0.clone(),
                         players: others,
                     },
                 );
@@ -300,6 +308,10 @@ fn handle_messages(
                     Channel::Reliable,
                     &ServerMessage::PlayerJoined(info),
                 );
+                queue.events.push(ourcraft_mod_api::Event::PlayerJoined {
+                    player: *client,
+                    name: name.clone(),
+                });
                 net.broadcast(
                     Channel::Reliable,
                     &ServerMessage::Chat {
@@ -347,27 +359,24 @@ fn handle_messages(
                 let others: Vec<Vec3> = query.iter().map(|o| o.feet()).collect();
                 let ok = edit_allowed(&world, &registry.0, p, &others, pos, block);
                 let current = world.get_block(pos.x, pos.y, pos.z);
-                if ok && set_block(&mut world, &mut cache, &open, pos, block).is_some() {
-                    let msg = ServerMessage::BlockChanged {
-                        pos: pos.to_array(),
-                        block: block.0,
-                    };
-                    let col = ColumnPos::from_block(pos.x, pos.z);
-                    for other in &query {
-                        if other.sent.contains(&col) {
-                            net.send(other.client, Channel::Reliable, &msg);
-                        }
-                    }
-                } else if let Some(actual) = current {
+                match (ok, current) {
+                    // Allowed so far: mods get a say before it happens.
+                    (true, Some(old)) => queue.edits.push(PendingEdit {
+                        client: *client,
+                        pos,
+                        old,
+                        new: block,
+                    }),
                     // Refused: put the client's copy back the way it was.
-                    net.send(
+                    (false, Some(actual)) => net.send(
                         *client,
                         Channel::Reliable,
                         &ServerMessage::BlockChanged {
                             pos: pos.to_array(),
                             block: actual.0,
                         },
-                    );
+                    ),
+                    _ => {}
                 }
             }
             ClientMessage::Chat { text } => {
@@ -399,14 +408,8 @@ fn handle_messages(
                     }
                     continue;
                 }
-                info!("<{name}> {text}");
-                net.broadcast(
-                    Channel::Reliable,
-                    &ServerMessage::Chat {
-                        from: Some(name),
-                        text,
-                    },
-                );
+                // Mods may want it (commands); otherwise it's shown to everyone.
+                queue.chats.push((*client, name, text));
             }
         }
     }
@@ -450,7 +453,7 @@ fn simulate_players(
 fn run_command(text: &str, open: &mut OpenWorld) -> Option<String> {
     let mut words = text.split_whitespace();
     match words.next()? {
-        "/help" => Some("Commands: /time day, /time night".into()),
+        "/help" => Some("Commands: /time day, /time night (mods may add more)".into()),
         "/time" => match words.next() {
             Some("day") => {
                 open.meta.time_of_day = 0.3;
@@ -462,7 +465,7 @@ fn run_command(text: &str, open: &mut OpenWorld) -> Option<String> {
             }
             _ => Some("Use /time day or /time night".into()),
         },
-        cmd if cmd.starts_with('/') => Some(format!("Unknown command {cmd}. Try /help")),
+        // Anything else might be a mod's command.
         _ => None,
     }
 }

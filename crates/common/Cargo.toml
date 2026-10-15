@@ -13,6 +13,7 @@ fastnoise-lite = "1.1"
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 lz4_flex = "0.14"
+ourcraft_mod_api.workspace = true
 
 [lints]
 workspace = true

@@ -44,7 +44,7 @@ const HEADER_SECTORS: u64 = HEADER_BYTES.div_ceil(SECTOR);
 /// Version of the column encoding inside region files.
 const COLUMN_FORMAT: u8 = 1;
 /// Version of `world.dat` and player files.
-pub const META_VERSION: u32 = 1;
+pub const META_VERSION: u32 = 2;
 
 fn invalid(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
@@ -282,6 +282,19 @@ pub struct WorldMeta {
     pub block_names: Vec<String>,
     /// True for creative worlds.
     pub creative: bool,
+    /// A game mode provided by a mod (e.g. `"team_shooter"`), if any.
+    pub game_mode: Option<String>,
+}
+
+/// `world.dat` as saved by version 1 (before game modes).
+#[derive(Deserialize)]
+struct WorldMetaV1 {
+    version: u32,
+    name: String,
+    seed: u64,
+    time_of_day: f32,
+    block_names: Vec<String>,
+    creative: bool,
 }
 
 impl WorldMeta {
@@ -293,6 +306,7 @@ impl WorldMeta {
             time_of_day: 0.3,
             block_names: registry.iter().map(|(_, d)| d.name.clone()).collect(),
             creative: true,
+            game_mode: None,
         }
     }
 }
@@ -449,9 +463,26 @@ impl WorldStorage {
         if !path.exists() {
             return Ok(None);
         }
-        let meta: WorldMeta =
-            postcard::from_bytes(&fs::read(path)?).map_err(|e| invalid(e.to_string()))?;
-        Ok(Some(meta))
+        let bytes = fs::read(path)?;
+        if let Ok(meta) = postcard::from_bytes::<WorldMeta>(&bytes)
+            && meta.version == META_VERSION
+        {
+            return Ok(Some(meta));
+        }
+        // Older worlds: upgrade on the fly.
+        let old: WorldMetaV1 = postcard::from_bytes(&bytes).map_err(|e| invalid(e.to_string()))?;
+        if old.version != 1 {
+            return Err(invalid(format!("unknown world version {}", old.version)));
+        }
+        Ok(Some(WorldMeta {
+            version: META_VERSION,
+            name: old.name,
+            seed: old.seed,
+            time_of_day: old.time_of_day,
+            block_names: old.block_names,
+            creative: old.creative,
+            game_mode: None,
+        }))
     }
 
     pub fn save_meta(&self, meta: &WorldMeta) -> io::Result<()> {
@@ -632,6 +663,36 @@ mod tests {
 
         let worlds = list_worlds(dir.parent().unwrap());
         assert!(worlds.iter().any(|(_, m)| m.name == "Test World"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn version_1_worlds_still_load() {
+        #[derive(Serialize)]
+        struct V1 {
+            version: u32,
+            name: String,
+            seed: u64,
+            time_of_day: f32,
+            block_names: Vec<String>,
+            creative: bool,
+        }
+        let dir = temp_dir("v1meta");
+        let storage = WorldStorage::open(&dir).unwrap();
+        let old = V1 {
+            version: 1,
+            name: "Old".into(),
+            seed: 5,
+            time_of_day: 0.4,
+            block_names: vec!["core:air".into()],
+            creative: false,
+        };
+        fs::write(dir.join("world.dat"), postcard::to_allocvec(&old).unwrap()).unwrap();
+        let meta = storage.load_meta().unwrap().unwrap();
+        assert_eq!(meta.name, "Old");
+        assert_eq!(meta.seed, 5);
+        assert!(!meta.creative);
+        assert_eq!(meta.game_mode, None);
         fs::remove_dir_all(dir).unwrap();
     }
 

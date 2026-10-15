@@ -4,8 +4,10 @@
 //! it (its name, whether it's solid, which textures it uses) lives once in the
 //! [`BlockRegistry`]. Mods will add entries to this registry in M8.
 
+use serde::{Deserialize, Serialize};
+
 /// Identifies a kind of block. Index into [`BlockRegistry`].
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize)]
 pub struct BlockId(pub u16);
 
 impl BlockId {
@@ -76,8 +78,8 @@ impl Face {
 
 /// Texture names for each face of a block. The client turns names into
 /// texture-array layers; names (rather than numbers) let mods ship their own
-/// textures later without clashing.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// textures without clashing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockTextures {
     pub top: String,
     pub bottom: String,
@@ -112,7 +114,7 @@ impl BlockTextures {
 }
 
 /// How a block is drawn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenderKind {
     /// Not drawn at all (air).
     Invisible,
@@ -127,7 +129,7 @@ pub enum RenderKind {
 }
 
 /// What you get when you break a block (in survival).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Drops {
     /// The block itself.
     Itself,
@@ -136,7 +138,7 @@ pub enum Drops {
     Nothing,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockDef {
     /// Namespaced name, e.g. `"core:stone"`. Mods use their own namespace.
     pub name: String,
@@ -267,6 +269,48 @@ impl BlockRegistry {
             ..BlockDef::solid("core:water", "Water", T::all("water"))
         });
         reg
+    }
+
+    /// A registry from a full list of definitions, in id order (as sent by
+    /// the server). The first must be air.
+    pub fn from_defs(defs: Vec<BlockDef>) -> Option<Self> {
+        let air_first = defs
+            .first()
+            .is_some_and(|d| d.render == RenderKind::Invisible);
+        (air_first && defs.len() <= u16::MAX as usize).then_some(Self { defs })
+    }
+
+    /// All definitions in id order.
+    pub fn defs(&self) -> &[BlockDef] {
+        &self.defs
+    }
+
+    /// Add a block made from a mod's description. Returns `None` if the name
+    /// is taken.
+    pub fn register_spec(&mut self, spec: &ourcraft_mod_api::BlockSpec) -> Option<BlockId> {
+        use ourcraft_mod_api::Render;
+        if self.by_name(&spec.name).is_some() {
+            return None;
+        }
+        Some(self.register(BlockDef {
+            name: spec.name.clone(),
+            display_name: spec.display_name.clone(),
+            render: match spec.render {
+                Render::Opaque => RenderKind::Opaque,
+                Render::Cutout => RenderKind::Cutout,
+                Render::Translucent => RenderKind::Translucent,
+            },
+            solid: spec.solid,
+            breakable: spec.breakable,
+            liquid: spec.render == Render::Translucent && !spec.solid,
+            light: spec.light.min(15),
+            drops: Drops::Itself,
+            textures: Some(BlockTextures::top_bottom_side(
+                &spec.texture_top,
+                &spec.texture_bottom,
+                &spec.texture_side,
+            )),
+        }))
     }
 
     pub fn register(&mut self, def: BlockDef) -> BlockId {

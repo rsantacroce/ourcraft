@@ -88,12 +88,17 @@ fn sync_time(mut messages: MessageReader<crate::net::FromServer>, mut tod: ResMu
     }
 }
 
-fn advance_time(time: Res<Time>, keys: Res<ButtonInput<KeyCode>>, mut tod: ResMut<TimeOfDay>) {
+fn advance_time(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<crate::input::UiFocus>,
+    mut tod: ResMut<TimeOfDay>,
+) {
     if tod.running {
         tod.fraction = (tod.fraction + time.delta_secs() / DAY_LENGTH_SECS).fract();
     }
     // T skips ahead an hour (handy for testing nights).
-    if keys.just_pressed(KeyCode::KeyT) {
+    if keys.just_pressed(KeyCode::KeyT) && !focus.chat_open {
         tod.fraction = (tod.fraction + 1.0 / 24.0).fract();
     }
 }

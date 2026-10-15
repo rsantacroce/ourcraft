@@ -12,6 +12,8 @@ bevy = { workspace = true, features = ["std", "async_executor", "multi_threaded"
 renet.workspace = true
 renet_netcode.workspace = true
 ctrlc = "3"
+ourcraft_mod_api.workspace = true
+ourcraft_mod_host.workspace = true
 
 [[bin]]
 name = "ourcraft-server"

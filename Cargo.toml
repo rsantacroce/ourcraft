@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/common", "crates/client", "crates/server", "mobile"]
+members = ["crates/common", "crates/client", "crates/server", "crates/mod_api", "crates/mod_host", "mobile"]
+# Mods are built separately for WebAssembly (see mods/README.md).
+exclude = ["mods"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,6 +13,8 @@ license = "MIT OR Apache-2.0"
 ourcraft_common = { path = "crates/common" }
 ourcraft_client = { path = "crates/client" }
 ourcraft_server = { path = "crates/server" }
+ourcraft_mod_api = { path = "crates/mod_api" }
+ourcraft_mod_host = { path = "crates/mod_host" }
 # Pinned exactly. Default features are off here; the client turns them on,
 # while the headless server only needs a few.
 bevy = { version = "=0.19.1", default-features = false }

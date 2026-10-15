@@ -12,7 +12,7 @@ use ourcraft_common::inventory::{HOTBAR_SLOTS, INVENTORY_SLOTS, ItemStack};
 use crate::input::{Actions, UiFocus};
 use crate::interaction::PlayerInventory;
 use crate::player::GameMode;
-use crate::render::textures::{TEXTURE_SIZE, generate_texture};
+use crate::render::textures::TEXTURE_SIZE;
 use crate::world::Blocks;
 
 pub struct InventoryUiPlugin;
@@ -23,6 +23,8 @@ impl Plugin for InventoryUiPlugin {
             Startup,
             (build_icons, spawn_crosshair, spawn_hotbar).chain(),
         )
+        // Mods can add blocks when we join a server: redraw the icons.
+        .add_systems(Update, build_icons.run_if(resource_changed::<Blocks>))
         .add_systems(
             Update,
             (
@@ -82,11 +84,17 @@ pub fn render_block_icon(top: &[u8], side: &[u8]) -> Vec<u8> {
     out
 }
 
-fn build_icons(mut commands: Commands, blocks: Res<Blocks>, mut images: ResMut<Assets<Image>>) {
+fn build_icons(
+    mut commands: Commands,
+    blocks: Res<Blocks>,
+    textures: Option<Res<crate::render::ModTextures>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let textures = textures.map(|t| t.clone()).unwrap_or_default();
     let mut icons = BlockIcons::default();
     for (id, def) in blocks.0.iter() {
         let Some(tex) = &def.textures else { continue };
-        let pixels = render_block_icon(&generate_texture(&tex.top), &generate_texture(&tex.side));
+        let pixels = render_block_icon(&textures.pixels(&tex.top), &textures.pixels(&tex.side));
         let mut image = Image::new(
             Extent3d {
                 width: ICON,
@@ -229,7 +237,7 @@ fn rebuild_hotbar(
     blocks: Res<Blocks>,
     hotbar: Single<Entity, With<Hotbar>>,
 ) {
-    if !inventory.is_changed() && !mode.is_changed() {
+    if !inventory.is_changed() && !mode.is_changed() && !icons.is_changed() {
         return;
     }
     let survival = *mode == GameMode::Survival;
@@ -403,6 +411,7 @@ fn inventory_clicks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::textures::generate_texture;
 
     #[test]
     fn icon_covers_a_cube_shape() {

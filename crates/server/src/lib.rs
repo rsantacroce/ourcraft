@@ -13,6 +13,7 @@
 //!   the network. Same code, same rules; and the same world can later be
 //!   opened up to friends.
 
+pub mod mods;
 pub mod net;
 pub mod players;
 pub mod world;
@@ -49,6 +50,12 @@ pub struct ServerConfig {
     /// Listen for network players on this address. `None` = single player only.
     pub bind: Option<SocketAddr>,
     pub max_players: usize,
+    /// Game mode for a new world (a mod's name for it, e.g. `"team_shooter"`).
+    pub game_mode: Option<String>,
+    /// Extra mods (`*.wasm`) to load from this folder.
+    pub mods_dir: Option<PathBuf>,
+    /// Load the mods built into the game.
+    pub bundled_mods: bool,
 }
 
 impl Default for ServerConfig {
@@ -63,6 +70,9 @@ impl Default for ServerConfig {
             max_view_distance: 10,
             bind: None,
             max_players: 16,
+            game_mode: None,
+            mods_dir: None,
+            bundled_mods: true,
         }
     }
 }
@@ -112,7 +122,8 @@ pub struct ServerPlugin;
 
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((world::WorldPlugin, net::NetPlugin, players::PlayersPlugin))
+        app.init_resource::<mods::ModQueue>()
+            .add_plugins((world::WorldPlugin, net::NetPlugin, players::PlayersPlugin))
             .add_systems(Update, check_stop_flag);
     }
 }

@@ -4,6 +4,7 @@
 //! ourcraft-server [--port 41700] [--world NAME] [--dir FOLDER] [--seed N]
 //!                 [--survival] [--name "Server name"] [--motd "Message"]
 //!                 [--view-distance 10] [--max-players 16]
+//!                 [--mode team_shooter] [--mods FOLDER] [--no-bundled-mods]
 //! ```
 //! Worlds are stored in `./worlds/<NAME>` unless `--dir` says otherwise.
 //! Stop it with Ctrl+C; it saves before exiting.
@@ -27,7 +28,7 @@ fn main() {
         println!(
             "Usage: ourcraft-server [--port {DEFAULT_PORT}] [--world NAME] [--dir FOLDER] \
              [--seed N] [--survival] [--name NAME] [--motd TEXT] [--view-distance N] \
-             [--max-players N]"
+                          [--max-players N] [--mode GAME_MODE] [--mods FOLDER] [--no-bundled-mods]"
         );
         return;
     }
@@ -53,6 +54,9 @@ fn main() {
         max_players: value("--max-players")
             .and_then(|v| v.parse().ok())
             .unwrap_or(defaults.max_players),
+        game_mode: value("--mode"),
+        mods_dir: Some(value("--mods").map_or_else(|| PathBuf::from("mods"), PathBuf::from)),
+        bundled_mods: !args.iter().any(|a| a == "--no-bundled-mods"),
     };
 
     // Ctrl+C asks the server to save and stop instead of dying instantly.

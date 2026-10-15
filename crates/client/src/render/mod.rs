@@ -48,7 +48,12 @@ impl Plugin for VoxelRenderPlugin {
         // which matters for Android and iOS packaging.
         embedded_asset!(app, "voxel.wgsl");
         app.add_plugins(MaterialPlugin::<VoxelMaterial>::default())
-            .add_systems(Startup, setup_block_textures);
+            .init_resource::<ModTextures>()
+            .add_systems(Startup, setup_block_textures)
+            .add_systems(
+                PreUpdate,
+                apply_content_pack.after(crate::net::NetReceiveSet),
+            );
     }
 }
 
@@ -130,6 +135,62 @@ impl Material for VoxelMaterial {
         ])?;
         descriptor.vertex.buffers = vec![vertex_layout];
         Ok(())
+    }
+}
+
+/// Textures sent by the server for mods' blocks: name → 16×16 RGBA.
+#[derive(Resource, Default, Clone)]
+pub struct ModTextures(pub Arc<std::collections::HashMap<String, Vec<u8>>>);
+
+impl ModTextures {
+    /// Pixels for a texture name: a mod's texture, else a built-in one.
+    pub fn pixels(&self, name: &str) -> Vec<u8> {
+        self.0
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| generate_texture(name))
+    }
+}
+
+/// When we join a server, it sends the full list of blocks (including ones
+/// added by mods) and the mods' textures. Rebuild the registry and the
+/// texture array to match.
+fn apply_content_pack(
+    mut commands: Commands,
+    mut messages: MessageReader<crate::net::FromServer>,
+    handles: Option<Res<VoxelMaterialHandle>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<VoxelMaterial>>,
+) {
+    use ourcraft_common::block::BlockRegistry;
+    use ourcraft_common::protocol::ServerMessage;
+    for crate::net::FromServer(msg) in messages.read() {
+        let ServerMessage::Welcome { content, .. } = msg else {
+            continue;
+        };
+        let Some(registry) = BlockRegistry::from_defs(content.blocks.clone()) else {
+            warn!("Server sent an invalid block list; keeping the built-in blocks");
+            continue;
+        };
+        let textures = ModTextures(Arc::new(content.textures.iter().cloned().collect()));
+        let (image, face_layers, names) = build_texture_array(&registry, |n| textures.pixels(n));
+        info!(
+            "Server content: {} blocks, {} textures ({} from mods)",
+            registry.len(),
+            names.len(),
+            content.textures.len()
+        );
+        let image = images.add(image);
+        if let Some(handles) = &handles {
+            for h in handles.both() {
+                if let Some(mut m) = materials.get_mut(h) {
+                    m.textures = image.clone();
+                }
+            }
+        }
+        commands.insert_resource(BlockTextureLayers(Arc::new(face_layers)));
+        commands.insert_resource(crate::world::Blocks(Arc::new(registry)));
+        commands.insert_resource(textures);
     }
 }
 

@@ -1,0 +1,12 @@
+[package]
+name = "paint_blocks"
+description = "Example mod: colourful paint blocks, a glowing rainbow lamp, and a /rainbow command."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ourcraft_mod_api = { path = "../../crates/mod_api" }

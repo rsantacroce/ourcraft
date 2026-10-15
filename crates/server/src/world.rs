@@ -24,10 +24,11 @@ pub struct WorldPlugin;
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         let config = app.world().resource::<ServerConfig>().clone();
-        let registry = Arc::new(BlockRegistry::with_builtin_blocks());
-        let world = open_world(&config, &registry);
+        let (world, mods, registry, content) = open_world(&config);
         app.insert_resource(world)
-            .insert_resource(Registry(registry))
+            .insert_resource(mods)
+            .insert_resource(content)
+            .insert_resource(Registry(Arc::new(registry)))
             .init_resource::<ServerWorld>()
             .init_resource::<ColumnCache>()
             .init_resource::<Loading>()
@@ -95,7 +96,16 @@ pub struct WantedColumns {
 #[derive(Resource, Default)]
 struct SaveTask(Option<Task<()>>);
 
-fn open_world(config: &ServerConfig, registry: &BlockRegistry) -> OpenWorld {
+/// Open the world folder, load mods (they may add blocks), and work out
+/// the block registry.
+fn open_world(
+    config: &ServerConfig,
+) -> (
+    OpenWorld,
+    crate::mods::Mods,
+    BlockRegistry,
+    crate::mods::Content,
+) {
     let storage = WorldStorage::open(&config.world_dir).unwrap_or_else(|e| {
         panic!(
             "can't open world folder {}: {e}",
@@ -106,8 +116,20 @@ fn open_world(config: &ServerConfig, registry: &BlockRegistry) -> OpenWorld {
         error!("Can't read world info ({e}); starting a new world");
         None
     });
+    // An existing world keeps its game mode; a new one uses the config's.
+    let game_mode = match &existing {
+        Some(meta) => meta.game_mode.clone(),
+        None => config.game_mode.clone(),
+    };
+    let (mods, registry, content) = crate::mods::load_mods(
+        config.mods_dir.as_deref(),
+        config.bundled_mods,
+        game_mode.clone(),
+    );
+    let registry_ref = &registry;
     let (meta, remap) = match existing {
         Some(mut meta) => {
+            let registry = registry_ref;
             let remap = BlockRemap::new(&meta.block_names, registry);
             meta.block_names = registry.iter().map(|(_, d)| d.name.clone()).collect();
             info!("Loaded world '{}' (seed {})", meta.name, meta.seed);
@@ -115,8 +137,9 @@ fn open_world(config: &ServerConfig, registry: &BlockRegistry) -> OpenWorld {
         }
         None => {
             let seed = config.seed.unwrap_or_else(random_seed);
-            let mut meta = WorldMeta::new(&config.world_name, seed, registry);
+            let mut meta = WorldMeta::new(&config.world_name, seed, registry_ref);
             meta.creative = config.creative;
+            meta.game_mode = game_mode.clone();
             if let Err(e) = storage.save_meta(&meta) {
                 error!("Can't save world info: {e}");
             }
@@ -131,14 +154,15 @@ fn open_world(config: &ServerConfig, registry: &BlockRegistry) -> OpenWorld {
     storage.set_remap(remap.clone());
     let generator = Arc::new(WorldGenerator::new(meta.seed));
     let (x, y, z) = generator.find_spawn();
-    OpenWorld {
+    let open = OpenWorld {
         storage: Arc::new(storage),
         snapshot: Arc::new(Mutex::new(meta.clone())),
         meta,
         generator,
         spawn: IVec3::new(x, y, z),
         remap,
-    }
+    };
+    (open, mods, registry, crate::mods::Content(content))
 }
 
 fn random_seed() -> u64 {

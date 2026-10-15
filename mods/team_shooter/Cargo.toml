@@ -1,0 +1,12 @@
+[package]
+name = "team_shooter"
+description = "Splat Squad: a cartoon team game mode (Milestone 9)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ourcraft_mod_api = { path = "../../crates/mod_api" }

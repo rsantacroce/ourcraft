@@ -1,0 +1,25 @@
+[package]
+name = "ourcraft_mod_host"
+description = "Runs Ourcraft mods (WebAssembly) in a sandbox with wasmtime."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ourcraft_mod_api.workspace = true
+log = "0.4"
+
+# Desktop and Android: Cranelift compiles mods to fast native code.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+wasmtime = { version = "=49.0.3", default-features = false, features = ["cranelift", "runtime", "std", "anyhow"] }
+
+# iOS doesn't allow generating native code at runtime, so mods are compiled
+# to "Pulley" bytecode and run by wasmtime's interpreter instead.
+[target.'cfg(target_os = "ios")'.dependencies]
+wasmtime = { version = "=49.0.3", default-features = false, features = ["cranelift", "runtime", "std", "anyhow", "all-arch"] }
+
+[dev-dependencies]
+wat = "1"
+
+[lints]
+workspace = true

@@ -33,7 +33,14 @@ impl Default for GraphicsSettings {
     }
 }
 
-fn adjust_render_distance(keys: Res<ButtonInput<KeyCode>>, mut settings: ResMut<GraphicsSettings>) {
+fn adjust_render_distance(
+    keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<crate::input::UiFocus>,
+    mut settings: ResMut<GraphicsSettings>,
+) {
+    if focus.chat_open {
+        return;
+    }
     let mut rd = settings.render_distance;
     if keys.just_pressed(KeyCode::BracketRight) {
         rd += 1;

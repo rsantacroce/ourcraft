@@ -344,8 +344,12 @@ fn toggle_fly(
 }
 
 /// G switches between creative and survival.
-fn toggle_game_mode(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<GameMode>) {
-    if keys.just_pressed(KeyCode::KeyG) {
+fn toggle_game_mode(
+    keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<crate::input::UiFocus>,
+    mut mode: ResMut<GameMode>,
+) {
+    if keys.just_pressed(KeyCode::KeyG) && !focus.chat_open {
         *mode = match *mode {
             GameMode::Creative => GameMode::Survival,
             GameMode::Survival => GameMode::Creative,
