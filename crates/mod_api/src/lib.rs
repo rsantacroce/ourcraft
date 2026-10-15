@@ -345,6 +345,10 @@ pub enum HostCall {
         name: String,
         at: Option<Vec3>,
     },
+    /// Where new players appear (a fixed spot for each world). Replies
+    /// `HostReply::Position`. Handy for placing things that must be in the
+    /// same place every time the server starts.
+    WorldSpawn,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -358,6 +362,7 @@ pub enum HostReply {
     Ray(Option<Hit>),
     /// The call failed; the text says why.
     Error(String),
+    Position(BlockPos),
 }
 
 /// Things that happen, sent to every mod.

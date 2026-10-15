@@ -34,13 +34,13 @@ struct PaintBlocks {
 impl Mod for PaintBlocks {
     fn on_event(&mut self, event: Event) -> EventReply {
         match event {
-                        Event::Init { game_mode, .. } => {
+            Event::Init { game_mode, .. } => {
                 self.game_mode = game_mode.is_some();
                 register_content();
                 guest::log("Paint Blocks loaded: 8 paints, a rainbow lamp and /rainbow");
                 EventReply::Ok
             }
-                        Event::PlayerJoined { player, .. } if !self.game_mode => {
+            Event::PlayerJoined { player, .. } if !self.game_mode => {
                 guest::chat(
                     Some(player),
                     "Paint Blocks is here! Find the paints in your inventory (E), or type /rainbow",
@@ -60,7 +60,11 @@ fn register_content() {
     for (i, (name, display, color)) in PAINTS.iter().enumerate() {
         let texture = format!("paint_{name}");
         guest::register_texture(&texture, speckled(*color, i as u32));
-        guest::register_block(BlockSpec::simple(&format!("paint:{name}"), display, &texture));
+        guest::register_block(BlockSpec::simple(
+            &format!("paint:{name}"),
+            display,
+            &texture,
+        ));
     }
 
     // A lamp with rainbow stripes that glows in the dark.
@@ -142,7 +146,10 @@ fn build_rainbow(player: u64) {
             }
         }
     }
-    guest::chat(Some(player), &format!("Here's your rainbow! ({placed} blocks)"));
+    guest::chat(
+        Some(player),
+        &format!("Here's your rainbow! ({placed} blocks)"),
+    );
 }
 
 ourcraft_mod_api::export_mod!(PaintBlocks);

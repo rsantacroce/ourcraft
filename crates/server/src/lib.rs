@@ -124,14 +124,18 @@ pub struct ServerPlugin;
 
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<mods::ModQueue>()
-            .add_plugins((
-                world::WorldPlugin,
-                net::NetPlugin,
-                players::PlayersPlugin,
-                entities::EntitiesPlugin,
-            ))
-            .add_systems(Update, check_stop_flag);
+        // Mods hear `Start` on the first tick, once the world is open.
+        app.insert_resource(mods::ModQueue {
+            events: vec![ourcraft_mod_api::Event::Start],
+            ..Default::default()
+        })
+        .add_plugins((
+            world::WorldPlugin,
+            net::NetPlugin,
+            players::PlayersPlugin,
+            entities::EntitiesPlugin,
+        ))
+        .add_systems(Update, check_stop_flag);
     }
 }
 
@@ -196,6 +200,26 @@ impl EmbeddedServer {
             },
             client_end,
         )
+    }
+
+    /// Start a server thread that only accepts network players (the game
+    /// then connects to it over UDP like everyone else). Used when a
+    /// single-player world is opened to the local network.
+    pub fn start_networked(config: ServerConfig) -> Self {
+        let stop = StopFlag::default();
+        let save = SaveNowFlag::default();
+        let (thread_stop, thread_save) = (stop.clone(), save.clone());
+        let thread = std::thread::Builder::new()
+            .name("ourcraft-server".into())
+            .spawn(move || {
+                build_app(config, None, thread_stop, thread_save, false).run();
+            })
+            .expect("can't start server thread");
+        Self {
+            stop,
+            save,
+            thread: Some(thread),
+        }
     }
 
     /// Ask the server to save everything soon (without stopping).

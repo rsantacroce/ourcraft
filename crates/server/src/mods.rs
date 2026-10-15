@@ -382,6 +382,10 @@ impl Host for ServerHost {
                 }));
                 HostReply::Ok
             }
+            HostCall::WorldSpawn => match self.open.as_ref() {
+                Some(o) => HostReply::Position(o.spawn.to_array()),
+                None => error("the world isn't open"),
+            },
             HostCall::Sound { name, at } => {
                 self.out
                     .push(ModCommand::Broadcast(ServerMessage::Sound { name, at }));

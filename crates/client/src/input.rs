@@ -127,6 +127,8 @@ fn keyboard_mouse_actions(
     settings: Res<InputSettings>,
     focus: Res<UiFocus>,
     mut actions: ResMut<Actions>,
+    mut was_captured: Local<bool>,
+    mut ignore_buttons: Local<bool>,
 ) {
     if focus.chat_open {
         return; // typing in chat: keys are letters, not controls
@@ -161,7 +163,19 @@ fn keyboard_mouse_actions(
     // Mouse look and clicks only count while the mouse is captured, so the
     // click that captures it doesn't also break a block.
     let captured = cursor.is_some_and(|c| c.grab_mode != CursorGrabMode::None);
-    if captured {
+    // The click that captures the mouse shouldn't also break a block or
+    // fire: ignore the buttons until they've been let go.
+    if captured && !*was_captured {
+        *ignore_buttons = true;
+    }
+    *was_captured = captured;
+    if *ignore_buttons && !mouse.pressed(MouseButton::Left) && !mouse.pressed(MouseButton::Right) {
+        *ignore_buttons = false;
+    }
+    if captured && *ignore_buttons {
+        let delta = mouse_motion.delta * settings.mouse_sensitivity;
+        actions.look += Vec2::new(delta.x, -delta.y);
+    } else if captured {
         // Mouse motion is already "per frame" (it's the distance moved since
         // last frame), so unlike keys and sticks we don't multiply by time.
         let delta = mouse_motion.delta * settings.mouse_sensitivity;

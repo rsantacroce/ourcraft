@@ -160,7 +160,7 @@ fn spawn_ui(mut commands: Commands) {
             HealthBar,
             Node {
                 position_type: PositionType::Absolute,
-                bottom: px(92),
+                bottom: px(100),
                 left: percent(50),
                 width: px(240),
                 height: px(14),

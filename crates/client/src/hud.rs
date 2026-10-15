@@ -84,7 +84,7 @@ fn update_status(
     mut shown: Local<Option<String>>,
 ) {
     let text = match conn.as_deref().map(|c| (&c.status, c)) {
-        Some((Status::Connecting, c)) => Some(format!("Connecting to {}…", c.target)),
+        Some((Status::Connecting, c)) => Some(format!("Connecting to {}...", c.target)),
 
         _ => None,
     };

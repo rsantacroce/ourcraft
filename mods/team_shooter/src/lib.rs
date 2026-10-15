@@ -229,6 +229,14 @@ impl Mod for Game {
                 EventReply::Ok
             }
             _ if !self.active => EventReply::Ok,
+            Event::Start => {
+                // The arena is always around the world's spawn point, so it's
+                // in the same place every time the server starts.
+                if let Some(s) = guest::world_spawn() {
+                    self.setup_bases([s[0] as f32, s[1] as f32, s[2] as f32]);
+                }
+                EventReply::Ok
+            }
             Event::PlayerJoined { player, name } => {
                 self.join(player, name);
                 EventReply::Ok
@@ -286,7 +294,11 @@ impl Game {
 
     fn join(&mut self, player: PlayerId, name: String) {
         // Join the smaller team.
-        let reds = self.players.values().filter(|p| p.team == Team::Red).count();
+        let reds = self
+            .players
+            .values()
+            .filter(|p| p.team == Team::Red)
+            .count();
         let blues = self.players.len() - reds;
         let team = if reds <= blues { Team::Red } else { Team::Blue };
         self.players.insert(
@@ -310,7 +322,11 @@ impl Game {
         let badges = Class::ALL.iter().map(|c| c.badge()).collect();
         guest::set_tools(player, badges);
         self.send_to_base(player);
-        guest::show_title(Some(player), &format!("You're on {} team!", team.name()), 4.0);
+        guest::show_title(
+            Some(player),
+            &format!("You're on {} team!", team.name()),
+            4.0,
+        );
         guest::chat(
             Some(player),
             "Welcome to Splat Squad! Pick a class: select a badge (1-4) and click. \
@@ -320,7 +336,9 @@ impl Game {
     }
 
     fn pick_class(&mut self, player: PlayerId, class: Class) {
-        let Some(p) = self.players.get_mut(&player) else { return };
+        let Some(p) = self.players.get_mut(&player) else {
+            return;
+        };
         p.class = Some(class);
         p.paint = class.max_paint();
         p.respawn_at = None;
@@ -336,7 +354,9 @@ impl Game {
     }
 
     fn apply_rules(&self, player: PlayerId) {
-        let Some(p) = self.players.get(&player) else { return };
+        let Some(p) = self.players.get(&player) else {
+            return;
+        };
         let speed = match (p.class, p.respawn_at) {
             (_, Some(_)) => 0.0,
             (Some(c), None) => c.speed(),
@@ -355,11 +375,16 @@ impl Game {
     }
 
     fn send_to_base(&mut self, player: PlayerId) {
-        let Some(team) = self.players.get(&player).map(|p| p.team) else { return };
+        let Some(team) = self.players.get(&player).map(|p| p.team) else {
+            return;
+        };
         let Some(bases) = self.bases else { return };
         let b = bases[team.idx()];
         let (dx, dz) = (self.random() * 4.0 - 2.0, self.random() * 4.0 - 2.0);
-        guest::teleport(player, [b[0] as f32 + 0.5 + dx, b[1] as f32, b[2] as f32 + 0.5 + dz]);
+        guest::teleport(
+            player,
+            [b[0] as f32 + 0.5 + dx, b[1] as f32, b[2] as f32 + 0.5 + dz],
+        );
     }
 
     // ---- The arena ----
@@ -368,7 +393,12 @@ impl Game {
         let (cx, cz) = (around[0].floor() as i32, around[2].floor() as i32);
         let mut bases = [[0; 3]; 2];
         for team in Team::BOTH {
-            let x = cx + if team == Team::Red { -BASE_DISTANCE } else { BASE_DISTANCE };
+            let x = cx
+                + if team == Team::Red {
+                    -BASE_DISTANCE
+                } else {
+                    BASE_DISTANCE
+                };
             let ground = guest::ground_height(x, cz).unwrap_or(64);
             bases[team.idx()] = [x, ground + 1, cz];
             self.plan_base(team, x, ground, cz);
@@ -457,8 +487,12 @@ impl Game {
     // ---- Shooting ----
 
     fn fire(&mut self, player: PlayerId, origin: Vec3, dir: Vec3) {
-        let Some(p) = self.players.get(&player) else { return };
-        let (Some(class), None) = (p.class, p.respawn_at) else { return };
+        let Some(p) = self.players.get(&player) else {
+            return;
+        };
+        let (Some(class), None) = (p.class, p.respawn_at) else {
+            return;
+        };
         if self.round_over_until.is_some() {
             return;
         }
@@ -523,7 +557,9 @@ impl Game {
     }
 
     fn projectile_hit(&mut self, entity: EntityId, hit: Hit) {
-        let Some(shot) = self.shots.remove(&entity) else { return };
+        let Some(shot) = self.shots.remove(&entity) else {
+            return;
+        };
         let at = match hit {
             Hit::Player { id, at } => {
                 self.damage(id, shot.damage, shot.owner, at);
@@ -553,15 +589,21 @@ impl Game {
     }
 
     fn heal(&mut self, player: PlayerId, amount: f32) {
-        let Some(p) = self.players.get_mut(&player) else { return };
-        let (Some(class), None) = (p.class, p.respawn_at) else { return };
+        let Some(p) = self.players.get_mut(&player) else {
+            return;
+        };
+        let (Some(class), None) = (p.class, p.respawn_at) else {
+            return;
+        };
         p.paint = (p.paint + amount).min(class.max_paint());
         guest::set_health(player, p.paint, class.max_paint());
     }
 
     fn damage(&mut self, target: PlayerId, amount: f32, attacker: PlayerId, at: Vec3) {
         let attacker_team = self.players.get(&attacker).map(|p| p.team);
-        let Some(p) = self.players.get_mut(&target) else { return };
+        let Some(p) = self.players.get_mut(&target) else {
+            return;
+        };
         // No friendly fire, and no hitting players who are respawning or
         // still choosing a class.
         if Some(p.team) == attacker_team || p.respawn_at.is_some() || p.class.is_none() {
@@ -593,13 +635,19 @@ impl Game {
             p.respawn_at = Some(respawn);
             p.paint = 0.0;
         }
-        guest::show_title(Some(target), &format!("Splatted! Back in {RESPAWN_SECS}…"), 1.5);
+        guest::show_title(
+            Some(target),
+            &format!("Splatted! Back in {RESPAWN_SECS}..."),
+            1.5,
+        );
         self.apply_rules(target);
         self.send_to_base(target);
     }
 
     fn respawn(&mut self, player: PlayerId) {
-        let Some(p) = self.players.get_mut(&player) else { return };
+        let Some(p) = self.players.get_mut(&player) else {
+            return;
+        };
         p.respawn_at = None;
         let Some(class) = p.class else { return };
         p.paint = class.max_paint();
@@ -678,7 +726,9 @@ impl Game {
                 .map(|p| p.id)
                 .collect();
             for id in touching {
-                let Some(p) = self.players.get(&id) else { continue };
+                let Some(p) = self.players.get(&id) else {
+                    continue;
+                };
                 if p.respawn_at.is_some() || p.class.is_none() {
                     continue;
                 }
@@ -713,20 +763,35 @@ impl Game {
     fn capture(&mut self, carrier: PlayerId, scorer: Team, flag_team: Team) {
         self.return_flag(flag_team);
         self.score[scorer.idx()] += 1;
-        let name = self.players.get(&carrier).map_or("Someone".into(), |p| p.name.clone());
+        let name = self
+            .players
+            .get(&carrier)
+            .map_or("Someone".into(), |p| p.name.clone());
         let (r, b) = (self.score[0], self.score[1]);
         if let Some(bases) = self.bases {
             let base = bases[scorer.idx()];
-            let at = [base[0] as f32 + 0.5, base[1] as f32 + 1.5, base[2] as f32 + 0.5];
+            let at = [
+                base[0] as f32 + 0.5,
+                base[1] as f32 + 1.5,
+                base[2] as f32 + 0.5,
+            ];
             guest::effect(EffectKind::Confetti, at, scorer.color());
         }
         guest::sound("cheer", None);
         if self.score[scorer.idx()] >= WIN_SCORE {
-            guest::show_title(None, &format!("{} team wins! ({r} - {b})", scorer.name()), 6.0);
+            guest::show_title(
+                None,
+                &format!("{} team wins! ({r} - {b})", scorer.name()),
+                6.0,
+            );
             guest::chat(None, &format!("{} team wins the round!", scorer.name()));
             self.round_over_until = Some(self.secs(ROUND_OVER_SECS));
         } else {
-            guest::show_title(None, &format!("{name} scores for {}! ({r} - {b})", scorer.name()), 3.0);
+            guest::show_title(
+                None,
+                &format!("{name} scores for {}! ({r} - {b})", scorer.name()),
+                3.0,
+            );
         }
     }
 
@@ -763,12 +828,14 @@ impl Game {
         // Respawns, with a countdown.
         let ids: Vec<PlayerId> = self.players.keys().copied().collect();
         for id in ids {
-            let Some(at) = self.players.get(&id).and_then(|p| p.respawn_at) else { continue };
+            let Some(at) = self.players.get(&id).and_then(|p| p.respawn_at) else {
+                continue;
+            };
             if self.tick >= at {
                 self.respawn(id);
             } else if (at - self.tick).is_multiple_of(TICKS_PER_SEC) {
                 let left = (at - self.tick) / TICKS_PER_SEC;
-                guest::show_title(Some(id), &format!("Splatted! Back in {left}…"), 1.2);
+                guest::show_title(Some(id), &format!("Splatted! Back in {left}..."), 1.2);
             }
         }
         self.update_flags();
@@ -945,39 +1012,69 @@ fn register_content() {
         });
     };
     tool("splat:blaster", "Splat Blaster", icon_blaster(), 0.15);
-    tool("splat:bubble_cannon", "Bubble Cannon", icon_bubble_cannon(), 0.8);
+    tool(
+        "splat:bubble_cannon",
+        "Bubble Cannon",
+        icon_bubble_cannon(),
+        0.8,
+    );
     tool("splat:lobber", "Paint Lobber", icon_lobber(), 1.0);
     tool("splat:mend_beam", "Mend Beam", icon_mend_beam(), 0.12);
     tool("splat:badge_dasher", "Dasher (fast)", icon_badge('D'), 0.5);
-    tool("splat:badge_bulwark", "Bulwark (tough)", icon_badge('B'), 0.5);
-    tool("splat:badge_lobber", "Lobber (splash)", icon_badge('L'), 0.5);
-    tool("splat:badge_patcher", "Patcher (helper)", icon_badge('P'), 0.5);
+    tool(
+        "splat:badge_bulwark",
+        "Bulwark (tough)",
+        icon_badge('B'),
+        0.5,
+    );
+    tool(
+        "splat:badge_lobber",
+        "Lobber (splash)",
+        icon_badge('L'),
+        0.5,
+    );
+    tool(
+        "splat:badge_patcher",
+        "Patcher (helper)",
+        icon_badge('P'),
+        0.5,
+    );
 }
 
+/// A cartoon toy blaster: yellow body, pink paint tank, red nozzle.
 fn icon_blaster() -> Vec<u8> {
     pixel_art(
         &[
             "................",
             "................",
-            "................",
-            "................",
-            "...OOOOOOOOOOT..",
-            "..OOOOOOOOOOOTT.",
-            "..OOOOOOOOOOOT..",
-            "..OOO...........",
-            "..OOO...........",
-            "..OOOY..........",
-            "...OOO..........",
-            "...OOO..........",
-            "....O...........",
-            "................",
-            "................",
+            "....KKKKKK......",
+            "...KPPPPPPK.....",
+            "...KPHHPPPK.....",
+            "...KPPPPPPK.....",
+            ".KKKKKKKKKKKKK..",
+            "KYWWWYYYYYYYYKK.",
+            "KYYYYYYYYYYYYRRK",
+            "KOOOOOOOOOOOOKK.",
+            ".KKKKOOOKKKKK...",
+            "....KOYK........",
+            "....KOYK........",
+            "....KOYK........",
+            "....KKKK........",
             "................",
         ],
-        &[('O', [255, 150, 40, 255]), ('T', [70, 220, 210, 255]), ('Y', [255, 230, 90, 255])],
+        &[
+            ('K', [45, 35, 55, 255]),
+            ('Y', [255, 210, 60, 255]),
+            ('W', [255, 246, 200, 255]),
+            ('O', [232, 140, 40, 255]),
+            ('P', [255, 95, 165, 255]),
+            ('H', [255, 205, 230, 255]),
+            ('R', [225, 60, 60, 255]),
+        ],
     )
 }
 
+/// A chunky blue cannon on wheels, blowing bubbles.
 fn icon_bubble_cannon() -> Vec<u8> {
     pixel_art(
         &[
@@ -985,68 +1082,89 @@ fn icon_bubble_cannon() -> Vec<u8> {
             "...........WW...",
             "..........W..W..",
             "...........WW...",
-            "..BBBBBBBB......",
-            ".BBBBBBBBBB..W..",
-            ".BBBBBBBBBBB....",
-            ".BBBBBBBBBBB.WW.",
-            ".BBBBBBBBBB.....",
-            "..BBBBBBBB......",
-            "..GG....GG......",
-            "..GG....GG......",
-            "................",
+            "..KKKKKKKKKK..W.",
+            ".KBBBBBBBBBBKK..",
+            ".KBLLLBBBBBBDDK.",
+            ".KBBBBBBBBBBDDK.",
+            ".KDDDDDDDDDDKK..",
+            "..KKKKKKKKKK....",
+            "...KGGK..KGGK...",
+            "...KGGK..KGGK...",
+            "...KKKK..KKKK...",
             "................",
             "................",
             "................",
         ],
-        &[('B', [80, 140, 240, 255]), ('W', [220, 240, 255, 255]), ('G', [90, 90, 100, 255])],
+        &[
+            ('K', [45, 35, 55, 255]),
+            ('B', [90, 150, 245, 255]),
+            ('L', [190, 220, 255, 255]),
+            ('D', [50, 95, 190, 255]),
+            ('W', [215, 240, 255, 255]),
+            ('G', [110, 110, 125, 255]),
+        ],
     )
 }
 
+/// A round paint bomb with a pink stripe and a sparkly fuse.
 fn icon_lobber() -> Vec<u8> {
     pixel_art(
         &[
             "................",
-            "...........Y....",
             "..........Y.Y...",
-            ".........YY.....",
+            "...........Y....",
+            "..........S.....",
+            ".....KKKKKS.....",
+            "....KMMMMMK.....",
+            "...KMLMMMMMK....",
+            "..KMLMMMMMMMK...",
+            "..KPPPPPPPPPK...",
+            "..KPPPPPPPPPK...",
+            "..KMMMMMMMMMK...",
+            "...KMMMMMMMK....",
+            "....KMMMMMK.....",
             ".....KKKKK......",
-            "....KKKKKKK.....",
-            "...KKKKKKKKK....",
-            "...KRRRRRRRK....",
-            "...KRRRRRRRK....",
-            "...KKKKKKKKK....",
-            "....KKKKKKK.....",
-            ".....KKKKK......",
-            "................",
-            "................",
             "................",
             "................",
         ],
-        &[('K', [60, 60, 75, 255]), ('R', [240, 80, 120, 255]), ('Y', [255, 220, 80, 255])],
+        &[
+            ('K', [45, 35, 55, 255]),
+            ('M', [75, 75, 95, 255]),
+            ('L', [160, 160, 185, 255]),
+            ('P', [255, 95, 165, 255]),
+            ('S', [170, 130, 90, 255]),
+            ('Y', [255, 220, 80, 255]),
+        ],
     )
 }
 
+/// A wand topped with a green heart.
 fn icon_mend_beam() -> Vec<u8> {
     pixel_art(
         &[
-            "................",
-            "..........GG....",
-            ".........GGGG...",
-            "........GGWWGG..",
-            "........GWWWWG..",
-            "........GGWWGG..",
-            ".........GGGG...",
-            "........SS......",
+            "......W.........",
+            ".........KK.KK..",
+            "........KGGKGGK.",
+            "........KGWGGGK.",
+            "........KGGGGGK.",
+            ".........KGGGK..",
+            "..........KGK...",
+            "........SSK.....",
             ".......SS.......",
             "......SS........",
             ".....SS.........",
             "....SS..........",
             "...SS...........",
-            "..SS............",
+            "..KK............",
             "................",
             "................",
         ],
-        &[('G', [110, 220, 120, 255]), ('W', [240, 255, 240, 255]), ('S', [200, 170, 120, 255])],
+        &[
+            ('K', [45, 35, 55, 255]),
+            ('G', [100, 220, 120, 255]),
+            ('W', [240, 255, 240, 255]),
+            ('S', [215, 180, 120, 255]),
+        ],
     )
 }
 
@@ -1084,8 +1202,162 @@ fn icon_badge(letter: char) -> Vec<u8> {
     let rows: [&str; 16] = core::array::from_fn(|i| rows[i].as_str());
     pixel_art(
         &rows,
-        &[('R', [255, 200, 60, 255]), ('F', [90, 80, 160, 255]), ('W', [255, 255, 255, 255])],
+        &[
+            ('R', [255, 200, 60, 255]),
+            ('F', [90, 80, 160, 255]),
+            ('W', [255, 255, 255, 255]),
+        ],
     )
 }
 
 ourcraft_mod_api::export_mod!(Game);
+
+#[cfg(test)]
+mod tests {
+    //! The game rules, tested natively (calls to the game do nothing here).
+    use super::*;
+
+    fn info(id: PlayerId, pos: Vec3) -> PlayerInfo {
+        PlayerInfo {
+            id,
+            name: format!("p{id}"),
+            position: pos,
+            velocity: [0.0; 3],
+            look: [0.0, 0.0, -1.0],
+            on_ground: true,
+        }
+    }
+
+    /// Red player 1 and blue player 2, flags at x = -20 (red) and 20 (blue).
+    fn game() -> Game {
+        let mut g = Game {
+            active: true,
+            bases: Some([[-20, 64, 0], [20, 64, 0]]),
+            ..Default::default()
+        };
+        for (team, x) in [(Team::Red, -20.5), (Team::Blue, 20.5)] {
+            g.flags.push(Flag {
+                team,
+                home: [x, 64.0, 0.5],
+                pos: [x, 64.0, 0.5],
+                entity: None,
+                carrier: None,
+                dropped_at: None,
+            });
+        }
+        for (id, team, class) in [
+            (1, Team::Red, Class::Dasher),
+            (2, Team::Blue, Class::Bulwark),
+        ] {
+            g.players.insert(
+                id,
+                Player {
+                    name: format!("p{id}"),
+                    team,
+                    class: Some(class),
+                    paint: class.max_paint(),
+                    respawn_at: None,
+                    carrying: false,
+                },
+            );
+        }
+        g
+    }
+
+    #[test]
+    fn grab_carry_and_capture_scores() {
+        let mut g = game();
+        // Blue player walks onto the red flag: picks it up.
+        g.seen.insert(2, info(2, [-20.5, 64.0, 0.5]));
+        g.update_flags();
+        assert_eq!(g.flags[0].carrier, Some(2));
+        assert!(g.players[&2].carrying);
+        // Carries it home to the blue flag: Blue scores, red flag goes home.
+        g.seen.insert(2, info(2, [20.0, 64.0, 0.5]));
+        g.update_flags();
+        assert_eq!(g.score, [0, 1]);
+        assert!(g.flags[0].at_home());
+        assert!(!g.players[&2].carrying);
+    }
+
+    #[test]
+    fn own_flag_is_not_picked_up() {
+        let mut g = game();
+        g.seen.insert(1, info(1, [-20.5, 64.0, 0.5]));
+        g.update_flags();
+        assert_eq!(g.flags[0].carrier, None);
+    }
+
+    #[test]
+    fn no_capture_while_your_own_flag_is_taken() {
+        let mut g = game();
+        g.flags[0].carrier = Some(2); // Blue has the red flag…
+        g.players.get_mut(&2).unwrap().carrying = true;
+        g.flags[1].carrier = Some(1); // …but Red has the blue flag.
+        g.players.get_mut(&1).unwrap().carrying = true;
+        g.seen.insert(2, info(2, [20.0, 64.0, 0.5]));
+        g.seen.insert(1, info(1, [0.0, 64.0, 0.5]));
+        g.update_flags();
+        assert_eq!(g.score, [0, 0]);
+    }
+
+    #[test]
+    fn third_capture_wins_the_round() {
+        let mut g = game();
+        g.score = [0, WIN_SCORE - 1];
+        g.capture(2, Team::Blue, Team::Red);
+        assert_eq!(g.score[1], WIN_SCORE);
+        assert!(g.round_over_until.is_some());
+        g.tick = g.round_over_until.unwrap();
+        g.update();
+        assert_eq!(g.score, [0, 0], "a new round starts");
+    }
+
+    #[test]
+    fn running_out_of_paint_splats_and_drops_the_flag() {
+        let mut g = game();
+        g.flags[0].carrier = Some(2);
+        g.players.get_mut(&2).unwrap().carrying = true;
+        g.seen.insert(2, info(2, [0.0, 64.0, 0.5]));
+        g.damage(2, 500.0, 1, [0.0, 65.0, 0.5]);
+        let p = &g.players[&2];
+        assert!(p.respawn_at.is_some());
+        assert!(!p.carrying);
+        assert_eq!(g.flags[0].carrier, None, "flag dropped");
+        assert_eq!(g.flags[0].pos, [0.0, 64.0, 0.5]);
+        // Back after the respawn time, with a full paint meter.
+        g.tick = p.respawn_at.unwrap();
+        g.update();
+        let p = &g.players[&2];
+        assert!(p.respawn_at.is_none());
+        assert_eq!(p.paint, Class::Bulwark.max_paint());
+    }
+
+    #[test]
+    fn no_friendly_fire() {
+        let mut g = game();
+        g.players.insert(
+            3,
+            Player {
+                name: "p3".into(),
+                team: Team::Red,
+                class: Some(Class::Lobber),
+                paint: 110.0,
+                respawn_at: None,
+                carrying: false,
+            },
+        );
+        g.damage(3, 50.0, 1, [0.0; 3]);
+        assert_eq!(g.players[&3].paint, 110.0);
+    }
+
+    #[test]
+    fn patcher_heals_up_to_the_maximum() {
+        let mut g = game();
+        g.players.get_mut(&1).unwrap().paint = 10.0;
+        g.heal(1, 9.0);
+        assert_eq!(g.players[&1].paint, 19.0);
+        g.heal(1, 500.0);
+        assert_eq!(g.players[&1].paint, Class::Dasher.max_paint());
+    }
+}

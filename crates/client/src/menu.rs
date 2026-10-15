@@ -596,7 +596,7 @@ fn rebuild_menu(
                     if !mobile {
                         button(ui, "Quit", Action::QuitGame);
                     }
-                    note(ui, format!("Playing as {}", settings.name), grey);
+                    note(ui, format!("Playing as {}", settings.name), Color::WHITE);
                 }
                 Screen::Worlds => {
                     heading(ui, "Your worlds");
@@ -625,7 +625,7 @@ fn rebuild_menu(
                         ui,
                         format!("Friends on my network can join: {}", onoff(forms.lan)),
                         Action::ToggleLan,
-                        420.0,
+                        480.0,
                     );
                     button(ui, "Back", Action::Go(Screen::Title));
                 }
@@ -665,7 +665,7 @@ fn rebuild_menu(
                         ui,
                         format!("Friends on my network can join: {}", onoff(forms.lan)),
                         Action::ToggleLan,
-                        420.0,
+                        480.0,
                     );
                     button(ui, "Create and play", Action::CreateWorld);
                     button(ui, "Back", Action::Go(Screen::Worlds));
@@ -679,7 +679,7 @@ fn rebuild_menu(
                     } else if servers.is_empty() {
                         note(
                             ui,
-                            "Looking…  (your friend needs \"Friends on my network can join\" on)",
+                            "Looking...  (your friend needs \"Friends on my network can join\" on)",
                             grey,
                         );
                     }

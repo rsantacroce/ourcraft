@@ -254,9 +254,9 @@ fn send(mut net: ResMut<Network>) {
     for client in std::mem::take(&mut net.misbehaving) {
         net.server.disconnect(client);
     }
-    if let Some(transport) = net.netcode.as_mut() {
-        transport.send_packets(&mut net.server);
-    }
+    // The in-memory (single player) client first: the UDP transport sends
+    // to *every* connection it finds, and would otherwise swallow the local
+    // player's packets (it can't reach that client over UDP).
     if let Some(local) = &net.local
         && let Ok(packets) = net.server.get_packets_to_send(LOCAL_CLIENT_ID)
     {
@@ -264,6 +264,9 @@ fn send(mut net: ResMut<Network>) {
             // The client may have gone away; nothing to do then.
             let _ = local.to_client.send(p);
         }
+    }
+    if let Some(transport) = net.netcode.as_mut() {
+        transport.send_packets(&mut net.server);
     }
 }
 

@@ -285,6 +285,14 @@ pub fn raycast(
     }
 }
 
+/// The world's spawn point (the block new players stand on).
+pub fn world_spawn() -> Option<BlockPos> {
+    match host(&HostCall::WorldSpawn) {
+        HostReply::Position(p) => Some(p),
+        _ => None,
+    }
+}
+
 /// A HUD line in white.
 pub fn hud_line(text: impl Into<String>) -> HudLine {
     HudLine {

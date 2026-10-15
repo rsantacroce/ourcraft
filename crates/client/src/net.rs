@@ -260,6 +260,20 @@ impl Connection {
             ..default()
         };
         info!("Starting single player world '{world}'");
+        if opts.lan {
+            // Open to the network: play over UDP on this computer, exactly
+            // like friends who join, so both kinds of player are treated
+            // the same.
+            let server = EmbeddedServer::start_networked(config.clone());
+            match Self::join(&format!("127.0.0.1:{DEFAULT_PORT}"), name) {
+                Ok(mut conn) => {
+                    conn.embedded = Some(server);
+                    conn.target = world.to_owned();
+                    return conn;
+                }
+                Err(e) => error!("Couldn't connect to our own server: {e}"),
+            }
+        }
         let (server, link) = EmbeddedServer::start(config);
         let mut client = RenetClient::new(connection_config());
         // In-memory links are connected from the start.
