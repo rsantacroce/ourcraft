@@ -7,16 +7,23 @@ use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
 use ourcraft_common::block::BlockId;
 use ourcraft_common::inventory::ItemStack;
-use ourcraft_common::physics::{self, PlayerInput, PlayerState, TICK_RATE};
-use ourcraft_common::protocol::{Channel, ClientMessage, NetPlayerState, ServerMessage};
+use ourcraft_common::physics::{self, PlayerState, TICK_RATE};
+use ourcraft_common::prediction::{PredictionHistory, Reconciled, apply_input};
+use ourcraft_common::protocol::{Channel, ClientMessage, NetInput, NetPlayerState, ServerMessage};
 
 use crate::input::Actions;
 use crate::interaction::PlayerInventory;
 use crate::net::{Connection, FromServer, NetReceiveSet};
 use crate::world::{Blocks, ChunkViewer, ClientWorld};
 
-/// Position updates sent to the server per second.
-const STATE_SEND_RATE: f32 = 20.0;
+/// How many recent inputs each input packet carries. If a packet is lost,
+/// the next one still has its inputs.
+const INPUT_REDUNDANCY: usize = 4;
+/// Corrections bigger than this (in blocks) are applied instantly rather
+/// than smoothed (we probably teleported).
+const MAX_SMOOTHED_ERROR: f32 = 4.0;
+/// How fast a visual correction fades, per second.
+const SMOOTHING_RATE: f32 = 12.0;
 
 pub struct PlayerPlugin;
 
@@ -25,7 +32,10 @@ impl Plugin for PlayerPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(TICK_RATE))
             .init_resource::<GameMode>()
             .add_systems(Startup, spawn_player)
-            .add_systems(PreUpdate, handle_welcome.after(NetReceiveSet))
+            .add_systems(
+                PreUpdate,
+                (handle_welcome, reconcile).chain().after(NetReceiveSet),
+            )
             .add_systems(FixedUpdate, player_physics.in_set(PlayerPhysicsSet))
             .add_systems(
                 Update,
@@ -33,10 +43,7 @@ impl Plugin for PlayerPlugin {
                     .chain()
                     .in_set(PlayerUpdateSet),
             )
-            .add_systems(
-                Update,
-                (send_player_state, send_inventory).run_if(resource_exists::<Connection>),
-            );
+            .add_systems(Update, send_inventory.run_if(resource_exists::<Connection>));
     }
 }
 
@@ -69,6 +76,23 @@ pub struct Player {
     last_jump_press: f32,
     /// Held in place until the server says where we are.
     pub frozen: bool,
+    /// Physics ticks run so far (numbers our inputs for the server).
+    pub tick: u32,
+    /// Recent inputs and predictions, for reconciliation.
+    pub history: PredictionHistory,
+    /// Added to the camera position and faded out, so corrections from
+    /// the server look smooth instead of a jump.
+    pub visual_offset: Vec3,
+    pub stats: PredictionStats,
+}
+
+/// Counters shown in the debug overlay.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PredictionStats {
+    pub corrections: u32,
+    pub snaps: u32,
+    /// Size of the most recent correction, in blocks.
+    pub last_error: f32,
 }
 
 impl Player {
@@ -80,6 +104,10 @@ impl Player {
             pitch: 0.0,
             last_jump_press: f32::MAX,
             frozen: true,
+            tick: 0,
+            history: PredictionHistory::default(),
+            visual_offset: Vec3::ZERO,
+            stats: PredictionStats::default(),
         }
     }
 
@@ -157,6 +185,9 @@ fn handle_welcome(
         player.yaw = state.yaw;
         player.pitch = state.pitch;
         player.frozen = false;
+        // A fresh start: no predictions to check yet.
+        player.history = PredictionHistory::default();
+        player.visual_offset = Vec3::ZERO;
         if let Some((slots, selected)) = saved {
             for (slot, saved) in inventory.slots.iter_mut().zip(slots) {
                 *slot = saved.map(|(id, count)| ItemStack {
@@ -167,27 +198,6 @@ fn handle_welcome(
             inventory.select(*selected as usize);
         }
     }
-}
-
-/// Tell the server where we are, 20 times a second.
-fn send_player_state(
-    time: Res<Time>,
-    player: Single<&Player>,
-    mut conn: ResMut<Connection>,
-    mut timer: Local<f32>,
-    mut tick: Local<u32>,
-) {
-    *timer += time.delta_secs();
-    if *timer < 1.0 / STATE_SEND_RATE || player.frozen || !conn.is_welcomed() {
-        return;
-    }
-    *timer = 0.0;
-    *tick += 1;
-    let msg = ClientMessage::PlayerState {
-        tick: *tick,
-        state: player.net_state(),
-    };
-    conn.send(Channel::Unreliable, &msg);
 }
 
 /// Send the inventory when it changes (at most once a second), so the
@@ -218,28 +228,87 @@ fn send_inventory(
     }
 }
 
-/// Advance the player's physics by one fixed step.
+/// One fixed physics step: predict our own movement immediately, remember
+/// the input, and send it (with a few previous ones) to the server.
 fn player_physics(
     actions: Res<Actions>,
     touch: Res<crate::touch::TouchControls>,
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
+    conn: Option<ResMut<Connection>>,
     mut player: Single<&mut Player>,
 ) {
-    let input = PlayerInput {
-        movement: actions.movement,
-        jump: actions.jump,
-        descend: actions.descend,
-        sprint: actions.sprint,
-        yaw: player.yaw,
-        auto_jump: touch.enabled,
-    };
     if player.frozen {
         return;
     }
-    player.prev_position = player.state.position;
     let player = &mut **player;
-    physics::step(&mut player.state, &input, &world.0, &blocks.0);
+    player.tick += 1;
+    let input = NetInput {
+        tick: player.tick,
+        movement: actions.movement.to_array(),
+        jump: actions.jump,
+        descend: actions.descend,
+        sprint: actions.sprint,
+        auto_jump: touch.enabled,
+        fly: player.state.flying,
+        yaw: player.yaw,
+        pitch: player.pitch,
+    };
+    player.prev_position = player.state.position;
+    apply_input(&mut player.state, &input, &world.0, &blocks.0);
+    player.history.push(input, player.state);
+    if let Some(mut conn) = conn
+        && conn.is_welcomed()
+    {
+        let recent = player.history.recent_inputs(INPUT_REDUNDANCY);
+        conn.send(Channel::Unreliable, &ClientMessage::Inputs(recent));
+    }
+}
+
+/// Check the server's view of our position against what we predicted.
+fn reconcile(
+    mut messages: MessageReader<FromServer>,
+    world: Res<ClientWorld>,
+    blocks: Res<Blocks>,
+    mut player: Single<&mut Player>,
+) {
+    for FromServer(msg) in messages.read() {
+        let ServerMessage::YourState { ack_tick, state } = msg else {
+            continue;
+        };
+        let player = &mut **player;
+        if player.frozen {
+            continue;
+        }
+        let mut server = PlayerState::new(Vec3::from_array(state.position));
+        server.velocity = Vec3::from_array(state.velocity);
+        server.flying = state.flying;
+        server.on_ground = state.on_ground;
+        let before = player.state.position;
+        match player
+            .history
+            .reconcile(*ack_tick, server, &mut player.state, &world.0, &blocks.0)
+        {
+            Reconciled::Matched => {}
+            Reconciled::Corrected { error } => {
+                player.stats.corrections += 1;
+                player.stats.last_error = error.length();
+                // Keep the in-between-ticks blend consistent.
+                player.prev_position -= error;
+                if error.length() < MAX_SMOOTHED_ERROR {
+                    player.visual_offset += error;
+                } else {
+                    player.visual_offset = Vec3::ZERO;
+                }
+            }
+            Reconciled::Snapped => {
+                player.stats.snaps += 1;
+                player.stats.last_error = before.distance(player.state.position);
+                player.prev_position = player.state.position;
+                player.visual_offset = Vec3::ZERO;
+            }
+        }
+    }
 }
 
 /// Turning happens every frame (not every physics step) so the view
@@ -289,12 +358,16 @@ fn toggle_game_mode(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<GameMode>)
 /// second but the screen may refresh at 120+, so we blend between the last
 /// two physics positions according to how far we are into the next step.
 fn follow_camera(
+    time: Res<Time>,
     fixed: Res<Time<Fixed>>,
-    player: Single<&Player>,
+    mut player: Single<&mut Player>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
 ) {
+    // Fade out any correction offset smoothly.
+    let fade = (-SMOOTHING_RATE * time.delta_secs()).exp();
+    player.visual_offset *= fade;
     let t = fixed.overstep_fraction();
-    let feet = player.prev_position.lerp(player.state.position, t);
+    let feet = player.prev_position.lerp(player.state.position, t) + player.visual_offset;
     camera.translation = feet + Vec3::Y * physics::EYE_HEIGHT;
     camera.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.0);
 }

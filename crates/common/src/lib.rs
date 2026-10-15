@@ -4,6 +4,7 @@ pub mod block;
 pub mod chunk;
 pub mod inventory;
 pub mod physics;
+pub mod prediction;
 pub mod protocol;
 pub mod raycast;
 pub mod save;

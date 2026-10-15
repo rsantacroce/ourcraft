@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 1;
+pub const PROTOCOL_VERSION: u64 = 2;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -56,6 +56,23 @@ pub struct NetPlayerState {
     pub on_ground: bool,
 }
 
+/// One physics tick of player input (see `prediction`).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+pub struct NetInput {
+    /// The client's physics tick number, counting up from 1.
+    pub tick: u32,
+    /// `x` = strafe right, `y` = forward, each `-1..=1`.
+    pub movement: [f32; 2],
+    pub jump: bool,
+    pub descend: bool,
+    pub sprint: bool,
+    pub auto_jump: bool,
+    /// Whether the player wants to be flying.
+    pub fly: bool,
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
 /// One inventory slot: (block id, count).
 pub type NetSlot = Option<(u16, u16)>;
 
@@ -75,11 +92,9 @@ pub enum ClientMessage {
         pos: [i32; 3],
         block: u16,
     },
-    /// Where the local player is (sent ~20 times a second).
-    PlayerState {
-        tick: u32,
-        state: NetPlayerState,
-    },
+    /// The latest few physics inputs (sent every tick; recent ones are
+    /// repeated so a lost packet doesn't lose an input).
+    Inputs(Vec<NetInput>),
     /// The player's inventory changed (so the server can save it).
     Inventory {
         slots: Vec<NetSlot>,
@@ -129,6 +144,12 @@ pub enum ServerMessage {
     },
     PlayerJoined(PlayerInfo),
     PlayerLeft(PlayerId),
+    /// Where *you* are according to the server, after applying your input
+    /// number `ack_tick`. Used for reconciliation.
+    YourState {
+        ack_tick: u32,
+        state: NetPlayerState,
+    },
     /// Where everyone else is (sent ~20 times a second).
     PlayerStates {
         tick: u32,
@@ -186,15 +207,13 @@ mod tests {
                 pos: [-5, 70, 123_456],
                 block: 3,
             },
-            ClientMessage::PlayerState {
+            ClientMessage::Inputs(vec![NetInput {
                 tick: 99,
-                state: NetPlayerState {
-                    position: [1.5, 64.0, -2.25],
-                    yaw: 1.0,
-                    flying: true,
-                    ..Default::default()
-                },
-            },
+                movement: [0.5, -1.0],
+                jump: true,
+                yaw: 1.0,
+                ..Default::default()
+            }]),
             ClientMessage::Inventory {
                 slots: vec![Some((1, 64)), None],
                 selected: 1,
@@ -253,12 +272,9 @@ mod tests {
 
     #[test]
     fn movement_updates_are_small() {
-        // Sent 20×/s per player, so it should stay compact.
-        let m = ClientMessage::PlayerState {
-            tick: 123_456,
-            state: NetPlayerState::default(),
-        };
-        assert!(encode(&m).len() < 48, "{} bytes", encode(&m).len());
+        // Sent 60×/s per player with 4 inputs each, so keep it compact.
+        let m = ClientMessage::Inputs(vec![NetInput::default(); 4]);
+        assert!(encode(&m).len() < 120, "{} bytes", encode(&m).len());
     }
 
     #[test]

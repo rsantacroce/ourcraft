@@ -54,7 +54,7 @@ fn spawn_hud(mut commands: Commands) {
                      WASD: move   Space: jump (double-tap: fly)   Shift: down   Ctrl: run\n\
                      Left click: break   Right click: place   Middle click: pick block\n\
                      1-9 / wheel: hotbar   E: inventory   F: fly   G: creative/survival\n\
-                     T: skip an hour   [ and ]: render distance",
+                                          T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag",
                 ),
                 TextFont::from_font_size(14.0),
                 TextColor(Color::WHITE),
@@ -166,7 +166,8 @@ fn update_debug_text(
          Looking at: {looking_at}\n\
          Chunks: {} loaded, {} meshes, {} decoding, {} meshing\n\
          Render distance: {}\n\
-         {}",
+         {}{}\n\
+         Prediction: {} unconfirmed inputs, {} corrections, {} snaps (last {:.2} blocks)",
         *mode,
         p.x,
         p.y,
@@ -186,5 +187,16 @@ fn update_debug_text(
             ),
             None => "Not connected".to_owned(),
         },
+        match conn.as_deref() {
+            Some(c) if c.lag.is_on() => format!(
+                "\nLag simulation: +{} ms, +/-{} ms, {}% loss",
+                c.lag.latency_ms, c.lag.jitter_ms, c.lag.loss_percent
+            ),
+            _ => String::new(),
+        },
+        player.history.len(),
+        player.stats.corrections,
+        player.stats.snaps,
+        player.stats.last_error,
     );
 }

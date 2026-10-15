@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use ourcraft_common::block::BlockId;
-use ourcraft_common::physics::{Aabb, EYE_HEIGHT};
+use ourcraft_common::physics::{Aabb, EYE_HEIGHT, PlayerState};
+use ourcraft_common::prediction::{InputBuffer, apply_input};
 use ourcraft_common::protocol::{
     Channel, ClientMessage, MAX_CHAT_LEN, NetPlayerState, NetSlot, PROTOCOL_VERSION, PlayerInfo,
     ServerMessage, sanitize_name,
@@ -41,6 +42,7 @@ impl Plugin for PlayersPlugin {
                     on_connect,
                     on_disconnect,
                     handle_messages,
+                    simulate_players,
                     hello_timeout,
                     compute_wanted_columns,
                 )
@@ -72,7 +74,12 @@ pub struct ConnectedPlayer {
     /// Set once the client has said hello.
     pub name: Option<String>,
     pub view_distance: i32,
+    /// What other players see (updated after each simulation step).
     pub state: NetPlayerState,
+    /// The authoritative physics state, advanced by the player's inputs.
+    pub physics: PlayerState,
+    /// Inputs received but not yet applied.
+    pub inputs: InputBuffer,
     pub inventory: Option<(Vec<NetSlot>, u8)>,
     /// Columns this client has been sent and (as far as we know) still has.
     pub sent: HashSet<ColumnPos>,
@@ -115,6 +122,8 @@ fn on_connect(
                 name: None,
                 view_distance: 4,
                 state: NetPlayerState::default(),
+                physics: PlayerState::new(Vec3::ZERO),
+                inputs: InputBuffer::default(),
                 inventory: None,
                 sent: HashSet::new(),
                 connected_for: 0.0,
@@ -262,6 +271,8 @@ fn handle_messages(
                         .collect();
                     (slots, inv.selected as u8)
                 });
+                p.physics = PlayerState::new(Vec3::from_array(p.state.position));
+                p.physics.flying = p.state.flying;
                 p.name = Some(name.clone());
                 info!("{name} joined (client {client})");
 
@@ -302,16 +313,21 @@ fn handle_messages(
                     p.view_distance = (*vd as i32).clamp(2, config.max_view_distance as i32);
                 }
             }
-            ClientMessage::PlayerState { state, .. } => {
+            ClientMessage::Inputs(inputs) => {
                 if let Ok(mut p) = query.get_mut(entity)
                     && p.name.is_some()
                 {
-                    let mut s = *state;
-                    // Ignore nonsense (NaN, or far outside the world).
-                    if s.position.iter().all(|v| v.is_finite()) {
-                        s.position[1] = s.position[1].clamp(-64.0, WORLD_HEIGHT as f32 + 64.0);
-                        p.state = s;
-                    }
+                    // Ignore nonsense values (NaN, out-of-range sticks).
+                    let valid: Vec<_> = inputs
+                        .iter()
+                        .filter(|i| {
+                            i.yaw.is_finite()
+                                && i.pitch.is_finite()
+                                && i.movement.iter().all(|m| m.is_finite() && m.abs() <= 1.0)
+                        })
+                        .copied()
+                        .collect();
+                    p.inputs.receive(&valid);
                 }
             }
             ClientMessage::Inventory { slots, selected } => {
@@ -393,6 +409,40 @@ fn handle_messages(
                 );
             }
         }
+    }
+}
+
+/// Inputs applied per player per server tick, at most. One arrives per
+/// tick normally; a few more let a player catch up after a lag spike.
+const MAX_INPUTS_PER_TICK: usize = 4;
+
+/// Move every player by applying their inputs, with the same physics code
+/// the clients use to predict.
+fn simulate_players(
+    mut query: Query<&mut ConnectedPlayer>,
+    world: Res<ServerWorld>,
+    registry: Res<Registry>,
+) {
+    for mut p in &mut query {
+        if p.name.is_none() {
+            continue;
+        }
+        let p = &mut *p;
+        for input in p.inputs.take(MAX_INPUTS_PER_TICK) {
+            apply_input(&mut p.physics, &input, &world.0, &registry.0);
+            p.state.yaw = input.yaw;
+            p.state.pitch = input.pitch;
+        }
+        // Keep players inside the world.
+        p.physics.position.y = p
+            .physics
+            .position
+            .y
+            .clamp(-64.0, WORLD_HEIGHT as f32 + 64.0);
+        p.state.position = p.physics.position.to_array();
+        p.state.velocity = p.physics.velocity.to_array();
+        p.state.flying = p.physics.flying;
+        p.state.on_ground = p.physics.on_ground;
     }
 }
 
@@ -536,6 +586,19 @@ fn broadcast_states(
     }
     *timer = 0.0;
     *tick += 1;
+    // Each player's own authoritative state, for reconciliation.
+    for p in query.iter().filter(|p| p.name.is_some()) {
+        if p.inputs.last_applied > 0 {
+            net.send(
+                p.client,
+                Channel::Unreliable,
+                &ServerMessage::YourState {
+                    ack_tick: p.inputs.last_applied,
+                    state: p.state,
+                },
+            );
+        }
+    }
     let players: Vec<_> = query
         .iter()
         .filter(|p| p.name.is_some())
