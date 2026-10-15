@@ -1,6 +1,7 @@
 // Shader for chunk meshes: samples the block texture array, applies the
 // per-vertex brightness baked in by the mesher (face direction + ambient
-// occlusion), the time of day, and distance fog. No dynamic lights, which
+// occlusion), the light levels (sky light, dimmed at night, and warm block
+// light from torches and lamps), and distance fog. No dynamic lights, which
 // keeps it fast on tablets and gives a clean cartoon look.
 
 #import bevy_pbr::mesh_functions::{get_world_from_local, mesh_position_local_to_world}
@@ -25,6 +26,7 @@ struct Vertex {
     @location(1) uv: vec2<f32>,
     @location(2) layer: u32,
     @location(3) shade: f32,
+    @location(4) light: vec2<f32>,
 };
 
 struct VertexOutput {
@@ -34,6 +36,7 @@ struct VertexOutput {
     @location(1) @interpolate(flat) layer: u32,
     @location(2) shade: f32,
     @location(3) world_position: vec3<f32>,
+    @location(4) light: vec2<f32>,
 };
 
 @vertex
@@ -48,7 +51,14 @@ fn vertex(v: Vertex) -> VertexOutput {
     out.uv = v.uv;
     out.layer = v.layer;
     out.shade = v.shade;
+    out.light = v.light;
     return out;
+}
+
+// Light level 0..1 -> brightness. Level 15 is full brightness, and each step
+// down is about 18% darker.
+fn level(l: f32) -> f32 {
+    return pow(0.82, (1.0 - l) * 15.0);
 }
 
 @fragment
@@ -60,12 +70,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
-    var light: f32;
+    var light: vec3<f32>;
     if in.shade > 1.5 {
         // Glowing block: always fully bright.
-        light = 1.0;
+        light = vec3<f32>(1.0);
     } else {
-        light = max(in.shade * params.daylight, params.min_light * in.shade);
+        // Each light level is a bit darker than the one above it.
+        let sky = level(in.light.x) * max(params.daylight, params.min_light);
+        // Torches and lamps give a warm light.
+        let glow = level(in.light.y) * vec3<f32>(1.0, 0.88, 0.7);
+        // Never pitch black, even deep in a cave.
+        light = max(max(vec3<f32>(sky), glow), vec3<f32>(0.06)) * in.shade;
     }
     let lit = color.rgb * light;
 

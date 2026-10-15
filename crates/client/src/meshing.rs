@@ -16,10 +16,17 @@
 //!    the three blocks touching it in front of the face. Faces only merge if
 //!    their corner darkness matches, so AO and greedy meshing work together.
 //!
+//! 4. **Light.** Each corner also gets the sky and block light of the blocks
+//!    around it (see the `light` module), averaged for smooth lighting.
+//!
+//! Small shapes (torches) aren't merged: each of their boxes is drawn as is.
+//!
 //! This module is plain Rust with no Bevy types, so it runs on background
 //! threads and is easy to test.
 
 use ourcraft_common::block::{BlockId, BlockRegistry, Face, RenderKind};
+
+use crate::light::{LightRegion, Neighbourhood};
 use ourcraft_common::chunk::{CHUNK_SIZE, CHUNK_SIZE_I32, Chunk, ChunkPos};
 use ourcraft_common::world::{VoxelWorld, WORLD_HEIGHT_CHUNKS};
 
@@ -39,6 +46,8 @@ pub struct ChunkMeshData {
     pub layers: Vec<u32>,
     /// Brightness per vertex, `0..=1`, or [`EMISSIVE_SHADE`].
     pub shades: Vec<f32>,
+    /// Sky and block light per vertex, each `0..=1`.
+    pub lights: Vec<[f32; 2]>,
     pub indices: Vec<u32>,
 }
 
@@ -81,6 +90,8 @@ const P: usize = CHUNK_SIZE + 2;
 /// need access to the whole world.
 pub struct PaddedChunk {
     blocks: Box<[BlockId; P * P * P]>,
+    /// Light per block, `sky << 4 | block`.
+    light: Box<[u8; P * P * P]>,
 }
 
 impl PaddedChunk {
@@ -95,7 +106,15 @@ impl PaddedChunk {
         self.blocks[Self::idx(x, y, z)]
     }
 
-    /// Build from a function of chunk-local coordinates (`-1..=16`).
+    /// (sky, block) light at chunk-local coordinates (`-1..=16`).
+    #[inline]
+    pub fn light(&self, x: i32, y: i32, z: i32) -> (u8, u8) {
+        let v = self.light[Self::idx(x, y, z)];
+        (v >> 4, v & 15)
+    }
+
+    /// Build from a function of chunk-local coordinates (`-1..=16`), lit as
+    /// if under the open sky.
     pub fn from_fn(f: impl Fn(i32, i32, i32) -> BlockId) -> Self {
         let mut blocks = Box::new([BlockId::AIR; P * P * P]);
         for y in -1..=CHUNK_SIZE_I32 {
@@ -105,7 +124,25 @@ impl PaddedChunk {
                 }
             }
         }
-        Self { blocks }
+        Self {
+            blocks,
+            light: Box::new([0xF0; P * P * P]),
+        }
+    }
+
+    /// A chunk with its border and light, from a neighbourhood and the
+    /// light worked out for it.
+    pub fn from_neighbourhood(n: &Neighbourhood, light: &LightRegion) -> Self {
+        let mut p = Self::from_fn(|x, y, z| n.block(x, y, z));
+        for y in -1..=CHUNK_SIZE_I32 {
+            for z in -1..=CHUNK_SIZE_I32 {
+                for x in -1..=CHUNK_SIZE_I32 {
+                    let (s, b) = light.get(x, y, z);
+                    p.light[Self::idx(x, y, z)] = s << 4 | b;
+                }
+            }
+        }
+        p
     }
 
     /// A chunk surrounded by air.
@@ -222,7 +259,7 @@ pub fn mesh_chunk(
     let n = CHUNK_SIZE;
     // One entry per block in the current slice: 0 = no face, otherwise a key
     // describing exactly how the face looks. Equal keys can merge.
-    let mut mask = [0u32; CHUNK_SIZE * CHUNK_SIZE];
+    let mut mask = [0u64; CHUNK_SIZE * CHUNK_SIZE];
 
     for face in Face::ALL {
         let axes = face_axes(face);
@@ -238,7 +275,8 @@ pub fn mesh_chunk(
                     let block = chunk.get(p[0], p[1], p[2]);
                     let front = [p[0] + normal[0], p[1] + normal[1], p[2] + normal[2]];
                     let neighbour = chunk.get(front[0], front[1], front[2]);
-                    mask[i + j * n] = if face_visible(registry, block, neighbour) {
+                    let cube = registry.shape(block).is_cube();
+                    mask[i + j * n] = if cube && face_visible(registry, block, neighbour) {
                         face_key(chunk, registry, layers, block, face, &axes, front)
                     } else {
                         0
@@ -279,18 +317,96 @@ pub fn mesh_chunk(
             }
         }
     }
+    mesh_shapes(&mut mesh, chunk, registry, layers);
     mesh
+}
+
+/// Draw blocks that aren't full cubes (torches…) box by box.
+fn mesh_shapes(
+    mesh: &mut ChunkMeshes,
+    chunk: &PaddedChunk,
+    registry: &BlockRegistry,
+    layers: &FaceLayers,
+) {
+    let n = CHUNK_SIZE_I32;
+    for y in 0..n {
+        for z in 0..n {
+            for x in 0..n {
+                let block = chunk.get(x, y, z);
+                let shape = registry.shape(block);
+                if shape.is_cube() {
+                    continue;
+                }
+                let emissive = registry.light(block) > 0;
+                let (sky, glow) = chunk.light(x, y, z);
+                let at = [x as f32, y as f32, z as f32];
+                for (min, max) in shape.boxes() {
+                    for face in Face::ALL {
+                        let axes = face_axes(face);
+                        let normal = face.normal();
+                        // A face flush with the block's side is hidden by an
+                        // opaque neighbour.
+                        let on_edge = if axes.positive {
+                            max[axes.d] >= 1.0
+                        } else {
+                            min[axes.d] <= 0.0
+                        };
+                        if on_edge
+                            && registry.is_opaque(chunk.get(
+                                x + normal[0],
+                                y + normal[1],
+                                z + normal[2],
+                            ))
+                        {
+                            continue;
+                        }
+                        let layer = layers.get(block.0 as usize).map_or(0, |l| l[face as usize]);
+                        let d = at[axes.d]
+                            + if axes.positive {
+                                max[axes.d]
+                            } else {
+                                min[axes.d]
+                            };
+                        let rect = [
+                            at[axes.u] + min[axes.u],
+                            at[axes.u] + max[axes.u],
+                            at[axes.v] + min[axes.v],
+                            at[axes.v] + max[axes.v],
+                        ];
+                        let shade = if emissive {
+                            EMISSIVE_SHADE
+                        } else {
+                            face_shade(face)
+                        };
+                        push_face(
+                            &mut mesh.solid,
+                            &axes,
+                            d,
+                            rect,
+                            layer,
+                            [shade; 4],
+                            [[sky, glow]; 4],
+                            false,
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Layout of a face key, from the low bits up.
 const KEY_AO_BITS: u32 = 8; // 2 bits of AO per corner
-const KEY_EMISSIVE: u32 = 1 << 8;
-const KEY_TRANSLUCENT: u32 = 1 << 9;
-const KEY_LAYER_SHIFT: u32 = 10;
+const KEY_EMISSIVE: u64 = 1 << 8;
+const KEY_TRANSLUCENT: u64 = 1 << 9;
+/// Then 4 corners × (sky, block) light, 5 bits each (light × 2, so halves
+/// from averaging survive).
+const KEY_LIGHT_SHIFT: u32 = 10;
+const KEY_LAYER_SHIFT: u32 = 50;
 
 /// Pack everything that affects how a face looks into one non-zero number:
-/// texture layer, glow and translucency flags and the AO level of each of
-/// its 4 corners.
+/// texture layer, glow and translucency flags, and the AO level and light of
+/// each of its 4 corners.
 fn face_key(
     chunk: &PaddedChunk,
     registry: &BlockRegistry,
@@ -299,10 +415,11 @@ fn face_key(
     face: Face,
     axes: &FaceAxes,
     front: [i32; 3],
-) -> u32 {
-    let layer = layers.get(block.0 as usize).map_or(0, |l| l[face as usize]);
+) -> u64 {
+    let layer = layers.get(block.0 as usize).map_or(0, |l| l[face as usize]) as u64;
     let emissive = registry.get(block).light > 0;
-    let mut ao_bits = 0u32;
+    let mut ao_bits = 0u64;
+    let mut light_bits = 0u64;
     if !emissive {
         let occludes = |p: [i32; 3]| registry.is_opaque(chunk.get(p[0], p[1], p[2])) as u8;
         // Corners in (u, v) order: (0,0), (1,0), (1,1), (0,1).
@@ -322,7 +439,28 @@ fn face_key(
             } else {
                 3 - (s1 + s2 + cn)
             };
-            ao_bits |= (ao as u32) << (c * 2);
+            ao_bits |= (ao as u64) << (c * 2);
+            // Smooth light: average the open blocks around the corner (the
+            // diagonal one only counts if it can be seen past the sides).
+            let mut cells = vec![front];
+            if s1 == 0 {
+                cells.push(side1);
+            }
+            if s2 == 0 {
+                cells.push(side2);
+            }
+            if cn == 0 && (s1 == 0 || s2 == 0) {
+                cells.push(corner);
+            }
+            let (mut sky, mut glow) = (0u32, 0u32);
+            for p in &cells {
+                let (s, g) = chunk.light(p[0], p[1], p[2]);
+                sky += s as u32;
+                glow += g as u32;
+            }
+            let k = cells.len() as u32;
+            let avg = |v: u32| ((v * 2 + k / 2) / k).min(31) as u64;
+            light_bits |= (avg(sky) | avg(glow) << 5) << (c * 10);
         }
     } else {
         ao_bits = (1 << KEY_AO_BITS) - 1; // all corners fully lit
@@ -332,6 +470,7 @@ fn face_key(
         | if translucent { KEY_TRANSLUCENT } else { 0 }
         | if emissive { KEY_EMISSIVE } else { 0 }
         | ao_bits
+        | light_bits << KEY_LIGHT_SHIFT
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -344,9 +483,9 @@ fn push_quad(
     j: usize,
     w: usize,
     h: usize,
-    key: u32,
+    key: u64,
 ) {
-    let layer = (key >> KEY_LAYER_SHIFT) - 1;
+    let layer = ((key >> KEY_LAYER_SHIFT) - 1) as u32;
     let emissive = key & KEY_EMISSIVE != 0;
     let mesh = if key & KEY_TRANSLUCENT != 0 {
         &mut meshes.translucent
@@ -354,14 +493,59 @@ fn push_quad(
         &mut meshes.solid
     };
     let ao = |c: usize| ((key >> (c * 2)) & 3) as usize;
-    let base = mesh.positions.len() as u32;
-    let d_coord = (slice + axes.positive as usize) as f32;
+    let shades: [f32; 4] = std::array::from_fn(|c| {
+        if emissive {
+            EMISSIVE_SHADE
+        } else {
+            face_shade(face) * AO_CURVE[ao(c)]
+        }
+    });
+    let lights: [[u8; 2]; 4] = std::array::from_fn(|c| {
+        let l = key >> (KEY_LIGHT_SHIFT + c as u32 * 10);
+        // Stored doubled; halve back to 0..=15 (keeping the half step).
+        [(l & 31) as u8, (l >> 5 & 31) as u8]
+    });
+    let d = (slice + axes.positive as usize) as f32;
+    let rect = [i as f32, (i + w) as f32, j as f32, (j + h) as f32];
+    // Split along whichever diagonal keeps a dark corner from smearing
+    // across the whole quad (the classic AO "anisotropy" fix).
+    let flip = ao(0) + ao(2) < ao(1) + ao(3);
+    push_face(mesh, axes, d, rect, layer, shades, lights, true);
+    if flip {
+        // Re-split the quad just added along the other diagonal.
+        let n = mesh.indices.len();
+        let base = mesh.positions.len() as u32 - 4;
+        let tris: [u32; 6] = if axes.reverse {
+            [0, 3, 1, 1, 3, 2]
+        } else {
+            [0, 1, 3, 1, 2, 3]
+        };
+        mesh.indices.truncate(n - 6);
+        mesh.indices.extend(tris.iter().map(|t| base + t));
+    }
+}
 
+/// Add one rectangle: `d` is its position along the face's axis, `rect` is
+/// `[u0, u1, v0, v1]`. `lights` are per corner, doubled (0..=30), unless
+/// `doubled` is false (then 0..=15).
+#[allow(clippy::too_many_arguments)]
+fn push_face(
+    mesh: &mut ChunkMeshData,
+    axes: &FaceAxes,
+    d: f32,
+    rect: [f32; 4],
+    layer: u32,
+    shades: [f32; 4],
+    lights: [[u8; 2]; 4],
+    doubled: bool,
+) {
+    let base = mesh.positions.len() as u32;
+    let scale = if doubled { 30.0 } else { 15.0 };
     for (c, (cu, cv)) in [(0, 0), (1, 0), (1, 1), (0, 1)].into_iter().enumerate() {
         let mut p = [0f32; 3];
-        p[axes.d] = d_coord;
-        p[axes.u] = (i + cu * w) as f32;
-        p[axes.v] = (j + cv * h) as f32;
+        p[axes.d] = d;
+        p[axes.u] = rect[cu];
+        p[axes.v] = rect[2 + cv];
         mesh.positions.push(p);
         // UVs in block units; the sampler repeats the texture once per block.
         // On side faces v points down the texture, so it decreases with height.
@@ -372,21 +556,14 @@ fn push_quad(
         };
         mesh.uvs.push(uv);
         mesh.layers.push(layer);
-        mesh.shades.push(if emissive {
-            EMISSIVE_SHADE
-        } else {
-            face_shade(face) * AO_CURVE[ao(c)]
-        });
+        mesh.shades.push(shades[c]);
+        mesh.lights
+            .push([lights[c][0] as f32 / scale, lights[c][1] as f32 / scale]);
     }
-
-    // Two triangles. Split along whichever diagonal keeps a dark corner from
-    // smearing across the whole quad (the classic AO "anisotropy" fix).
-    let flip = ao(0) + ao(2) < ao(1) + ao(3);
-    let tris: [u32; 6] = match (axes.reverse, flip) {
-        (false, false) => [0, 1, 2, 0, 2, 3],
-        (false, true) => [0, 1, 3, 1, 2, 3],
-        (true, false) => [0, 2, 1, 0, 3, 2],
-        (true, true) => [0, 3, 1, 1, 3, 2],
+    let tris: [u32; 6] = if axes.reverse {
+        [0, 2, 1, 0, 3, 2]
+    } else {
+        [0, 1, 2, 0, 2, 3]
     };
     mesh.indices.extend(tris.iter().map(|t| base + t));
 }
@@ -418,6 +595,7 @@ mod tests {
         assert_eq!(m.uvs.len(), v);
         assert_eq!(m.layers.len(), v);
         assert_eq!(m.shades.len(), v);
+        assert_eq!(m.lights.len(), v);
         assert_eq!(m.indices.len(), v / 4 * 6);
     }
 

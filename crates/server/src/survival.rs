@@ -230,12 +230,15 @@ fn handle_container_messages(
 }
 
 /// Survival players get drops for the blocks they break. Broken furnaces
-/// spill what they held.
+/// spill what they held, and torches hanging on a broken block fall off.
+#[allow(clippy::too_many_arguments)]
 fn drop_broken_blocks(
     mut applied: ResMut<AppliedEdits>,
     mut players: Query<&mut ConnectedPlayer>,
     mut open: ResMut<OpenWorld>,
     registry: Res<Registry>,
+    mut world: ResMut<ServerWorld>,
+    mut cache: ResMut<crate::world::ColumnCache>,
     mut entities: ResMut<Entities>,
     mut net: ResMut<Network>,
     mut luck: Local<u32>,
@@ -245,6 +248,40 @@ fn drop_broken_blocks(
             continue;
         }
         let center = edit.pos.as_vec3() + Vec3::splat(0.5);
+        let survival_breaker = players
+            .iter()
+            .any(|p| p.client == edit.client && !p.creative);
+        // Torches (and anything else hanging) on the block that went away.
+        if edit.new.is_air() {
+            for d in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::Z, IVec3::NEG_Z] {
+                let at = edit.pos + d;
+                let Some(b) = world.get_block(at.x, at.y, at.z) else {
+                    continue;
+                };
+                let hangs_here = registry
+                    .0
+                    .attached_to(b)
+                    .is_some_and(|o| at + IVec3::from_array(o) == edit.pos);
+                if !hangs_here {
+                    continue;
+                }
+                crate::world::set_block(&mut world, &mut cache, &open, at, BlockId::AIR);
+                let msg = ServerMessage::BlockChanged {
+                    pos: at.to_array(),
+                    block: 0,
+                };
+                net.broadcast(Channel::Reliable, &msg);
+                if survival_breaker
+                    && let Some((item, n)) = open.items.drop_for(&registry.0, b, None)
+                {
+                    spawn_item(
+                        &mut entities,
+                        at.as_vec3() + Vec3::splat(0.5),
+                        ItemStack::new(item, n),
+                    );
+                }
+            }
+        }
         if let Some(c) = open.containers.remove(&edit.pos) {
             for stack in c.slots.into_iter().flatten() {
                 spawn_item(&mut entities, center, stack);
@@ -257,10 +294,7 @@ fn drop_broken_blocks(
                 net.send(p.client, Channel::Reliable, &ServerMessage::ContainerClosed);
             }
         }
-        let survival = players
-            .iter()
-            .any(|p| p.client == edit.client && !p.creative);
-        if !survival || !edit.new.is_air() {
+        if !survival_breaker || !edit.new.is_air() {
             continue;
         }
         let held = (edit.held != ItemId::NONE).then_some(edit.held);

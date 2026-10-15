@@ -11,6 +11,7 @@ pub mod interaction;
 pub mod inventory_ui;
 pub mod items;
 pub mod lan;
+pub mod light;
 pub mod menu;
 pub mod meshing;
 pub mod net;

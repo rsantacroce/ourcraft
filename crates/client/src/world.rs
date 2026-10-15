@@ -26,6 +26,7 @@ use ourcraft_common::protocol::{Channel, ClientMessage, ServerMessage};
 use ourcraft_common::save::decode_column;
 use ourcraft_common::world::{ColumnPos, VoxelWorld, WORLD_HEIGHT_CHUNKS};
 
+use crate::light::{Heights, Neighbourhood, column_heights, compute_light, height_after_edit};
 use crate::meshing::{ChunkMeshData, ChunkMeshes, PaddedChunk, mesh_chunk};
 use crate::net::{Connection, FromServer, NetReceiveSet};
 use crate::render::{BlockTextureLayers, VoxelMaterial, VoxelMaterialHandle, build_mesh};
@@ -96,8 +97,10 @@ impl ChunkEntities {
 /// Bookkeeping for streaming and meshing.
 #[derive(Resource, Default)]
 pub struct ChunkStreaming {
-    /// Columns being decoded on background threads.
-    decoding: HashMap<ColumnPos, Task<Option<Vec<Chunk>>>>,
+    /// Columns being decoded on background threads (with their heights).
+    decoding: HashMap<ColumnPos, Task<Option<(Vec<Chunk>, Box<Heights>)>>>,
+    /// The highest block of every x, z, per loaded column (for sky light).
+    heights: HashMap<ColumnPos, Arc<Heights>>,
     meshing: HashMap<ChunkPos, Task<ChunkMeshes>>,
     entities: HashMap<ChunkPos, ChunkEntities>,
     dirty: HashSet<ChunkPos>,
@@ -151,6 +154,28 @@ pub fn set_block(
     let old = world.set_block(pos.x, pos.y, pos.z, block)?;
     if old != block {
         streaming.mark_block_dirty(pos.x, pos.y, pos.z);
+        // Light reaches 15 blocks, so chunks that far away may look
+        // different now. If the top of the column moved, sunlight changes
+        // all the way between the old and new tops.
+        let col = ColumnPos::from_world(pos.x as f32, pos.z as f32);
+        let (mut low, mut high) = (pos.y, pos.y);
+        if let Some(h) = streaming.heights.get_mut(&col) {
+            let i = (pos.x.rem_euclid(16) + pos.z.rem_euclid(16) * 16) as usize;
+            let before = h[i];
+            let after = height_after_edit(world, pos.x, pos.z, pos.y, before, block);
+            if after != before {
+                Arc::make_mut(h)[i] = after;
+                low = low.min(after as i32).min(before as i32);
+                high = high.max(after as i32).max(before as i32);
+            }
+        }
+        for cy in (low - 15).div_euclid(16)..=(high + 15).div_euclid(16) {
+            for dz in [-15, 0, 15] {
+                for dx in [-15, 0, 15] {
+                    streaming.mark_dirty(ChunkPos::from_block(pos.x + dx, cy * 16, pos.z + dz));
+                }
+            }
+        }
     }
     Some(old)
 }
@@ -191,7 +216,11 @@ fn handle_world_messages(
                 let pos = ColumnPos::new(*x, *z);
                 let data = data.clone();
                 // Decompressing takes a moment; keep it off the main thread.
-                let task = pool.spawn(async move { decode_column(&data, None).ok() });
+                let task = pool.spawn(async move {
+                    let chunks = decode_column(&data, None).ok()?;
+                    let heights = column_heights(&chunks);
+                    Some((chunks, heights))
+                });
                 streaming.decoding.insert(pos, task);
             }
             ServerMessage::BlockChanged { pos, block } => {
@@ -225,8 +254,8 @@ fn receive_columns(mut world: ResMut<ClientWorld>, mut streaming: ResMut<ChunkSt
     streaming
         .decoding
         .retain(|pos, task| match check_ready(task) {
-            Some(Some(chunks)) => {
-                done.push((*pos, chunks));
+            Some(Some((chunks, heights))) => {
+                done.push((*pos, chunks, heights));
                 false
             }
             Some(None) => {
@@ -235,8 +264,9 @@ fn receive_columns(mut world: ResMut<ClientWorld>, mut streaming: ResMut<ChunkSt
             }
             None => true,
         });
-    for (pos, chunks) in done {
+    for (pos, chunks, heights) in done {
         world.insert_column(pos, chunks);
+        streaming.heights.insert(pos, Arc::from(heights));
         // This column and its neighbours may now be ready to mesh.
         for dz in -1..=1 {
             for dx in -1..=1 {
@@ -271,6 +301,7 @@ fn unload_far_columns(
         .collect();
     for pos in far {
         world.remove_column(pos);
+        streaming.heights.remove(&pos);
         for cy in 0..WORLD_HEIGHT_CHUNKS {
             let cpos = pos.chunk(cy);
             streaming.dirty.remove(&cpos);
@@ -352,10 +383,15 @@ fn queue_meshing(
             }
             continue;
         }
-        let padded = PaddedChunk::from_world(&world, pos);
+        let heights = &streaming.heights;
+        let near = Neighbourhood::from_world(&world, &|c| heights.get(&c).cloned(), pos);
         let registry = blocks.0.clone();
         let layers = layers.0.clone();
-        let task = pool.spawn(async move { mesh_chunk(&padded, &registry, &layers) });
+        let task = pool.spawn(async move {
+            let light = compute_light(&near, &registry);
+            let padded = PaddedChunk::from_neighbourhood(&near, &light);
+            mesh_chunk(&padded, &registry, &layers)
+        });
         // Replacing an in-flight task for the same chunk cancels the old one.
         streaming.meshing.insert(pos, task);
     }

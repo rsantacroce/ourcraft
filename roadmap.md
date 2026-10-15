@@ -1,7 +1,7 @@
 # Ourcraft roadmap
 
 Where Ourcraft stands compared with the classic block-building game, and
-what to build next. Milestones 1–10 (the original plan), 11 and 12 are done; this file
+what to build next. Milestones 1–10 (the original plan) and 11–13 are done; this file
 picks up from there.
 
 ## What we have
@@ -15,7 +15,7 @@ picks up from there.
 | Crafting | 2×2 grid in the inventory, 3×3 on a crafting table, 25 recipes (mods can add more); furnace that smelts ore, sand, clay and cobblestone with coal or wood |
 | Game modes | Creative (fly, endless blocks) and survival (blocks take time to break, the right tool is faster, drops land as items you pick up); Splat Squad team game (mod) |
 | Movement | Walk, sprint, jump, gravity, collision, swimming, flying (double-tap jump), auto-jump on touch screens |
-| Looks | Day/night cycle, sun and moon, sunset colours, fog, ambient occlusion, see-through leaves and glass, glowing lamps |
+| Looks | Day/night cycle, sun and moon, sunset colours, fog, ambient occlusion, see-through leaves and glass; real light: sunlight that doesn't reach into caves, and warm light from torches and lamps, smooth across corners |
 | Animals | Sheep, pigs, cows and chickens that wander, follow you when you hold an apple, have lambs, piglets, calves and chicks; shear sheep for wool, chickens lay eggs; pet them for hearts; `/summon` in creative; mods can add their own |
 | Saving | Several worlds, autosave, region files |
 | Multiplayer | Dedicated server, single player through the same server, LAN discovery, direct connect, chat with commands, avatars with name tags, client prediction |
@@ -24,8 +24,6 @@ picks up from there.
 
 ## Partly done
 
-- **Lighting:** sunlight dims at night, but caves aren't dark, and lamps
-  glow without lighting their surroundings.
 - **Water:** still; it doesn't flow.
 - **Sound:** effects for placing, breaking and the game mode; no
   footsteps, ambience or music.
@@ -35,7 +33,7 @@ picks up from there.
 - Monsters
 - Health, hunger, fall damage and drowning outside Splat Squad
 - Armour, food, swords
-- Non-cube blocks: stairs, slabs, doors, fences, torches on walls
+- Non-cube blocks: stairs, slabs, doors, fences
 - Blocks with storage or behaviour: chests, beds, signs
 - Redstone-style circuits
 - Falling sand and gravel; flowing water and lava
@@ -107,7 +105,23 @@ What was planned:
 - Feeding and breeding; wool and eggs. *Can be a mod once mobs exist.*
 - Mod API: let mods register mob types (model, speed, behaviour).
 
-### 13. Real light
+### 13. Real light ✅ done
+
+Sky light and block light (0–15), worked out per chunk while meshing from
+the 27 chunks around it (light never goes further than 15 blocks, so this
+is exact), with smooth light at each corner. Caves and covered places are
+dark, torches (on floors and walls; 4 from coal and a stick) and lamps
+light their surroundings warmly, and only sky light fades at night.
+Torches fall off when the block they hang on breaks. Blocks can now have
+shapes made of boxes (drawn, aimed at and placed correctly), ready for
+milestone 14.
+
+Not quite as planned: animals and dropped items aren't darkened in caves
+yet (only by night). The monster-spawning switch comes with the monsters
+(milestone 15).
+
+What was planned:
+
 
 - Block light that spreads from torches, lamps and lava, plus skylight,
   computed per chunk and stored alongside the blocks. Caves become dark.

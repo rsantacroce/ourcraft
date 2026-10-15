@@ -51,6 +51,11 @@ pub mod blocks {
     pub const GOLD_BLOCK: BlockId = BlockId(25);
     pub const DIAMOND_BLOCK: BlockId = BlockId(26);
     pub const WOOL: BlockId = BlockId(27);
+    pub const TORCH: BlockId = BlockId(28);
+    pub const WALL_TORCH_EAST: BlockId = BlockId(29);
+    pub const WALL_TORCH_WEST: BlockId = BlockId(30);
+    pub const WALL_TORCH_SOUTH: BlockId = BlockId(31);
+    pub const WALL_TORCH_NORTH: BlockId = BlockId(32);
 }
 
 /// The six faces of a block, in the order used for per-face lookups.
@@ -151,6 +156,39 @@ pub enum Drops {
     Nothing,
 }
 
+/// One box of a block's shape, in sixteenths of a block:
+/// `[x0, y0, z0, x1, y1, z1]` (0–16).
+pub type ShapeBox = [u8; 6];
+
+/// What a block looks like: a full cube, or some smaller boxes (torches,
+/// and later slabs, stairs, fences, doors…).
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum BlockShape {
+    #[default]
+    Cube,
+    Boxes(Vec<ShapeBox>),
+}
+
+impl BlockShape {
+    /// The boxes in block units (0–1), as (min, max) corners.
+    pub fn boxes(&self) -> Vec<([f32; 3], [f32; 3])> {
+        match self {
+            BlockShape::Cube => vec![([0.0; 3], [1.0; 3])],
+            BlockShape::Boxes(b) => b
+                .iter()
+                .map(|b| {
+                    let f = |v: u8| v as f32 / 16.0;
+                    ([f(b[0]), f(b[1]), f(b[2])], [f(b[3]), f(b[4]), f(b[5])])
+                })
+                .collect(),
+        }
+    }
+
+    pub fn is_cube(&self) -> bool {
+        matches!(self, BlockShape::Cube)
+    }
+}
+
 /// The kinds of tool. Each block is quickest to break with one of them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolKind {
@@ -186,6 +224,10 @@ pub struct BlockDef {
     pub min_tier: u8,
     /// Sometimes drops this item as well: (item name, one time in N).
     pub bonus_drop: Option<(String, u16)>,
+    pub shape: BlockShape,
+    /// Left out of the creative palette (variants like wall torches, which
+    /// you get by placing the normal kind).
+    pub hidden: bool,
 }
 
 impl BlockDef {
@@ -205,6 +247,8 @@ impl BlockDef {
             tool: None,
             min_tier: 0,
             bonus_drop: None,
+            shape: BlockShape::Cube,
+            hidden: false,
         }
     }
 
@@ -251,6 +295,8 @@ impl BlockRegistry {
                 tool: None,
                 min_tier: 0,
                 bonus_drop: None,
+                shape: BlockShape::Cube,
+                hidden: false,
             }],
         }
     }
@@ -410,7 +456,75 @@ impl BlockRegistry {
         );
         // ---- Milestone 12: animals ----
         reg.register(BlockDef::solid("core:wool", "Wool", T::all("wool")).mined(0.8, None, 0));
+        // ---- Milestone 13: light ----
+        // A torch on the floor, and leaning on each kind of wall (named by
+        // the way it faces, away from the wall it hangs on).
+        let torch = |name: &str, boxes: Vec<ShapeBox>, hidden: bool| BlockDef {
+            render: RenderKind::Cutout,
+            solid: false,
+            light: 14,
+            drops: Drops::Block(blocks::TORCH),
+            shape: BlockShape::Boxes(boxes),
+            hidden,
+            ..BlockDef::solid(
+                name,
+                "Torch",
+                T::top_bottom_side("torch_top", "torch", "torch"),
+            )
+            .mined(0.0, None, 0)
+        };
+        reg.register(torch("core:torch", vec![[7, 0, 7, 9, 10, 9]], false));
+        reg.register(torch(
+            "core:wall_torch_east",
+            vec![[1, 3, 7, 3, 13, 9], [0, 4, 7, 1, 6, 9]],
+            true,
+        ));
+        reg.register(torch(
+            "core:wall_torch_west",
+            vec![[13, 3, 7, 15, 13, 9], [15, 4, 7, 16, 6, 9]],
+            true,
+        ));
+        reg.register(torch(
+            "core:wall_torch_south",
+            vec![[7, 3, 1, 9, 13, 3], [7, 4, 0, 9, 6, 1]],
+            true,
+        ));
+        reg.register(torch(
+            "core:wall_torch_north",
+            vec![[7, 3, 13, 9, 13, 15], [7, 4, 15, 9, 6, 16]],
+            true,
+        ));
         reg
+    }
+
+    /// The block actually placed when you put `block` against a face whose
+    /// outward direction is `normal` (torches go on walls), or `None` if it
+    /// can't go there.
+    pub fn placed_variant(&self, block: BlockId, normal: [i32; 3]) -> Option<BlockId> {
+        if block != blocks::TORCH {
+            return Some(block);
+        }
+        Some(match normal {
+            [0, 1, 0] => blocks::TORCH,
+            [1, 0, 0] => blocks::WALL_TORCH_EAST,
+            [-1, 0, 0] => blocks::WALL_TORCH_WEST,
+            [0, 0, 1] => blocks::WALL_TORCH_SOUTH,
+            [0, 0, -1] => blocks::WALL_TORCH_NORTH,
+            _ => return None, // not on ceilings
+        })
+    }
+
+    /// The block a torch (or other attached block) at a position hangs on,
+    /// as an offset from it.
+    pub fn attached_to(&self, block: BlockId) -> Option<[i32; 3]> {
+        Some(match block {
+            b if b == blocks::TORCH => [0, -1, 0],
+            b if b == blocks::WALL_TORCH_EAST => [-1, 0, 0],
+            b if b == blocks::WALL_TORCH_WEST => [1, 0, 0],
+            b if b == blocks::WALL_TORCH_SOUTH => [0, 0, -1],
+            b if b == blocks::WALL_TORCH_NORTH => [0, 0, 1],
+            _ => return None,
+        })
     }
 
     /// A registry from a full list of definitions, in id order (as sent by
@@ -456,6 +570,8 @@ impl BlockRegistry {
             tool: None,
             min_tier: 0,
             bonus_drop: None,
+            shape: BlockShape::Cube,
+            hidden: false,
         }))
     }
 
@@ -469,11 +585,22 @@ impl BlockRegistry {
         &self.defs[id.0 as usize]
     }
 
-    /// Opaque blocks hide their neighbours' faces and cast ambient occlusion.
+    /// Opaque blocks hide their neighbours' faces, block light and cast
+    /// ambient occlusion. (Only full cubes can be opaque.)
     pub fn is_opaque(&self, id: BlockId) -> bool {
         self.defs
             .get(id.0 as usize)
-            .is_some_and(|d| d.render == RenderKind::Opaque)
+            .is_some_and(|d| d.render == RenderKind::Opaque && d.shape.is_cube())
+    }
+
+    pub fn shape(&self, id: BlockId) -> &BlockShape {
+        static CUBE: BlockShape = BlockShape::Cube;
+        self.defs.get(id.0 as usize).map_or(&CUBE, |d| &d.shape)
+    }
+
+    /// Light given off, 0–15.
+    pub fn light(&self, id: BlockId) -> u8 {
+        self.defs.get(id.0 as usize).map_or(0, |d| d.light)
     }
 
     /// Solid blocks stop movement.
@@ -544,6 +671,32 @@ mod tests {
         assert_eq!(reg.get(blocks::DIAMOND_BLOCK).name, "core:diamond_block");
         assert_eq!(reg.get(blocks::WOOL).name, "core:wool");
         assert!(reg.get(blocks::LEAVES).bonus_drop.is_some(), "apples");
+        assert_eq!(reg.get(blocks::TORCH).name, "core:torch");
+        assert_eq!(
+            reg.get(blocks::WALL_TORCH_NORTH).name,
+            "core:wall_torch_north"
+        );
+    }
+
+    #[test]
+    fn torches_go_on_floors_and_walls() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        assert_eq!(
+            reg.placed_variant(blocks::TORCH, [0, 1, 0]),
+            Some(blocks::TORCH)
+        );
+        assert_eq!(reg.placed_variant(blocks::TORCH, [0, -1, 0]), None);
+        for n in [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]] {
+            let wall = reg.placed_variant(blocks::TORCH, n).unwrap();
+            // It hangs on the block it was placed against.
+            assert_eq!(reg.attached_to(wall), Some([-n[0], -n[1], -n[2]]));
+            assert!(!reg.is_opaque(wall) && !reg.is_solid(wall));
+            assert_eq!(reg.light(wall), 14);
+        }
+        assert_eq!(
+            reg.placed_variant(blocks::STONE, [0, -1, 0]),
+            Some(blocks::STONE)
+        );
     }
 
     #[test]

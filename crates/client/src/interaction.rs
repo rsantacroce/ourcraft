@@ -325,6 +325,10 @@ fn break_and_place(
         else {
             return; // not holding a block
         };
+        // Some blocks change with where they go (torches on walls).
+        let Some(block) = blocks.0.placed_variant(block, hit.normal.to_array()) else {
+            return;
+        };
         // Only place into empty space (air or water)…
         let existing = world.block(pos.x, pos.y, pos.z);
         let replaceable = existing.is_air() || blocks.0.is_liquid(existing);

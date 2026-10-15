@@ -388,6 +388,36 @@ fn wool(x: usize, y: usize) -> Rgba {
     }
 }
 
+/// A torch's side: a stick with a flame at the top, in the middle columns
+/// (the torch's boxes only show columns 7–8 and the bottom 10 rows).
+fn torch(x: usize, y: usize) -> Rgba {
+    if !(7..=8).contains(&x) {
+        return [0, 0, 0, 0];
+    }
+    match y {
+        6 => rgb(255, 240, 150),
+        7 => rgb(255, 200, 70),
+        8 => rgb(250, 150, 40),
+        9..=15 => {
+            if x == 7 {
+                rgb(150, 104, 58)
+            } else {
+                rgb(118, 80, 44)
+            }
+        }
+        _ => [0, 0, 0, 0],
+    }
+}
+
+/// The top of a torch: a bright flame.
+fn torch_top(x: usize, y: usize) -> Rgba {
+    if (7..=8).contains(&x) && (7..=8).contains(&y) {
+        rgb(255, 236, 140)
+    } else {
+        [0, 0, 0, 0]
+    }
+}
+
 /// Magenta and black checkerboard: impossible to miss in-game.
 fn missing(x: usize, y: usize) -> Rgba {
     if (x / 8 + y / 8).is_multiple_of(2) {
@@ -433,6 +463,8 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
         "gold_block" => gold_block,
         "diamond_block" => diamond_block,
         "wool" => wool,
+        "torch" => torch,
+        "torch_top" => torch_top,
         _ => return None,
     })
 }

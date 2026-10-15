@@ -188,7 +188,8 @@ pub fn item_icon_pixels(
 ) -> Option<Vec<u8>> {
     let def = items.get(id)?;
     match def.kind {
-        ItemKind::Block(b) => {
+        // Blocks that aren't cubes (torches) get a flat picture.
+        ItemKind::Block(b) if blocks.get(b).shape.is_cube() => {
             let tex = blocks.get(b).textures.as_ref()?;
             Some(render_block_icon(
                 &textures.pixels(&tex.top),
@@ -197,9 +198,14 @@ pub fn item_icon_pixels(
         }
         _ => {
             let short = def.name.trim_start_matches("core:");
+            let side = def
+                .block()
+                .and_then(|b| blocks.get(b).textures.as_ref())
+                .map(|t| t.side.clone());
             let flat = crate::render::item_icons::item_icon(short)
-                // Mods can give an item a texture with the item's name.
-                .unwrap_or_else(|| textures.pixels(&def.name));
+                // A shaped block's side texture, or a mod's texture with the
+                // item's name.
+                .unwrap_or_else(|| textures.pixels(side.as_deref().unwrap_or(&def.name)));
             Some(upscale(&flat))
         }
     }
@@ -609,7 +615,7 @@ fn palette(items: &ItemRegistry, blocks: &ourcraft_common::block::BlockRegistry)
         .filter(|(_, d)| match d.kind {
             ItemKind::Block(b) => {
                 let def = blocks.get(b);
-                def.render != RenderKind::Invisible && !def.liquid
+                def.render != RenderKind::Invisible && !def.liquid && !def.hidden
             }
             _ => true,
         })

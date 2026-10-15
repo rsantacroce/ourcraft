@@ -268,6 +268,7 @@ fn item_look(
     let block_tex = items
         .get(item)
         .and_then(|d| d.block())
+        .filter(|b| blocks.get(*b).shape.is_cube())
         .and_then(|b| blocks.get(b).textures.clone());
     if let Some(tex) = block_tex {
         let pixels = textures.pixels(&tex.side);

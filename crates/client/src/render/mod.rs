@@ -40,6 +40,9 @@ pub const ATTRIBUTE_TEXTURE_LAYER: MeshVertexAttribute =
     MeshVertexAttribute::new("TextureLayer", 917_405_311, VertexFormat::Uint32);
 pub const ATTRIBUTE_SHADE: MeshVertexAttribute =
     MeshVertexAttribute::new("Shade", 917_405_312, VertexFormat::Float32);
+/// Sky light and block light, each 0..1.
+pub const ATTRIBUTE_LIGHT: MeshVertexAttribute =
+    MeshVertexAttribute::new("Light", 917_405_313, VertexFormat::Float32x2);
 
 pub struct VoxelRenderPlugin;
 
@@ -133,6 +136,7 @@ impl Material for VoxelMaterial {
             Mesh::ATTRIBUTE_UV_0.at_shader_location(1),
             ATTRIBUTE_TEXTURE_LAYER.at_shader_location(2),
             ATTRIBUTE_SHADE.at_shader_location(3),
+            ATTRIBUTE_LIGHT.at_shader_location(4),
         ])?;
         descriptor.vertex.buffers = vec![vertex_layout];
         Ok(())
@@ -357,6 +361,7 @@ pub fn build_mesh(data: ChunkMeshData) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, data.uvs)
     .with_inserted_attribute(ATTRIBUTE_TEXTURE_LAYER, data.layers)
     .with_inserted_attribute(ATTRIBUTE_SHADE, data.shades)
+    .with_inserted_attribute(ATTRIBUTE_LIGHT, data.lights)
     .with_inserted_indices(Indices::U32(data.indices))
 }
 
