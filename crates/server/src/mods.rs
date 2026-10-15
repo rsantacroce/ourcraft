@@ -18,6 +18,7 @@ use ourcraft_mod_api::{self as api, API_VERSION, Event, EventReply, HostCall, Ho
 use ourcraft_mod_host::{Host, ModRuntime};
 use renet::ClientId;
 
+use crate::entities::{Entities, ServerEntity};
 use crate::net::Network;
 use crate::players::ConnectedPlayer;
 use crate::world::{ColumnCache, OpenWorld, Registry, ServerWorld, set_block};
@@ -66,6 +67,12 @@ pub enum ModCommand {
     },
     Teleport(ClientId, Vec3),
     TimeChanged,
+    Rules(ClientId, api::PlayerRules),
+    Health(ClientId, f32, f32),
+    Hud(Option<ClientId>, Vec<api::HudLine>),
+    Title(Option<ClientId>, String, f32),
+    Tools(ClientId, Vec<String>),
+    Broadcast(ServerMessage),
 }
 
 enum Phase {
@@ -85,6 +92,7 @@ pub struct ServerHost {
     world: Option<ServerWorld>,
     cache: Option<ColumnCache>,
     open: Option<OpenWorld>,
+    entities: Option<Entities>,
     players: Vec<api::PlayerInfo>,
     pub out: Vec<ModCommand>,
 }
@@ -100,9 +108,53 @@ impl ServerHost {
             world: None,
             cache: None,
             open: None,
+            entities: None,
             players: Vec::new(),
             out: Vec::new(),
         }
+    }
+
+    /// The first block or player along a ray.
+    fn raycast(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max: f32,
+        hit_players: bool,
+        ignore: Option<u64>,
+    ) -> Option<api::Hit> {
+        let dir = dir.try_normalize()?;
+        let world = self.world.as_ref()?;
+        let block = ourcraft_common::raycast::raycast(&world.0, &self.registry, origin, dir, max);
+        let block_dist = block.map(|h| {
+            ourcraft_common::physics::Aabb::block(h.block)
+                .ray_hit(origin, dir, max)
+                .unwrap_or(0.0)
+        });
+        let mut best: Option<(f32, api::Hit)> = block.zip(block_dist).map(|(h, d)| {
+            (
+                d,
+                api::Hit::Block {
+                    pos: h.block.to_array(),
+                    normal: h.normal.to_array(),
+                },
+            )
+        });
+        if hit_players {
+            for p in &self.players {
+                if Some(p.id) == ignore {
+                    continue;
+                }
+                let aabb = ourcraft_common::physics::Aabb::player(Vec3::from_array(p.position));
+                if let Some(d) = aabb.ray_hit(origin, dir, max)
+                    && best.as_ref().is_none_or(|(bd, _)| d < *bd)
+                {
+                    let at = (origin + dir * d).to_array();
+                    best = Some((d, api::Hit::Player { id: p.id, at }));
+                }
+            }
+        }
+        best.map(|(_, h)| h)
     }
 
     /// Change a block on behalf of a mod or an approved player edit.
@@ -233,9 +285,108 @@ impl Host for ServerHost {
                 }
                 HostReply::Ok
             }
+            HostCall::SetRules { player, rules } => {
+                self.out.push(ModCommand::Rules(player, rules));
+                HostReply::Ok
+            }
+            HostCall::SetHealth {
+                player,
+                health,
+                max,
+            } => {
+                self.out.push(ModCommand::Health(player, health, max));
+                HostReply::Ok
+            }
+            HostCall::SetHud { player, lines } => {
+                self.out.push(ModCommand::Hud(player, lines));
+                HostReply::Ok
+            }
+            HostCall::ShowTitle {
+                player,
+                text,
+                seconds,
+            } => {
+                self.out.push(ModCommand::Title(player, text, seconds));
+                HostReply::Ok
+            }
+            HostCall::SetTools { player, tools } => {
+                self.out.push(ModCommand::Tools(player, tools));
+                HostReply::Ok
+            }
+            HostCall::Raycast {
+                origin,
+                direction,
+                max_distance,
+                hit_players,
+                ignore_player,
+            } => HostReply::Ray(self.raycast(
+                Vec3::from_array(origin),
+                Vec3::from_array(direction),
+                max_distance.clamp(0.0, 256.0),
+                hit_players,
+                ignore_player,
+            )),
 
-            // Game-mode features arrive in Milestone 9.
-            _ => error("not supported yet"),
+            // ---- Entities and effects ----
+            HostCall::SpawnEntity(spec) => {
+                let Some(entities) = self.entities.as_mut() else {
+                    return error("no entities");
+                };
+                if entities.list.len() >= 2000 {
+                    return error("too many entities");
+                }
+                let finite = spec
+                    .position
+                    .iter()
+                    .chain(&spec.velocity)
+                    .all(|v| v.is_finite());
+                if !finite {
+                    return error("bad position or velocity");
+                }
+                let id = entities.spawn(ServerEntity {
+                    model: spec.model,
+                    position: Vec3::from_array(spec.position),
+                    velocity: Vec3::from_array(spec.velocity),
+                    motion: spec.motion,
+                    lifetime: spec.lifetime.max(0.0),
+                    age: 0.0,
+                    owner: spec.owner,
+                    moved: false,
+                });
+                HostReply::Entity(id)
+            }
+            HostCall::MoveEntity { id, position } => {
+                if let Some(e) = self.entities.as_mut().and_then(|es| es.list.get_mut(&id))
+                    && position.iter().all(|v| v.is_finite())
+                {
+                    e.position = Vec3::from_array(position);
+                    e.moved = true;
+                }
+                HostReply::Ok
+            }
+            HostCall::DespawnEntity(id) => {
+                if let Some(es) = self.entities.as_mut() {
+                    es.remove(id);
+                }
+                HostReply::Ok
+            }
+            HostCall::Effect {
+                kind,
+                position,
+                color,
+            } => {
+                self.out.push(ModCommand::Broadcast(ServerMessage::Effect {
+                    kind,
+                    position,
+                    color,
+                }));
+                HostReply::Ok
+            }
+            HostCall::Sound { name, at } => {
+                self.out
+                    .push(ModCommand::Broadcast(ServerMessage::Sound { name, at }));
+                HostReply::Ok
+            }
         }
     }
 }
@@ -342,6 +493,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         world: world.remove_resource::<ServerWorld>(),
         cache: world.remove_resource::<ColumnCache>(),
         open: world.remove_resource::<OpenWorld>(),
+        entities: world.remove_resource::<Entities>(),
         players,
         out: Vec::new(),
     };
@@ -410,6 +562,9 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
     if let Some(o) = host.open.take() {
         world.insert_resource(o);
     }
+    if let Some(e) = host.entities.take() {
+        world.insert_resource(e);
+    }
     carry_out(world, host.out);
 }
 
@@ -455,6 +610,44 @@ fn carry_out(world: &mut World, commands: Vec<ModCommand>) {
             ModCommand::TimeChanged => {
                 outgoing.push((None, Channel::Reliable, ServerMessage::TimeOfDay(time)));
             }
+            ModCommand::Rules(client, rules) => {
+                if let Some(p) = players.iter_mut().find(|p| p.client == client) {
+                    p.rules = rules.clone();
+                    if !rules.can_fly {
+                        p.physics.flying = false;
+                    }
+                }
+                outgoing.push((
+                    None,
+                    Channel::Reliable,
+                    ServerMessage::Appearance {
+                        player: client,
+                        color: rules.color,
+                        tag: rules.tag.clone(),
+                    },
+                ));
+                outgoing.push((Some(client), Channel::Reliable, ServerMessage::Rules(rules)));
+            }
+            ModCommand::Health(client, health, max) => outgoing.push((
+                Some(client),
+                Channel::Reliable,
+                ServerMessage::Health { health, max },
+            )),
+            ModCommand::Hud(to, lines) => {
+                outgoing.push((to, Channel::Reliable, ServerMessage::Hud(lines)))
+            }
+            ModCommand::Title(to, text, seconds) => outgoing.push((
+                to,
+                Channel::Reliable,
+                ServerMessage::Title { text, seconds },
+            )),
+            ModCommand::Tools(client, tools) => {
+                if let Some(p) = players.iter_mut().find(|p| p.client == client) {
+                    p.tools = tools.clone();
+                }
+                outgoing.push((Some(client), Channel::Reliable, ServerMessage::Tools(tools)));
+            }
+            ModCommand::Broadcast(msg) => outgoing.push((None, Channel::Reliable, msg)),
         }
     }
     drop(players);

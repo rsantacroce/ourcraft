@@ -26,7 +26,13 @@ impl Plugin for RemotePlayersPlugin {
             .add_systems(PreUpdate, handle_player_messages.after(NetReceiveSet))
             .add_systems(
                 Update,
-                (interpolate, animate_limbs, update_nameplates, shade_avatars)
+                (
+                    apply_appearances,
+                    interpolate,
+                    animate_limbs,
+                    update_nameplates,
+                    shade_avatars,
+                )
                     .chain()
                     .after(PlayerUpdateSet),
             );
@@ -37,6 +43,8 @@ impl Plugin for RemotePlayersPlugin {
 #[derive(Resource, Default)]
 pub struct RemotePlayers {
     pub entities: HashMap<PlayerId, Entity>,
+    /// Shirt colour and name tag prefix set by the game mode.
+    pub appearances: HashMap<PlayerId, (Option<[u8; 4]>, Option<String>)>,
 }
 
 impl RemotePlayers {
@@ -60,6 +68,10 @@ pub struct RemotePlayer {
 
 #[derive(Component)]
 struct AvatarHead;
+
+/// The part of an avatar the game mode can recolour.
+#[derive(Component)]
+struct Shirt;
 
 /// A leg or arm; swings around its top. `sign` alternates the swing.
 #[derive(Component)]
@@ -157,6 +169,7 @@ fn spawn_avatar(
             root.spawn((
                 Mesh3d(meshes.body.clone()),
                 shirt,
+                Shirt,
                 Transform::from_xyz(0.0, 1.05, 0.0),
             ));
             root.spawn((
@@ -229,7 +242,11 @@ fn handle_player_messages(
                     players.entities.insert(info.id, e);
                 }
             }
+            ServerMessage::Appearance { player, color, tag } => {
+                players.appearances.insert(*player, (*color, tag.clone()));
+            }
             ServerMessage::PlayerLeft(id) => {
+                players.appearances.remove(id);
                 if let Some(e) = players.entities.remove(id) {
                     if let Ok(p) = avatars.get(e) {
                         commands.entity(p.nameplate).despawn();
@@ -257,6 +274,41 @@ fn handle_player_messages(
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Recolour shirts and update name tags when the game mode changes them.
+fn apply_appearances(
+    players: Res<RemotePlayers>,
+    avatars: Query<(&RemotePlayer, &Children)>,
+    mut shirts: Query<&mut AvatarColor, With<Shirt>>,
+    mut plates: Query<(&mut Text, &mut TextColor)>,
+) {
+    if !players.is_changed() {
+        return;
+    }
+    for (p, children) in &avatars {
+        let (color, tag) = players.appearances.get(&p.id).cloned().unwrap_or_default();
+        let shirt = color.map_or_else(
+            || shirt_color(p.id),
+            |[r, g, b, a]| Color::srgba_u8(r, g, b, a),
+        );
+        for child in children.iter() {
+            if let Ok(mut c) = shirts.get_mut(child) {
+                c.0 = shirt;
+            }
+        }
+        if let Ok((mut text, mut text_color)) = plates.get_mut(p.nameplate) {
+            text.0 = match &tag {
+                Some(t) => format!("{t} {}", p.name),
+                None => p.name.clone(),
+            };
+            text_color.0 = if color.is_some() {
+                shirt.lighter(0.15)
+            } else {
+                Color::WHITE
+            };
         }
     }
 }

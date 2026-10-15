@@ -11,6 +11,7 @@ bevy = { workspace = true, features = ["default"] }
 ourcraft_server.workspace = true
 renet.workspace = true
 renet_netcode.workspace = true
+ourcraft_mod_api.workspace = true
 
 # The library holds the whole game; `main.rs` is a thin desktop launcher.
 # Android and iOS launchers (M4) will wrap the same library.

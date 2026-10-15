@@ -235,9 +235,15 @@ fn rebuild_hotbar(
     mode: Res<GameMode>,
     icons: Res<BlockIcons>,
     blocks: Res<Blocks>,
+    tools: Res<crate::gamemode::ToolHotbar>,
+    specs: Res<crate::gamemode::ToolSpecs>,
     hotbar: Single<Entity, With<Hotbar>>,
 ) {
-    if !inventory.is_changed() && !mode.is_changed() && !icons.is_changed() {
+    if !inventory.is_changed() && !mode.is_changed() && !icons.is_changed() && !tools.is_changed() {
+        return;
+    }
+    if tools.active() {
+        spawn_tool_hotbar(&mut commands, *hotbar, &tools.0, &specs, inventory.selected);
         return;
     }
     let survival = *mode == GameMode::Survival;
@@ -269,11 +275,84 @@ fn rebuild_hotbar(
         });
 }
 
+/// The hotbar while a game mode has given us tools.
+fn spawn_tool_hotbar(
+    commands: &mut Commands,
+    hotbar: Entity,
+    tools: &[String],
+    specs: &crate::gamemode::ToolSpecs,
+    selected: usize,
+) {
+    commands
+        .entity(hotbar)
+        .despawn_children()
+        .with_children(|bar| {
+            for (i, tool) in tools.iter().enumerate().take(HOTBAR_SLOTS) {
+                let chosen = i == selected;
+                bar.spawn((
+                    Node {
+                        width: px(SLOT),
+                        height: px(SLOT),
+                        border: UiRect::all(px(if chosen { 3.0 } else { 2.0 })),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.1, 0.1, 0.12, 0.6)),
+                    BorderColor::all(if chosen {
+                        Color::WHITE
+                    } else {
+                        Color::srgba(0.0, 0.0, 0.0, 0.6)
+                    }),
+                ))
+                .with_children(|s| {
+                    if let Some(icon) = specs.icons.get(tool) {
+                        s.spawn((
+                            ImageNode::new(icon.clone()),
+                            Node {
+                                width: px(40),
+                                height: px(40),
+                                ..default()
+                            },
+                        ));
+                    }
+                });
+            }
+            let name = tools.get(selected).map(|t| {
+                specs
+                    .specs
+                    .get(t)
+                    .map_or(t.clone(), |s| s.display_name.clone())
+            });
+            if let Some(name) = name {
+                bar.spawn((
+                    Text::new(name),
+                    TextFont::from_font_size(16.0),
+                    TextColor(Color::WHITE),
+                    TextShadow {
+                        offset: Vec2::splat(1.5),
+                        color: Color::BLACK,
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        bottom: px(SLOT + 8.0),
+                        ..default()
+                    },
+                ));
+            }
+        });
+}
+
 fn toggle_inventory_screen(
     actions: Res<Actions>,
     keys: Res<ButtonInput<KeyCode>>,
+    tools: Res<crate::gamemode::ToolHotbar>,
     mut focus: ResMut<UiFocus>,
 ) {
+    // Game modes with tools have no block inventory to open.
+    if tools.active() && !focus.inventory_open {
+        return;
+    }
     if focus.menu_open || focus.chat_open {
         return;
     }

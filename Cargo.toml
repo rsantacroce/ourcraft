@@ -37,6 +37,8 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+# Debug info for dependencies takes many gigabytes and is rarely needed.
+debug = false
 
 [profile.release]
 codegen-units = 1

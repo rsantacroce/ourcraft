@@ -1,6 +1,9 @@
 //! The Ourcraft client: rendering, input and (for now) the whole game.
 
 pub mod chat;
+pub mod entities;
+pub mod gamemode;
+
 pub mod hud;
 pub mod input;
 pub mod interaction;
@@ -38,6 +41,8 @@ impl Plugin for ClientPlugin {
                 sky::SkyPlugin,
                 hud::HudPlugin,
                 chat::ChatPlugin,
+                gamemode::GameModePlugin,
+                entities::EntitiesPlugin,
             ));
     }
 }

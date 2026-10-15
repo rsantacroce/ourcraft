@@ -85,6 +85,11 @@ pub struct ConnectedPlayer {
     /// Columns this client has been sent and (as far as we know) still has.
     pub sent: HashSet<ColumnPos>,
     pub connected_for: f32,
+    /// Set by game-mode mods.
+    pub rules: ourcraft_mod_api::PlayerRules,
+    /// Tools the player may use (from a mod), and when each was last used.
+    pub tools: Vec<String>,
+    pub tool_used_at: HashMap<String, f32>,
 }
 
 impl ConnectedPlayer {
@@ -128,6 +133,9 @@ fn on_connect(
                 inventory: None,
                 sent: HashSet::new(),
                 connected_for: 0.0,
+                rules: ourcraft_mod_api::PlayerRules::default(),
+                tools: Vec::new(),
+                tool_used_at: HashMap::new(),
             })
             .id();
         players.0.insert(*client, e);
@@ -213,6 +221,7 @@ fn handle_messages(
     registry: Res<Registry>,
     world: Res<ServerWorld>,
     content: Res<Content>,
+    entities: Res<crate::entities::Entities>,
     mut queue: ResMut<ModQueue>,
     mut net: ResMut<Network>,
 ) {
@@ -312,6 +321,31 @@ fn handle_messages(
                     player: *client,
                     name: name.clone(),
                 });
+                // Catch the newcomer up on how everyone looks and what's
+                // around (flags, projectiles…).
+                for other in query
+                    .iter()
+                    .filter(|o| o.name.is_some() && o.client != *client)
+                {
+                    if other.rules.color.is_some() || other.rules.tag.is_some() {
+                        net.send(
+                            *client,
+                            Channel::Reliable,
+                            &ServerMessage::Appearance {
+                                player: other.client,
+                                color: other.rules.color,
+                                tag: other.rules.tag.clone(),
+                            },
+                        );
+                    }
+                }
+                for (id, e) in &entities.list {
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &crate::entities::Entities::spawn_message(*id, e),
+                    );
+                }
                 net.broadcast(
                     Channel::Reliable,
                     &ServerMessage::Chat {
@@ -319,6 +353,44 @@ fn handle_messages(
                         text: format!("{name} joined the game"),
                     },
                 );
+            }
+            ClientMessage::UseTool {
+                tool,
+                direction,
+                secondary,
+            } => {
+                let Ok(mut p) = query.get_mut(entity) else {
+                    continue;
+                };
+                if p.name.is_none() || !p.tools.contains(tool) {
+                    continue;
+                }
+                let dir = Vec3::from_array(*direction);
+                let Some(dir) = dir.try_normalize().filter(|d| d.is_finite()) else {
+                    continue;
+                };
+                // Respect the tool's cooldown (with a little slack for lag).
+                let cooldown = content
+                    .0
+                    .tools
+                    .iter()
+                    .find(|t| &t.name == tool)
+                    .map_or(0.1, |t| t.cooldown);
+                let now = p.connected_for;
+                let last = p.tool_used_at.get(tool).copied().unwrap_or(f32::MIN);
+                if now - last < cooldown * 0.75 {
+                    continue;
+                }
+                p.tool_used_at.insert(tool.clone(), now);
+                // Aim from where the server knows the player's eyes are.
+                let origin = p.physics.position + Vec3::Y * EYE_HEIGHT;
+                queue.events.push(ourcraft_mod_api::Event::UseTool {
+                    player: *client,
+                    tool: tool.clone(),
+                    origin: origin.to_array(),
+                    direction: dir.to_array(),
+                    secondary: *secondary,
+                });
             }
             ClientMessage::ViewDistance(vd) => {
                 if let Ok(mut p) = query.get_mut(entity) {
@@ -431,7 +503,11 @@ fn simulate_players(
             continue;
         }
         let p = &mut *p;
-        for input in p.inputs.take(MAX_INPUTS_PER_TICK) {
+        let (speed, can_fly) = (p.rules.speed, p.rules.can_fly);
+        for mut input in p.inputs.take(MAX_INPUTS_PER_TICK) {
+            // The game mode's rules win over whatever the client assumed.
+            input.speed = speed;
+            input.fly &= can_fly;
             apply_input(&mut p.physics, &input, &world.0, &registry.0);
             p.state.yaw = input.yaw;
             p.state.pitch = input.pitch;
@@ -479,7 +555,7 @@ fn edit_allowed(
     pos: IVec3,
     block: BlockId,
 ) -> bool {
-    if block.0 as usize >= registry.len() {
+    if block.0 as usize >= registry.len() || !player.rules.can_build {
         return false;
     }
     let Some(existing) = world.get_block(pos.x, pos.y, pos.z) else {

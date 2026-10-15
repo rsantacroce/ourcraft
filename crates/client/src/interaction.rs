@@ -34,6 +34,7 @@ impl Plugin for InteractionPlugin {
                     update_target,
                     hotbar_selection,
                     break_and_place,
+                    use_tools,
                     draw_highlight,
                 )
                     .chain()
@@ -106,11 +107,17 @@ fn break_and_place(
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
     mode: Res<GameMode>,
+    rules: Res<crate::gamemode::Rules>,
+    tools: Res<crate::gamemode::ToolHotbar>,
     player: Single<&Player>,
     mut inventory: ResMut<PlayerInventory>,
     mut edits: MessageWriter<BlockEditRequest>,
     mut cooldown: Local<f32>,
 ) {
+    // In some game modes you use tools instead, or can't build at all.
+    if tools.active() || !rules.0.can_build {
+        return;
+    }
     *cooldown -= time.delta_secs();
     let wants = actions.break_block || actions.place_block || actions.pick_block;
     if !wants {
@@ -168,8 +175,49 @@ fn break_and_place(
     }
 }
 
+/// Holding a game-mode tool: clicking uses it (left = main, right =
+/// secondary), repeating at the tool's own rate while held.
+fn use_tools(
+    time: Res<Time>,
+    actions: Res<Actions>,
+    tools: Res<crate::gamemode::ToolHotbar>,
+    specs: Res<crate::gamemode::ToolSpecs>,
+    inventory: Res<PlayerInventory>,
+    player: Single<&Player>,
+    conn: Option<ResMut<crate::net::Connection>>,
+    mut cooldown: Local<f32>,
+) {
+    *cooldown -= time.delta_secs();
+    let (Some(mut conn), true) = (conn, tools.active()) else {
+        return;
+    };
+    if !(actions.break_block || actions.place_block) || *cooldown > 0.0 {
+        return;
+    }
+    let Some(tool) = tools.0.get(inventory.selected) else {
+        return;
+    };
+    *cooldown = specs.specs.get(tool).map_or(0.2, |s| s.cooldown.max(0.05));
+    conn.send(
+        ourcraft_common::protocol::Channel::Reliable,
+        &ourcraft_common::protocol::ClientMessage::UseTool {
+            tool: tool.clone(),
+            direction: player.look_direction().to_array(),
+            secondary: !actions.break_block,
+        },
+    );
+}
+
 /// Outline the targeted block.
-fn draw_highlight(target: Res<Target>, mut gizmos: Gizmos) {
+fn draw_highlight(
+    target: Res<Target>,
+    tools: Res<crate::gamemode::ToolHotbar>,
+    rules: Res<crate::gamemode::Rules>,
+    mut gizmos: Gizmos,
+) {
+    if tools.active() || !rules.0.can_build {
+        return;
+    }
     if let Some(hit) = target.0 {
         let center = hit.block.as_vec3() + Vec3::splat(0.5);
         gizmos.cube(

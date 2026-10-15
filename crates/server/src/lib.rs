@@ -13,7 +13,9 @@
 //!   the network. Same code, same rules; and the same world can later be
 //!   opened up to friends.
 
+pub mod entities;
 pub mod mods;
+
 pub mod net;
 pub mod players;
 pub mod world;
@@ -123,7 +125,12 @@ pub struct ServerPlugin;
 impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<mods::ModQueue>()
-            .add_plugins((world::WorldPlugin, net::NetPlugin, players::PlayersPlugin))
+            .add_plugins((
+                world::WorldPlugin,
+                net::NetPlugin,
+                players::PlayersPlugin,
+                entities::EntitiesPlugin,
+            ))
             .add_systems(Update, check_stop_flag);
     }
 }

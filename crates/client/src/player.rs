@@ -232,6 +232,7 @@ fn send_inventory(
 /// the input, and send it (with a few previous ones) to the server.
 fn player_physics(
     actions: Res<Actions>,
+    rules: Res<crate::gamemode::Rules>,
     touch: Res<crate::touch::TouchControls>,
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
@@ -253,6 +254,7 @@ fn player_physics(
         fly: player.state.flying,
         yaw: player.yaw,
         pitch: player.pitch,
+        speed: rules.0.speed,
     };
     player.prev_position = player.state.position;
     apply_input(&mut player.state, &input, &world.0, &blocks.0);
@@ -326,6 +328,7 @@ fn toggle_fly(
     time: Res<Time>,
     actions: Res<Actions>,
     mode: Res<GameMode>,
+    rules: Res<crate::gamemode::Rules>,
     mut player: Single<&mut Player>,
 ) {
     player.last_jump_press += time.delta_secs();
@@ -334,7 +337,7 @@ fn toggle_fly(
         toggle |= player.last_jump_press < 0.3;
         player.last_jump_press = 0.0;
     }
-    if *mode != GameMode::Creative {
+    if *mode != GameMode::Creative || !rules.0.can_fly {
         player.state.flying = false;
     } else if toggle {
         player.state.flying = !player.state.flying;

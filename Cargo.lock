@@ -4475,6 +4475,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "ourcraft_common",
+ "ourcraft_mod_api",
  "ourcraft_server",
  "renet",
  "renet_netcode",

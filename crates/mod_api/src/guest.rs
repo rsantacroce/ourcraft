@@ -163,6 +163,12 @@ pub fn set_block(pos: BlockPos, block: BlockId) {
     host(&HostCall::SetBlock { pos, block });
 }
 
+/// Like [`set_block`], but tells you whether it worked. It fails if that
+/// part of the world isn't loaded yet; just try again later.
+pub fn try_set_block(pos: BlockPos, block: BlockId) -> bool {
+    host(&HostCall::SetBlock { pos, block }) == HostReply::Ok
+}
+
 /// The y of the highest solid block at (x, z).
 pub fn ground_height(x: i32, z: i32) -> Option<i32> {
     match host(&HostCall::GroundHeight { x, z }) {

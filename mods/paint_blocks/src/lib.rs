@@ -24,19 +24,23 @@ const PAINTS: [(&str, &str, Rgba); 8] = [
 /// The rainbow's colours, outside to inside.
 const RAINBOW: [&str; 6] = ["red", "orange", "yellow", "lime", "blue", "purple"];
 
-/// The mod's state. This one doesn't need to remember anything.
+/// The mod's state: just whether another mod runs a game mode (then we
+/// keep quiet instead of advertising building blocks).
 #[derive(Default)]
-struct PaintBlocks;
+struct PaintBlocks {
+    game_mode: bool,
+}
 
 impl Mod for PaintBlocks {
     fn on_event(&mut self, event: Event) -> EventReply {
         match event {
-            Event::Init { .. } => {
+                        Event::Init { game_mode, .. } => {
+                self.game_mode = game_mode.is_some();
                 register_content();
                 guest::log("Paint Blocks loaded: 8 paints, a rainbow lamp and /rainbow");
                 EventReply::Ok
             }
-            Event::PlayerJoined { player, .. } => {
+                        Event::PlayerJoined { player, .. } if !self.game_mode => {
                 guest::chat(
                     Some(player),
                     "Paint Blocks is here! Find the paints in your inventory (E), or type /rainbow",

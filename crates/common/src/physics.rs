@@ -44,7 +44,7 @@ const FLY_ACCEL: f32 = 40.0;
 const SKIN: f32 = 1e-3;
 
 /// What the player is asking to do this step.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlayerInput {
     /// `x` = strafe right, `y` = forward, each `-1..=1`.
     pub movement: Vec2,
@@ -57,6 +57,22 @@ pub struct PlayerInput {
     /// Hop up one-block steps automatically when walking into them. Used
     /// with touch controls, where pressing jump while walking is fiddly.
     pub auto_jump: bool,
+    /// Speed multiplier set by the game mode (1 = normal, 0 = can't move).
+    pub speed: f32,
+}
+
+impl Default for PlayerInput {
+    fn default() -> Self {
+        Self {
+            movement: Vec2::ZERO,
+            jump: false,
+            descend: false,
+            sprint: false,
+            yaw: 0.0,
+            auto_jump: false,
+            speed: 1.0,
+        }
+    }
 }
 
 /// Everything about a player's movement that carries over between steps.
@@ -111,6 +127,41 @@ impl Aabb {
         Self {
             min: b.as_vec3(),
             max: b.as_vec3() + Vec3::ONE,
+        }
+    }
+
+    /// Distance along a ray (`dir` normalized) to where it enters the box,
+    /// if it does within `max`. Uses the "slab" method: intersect the ray
+    /// with each pair of parallel faces and keep the overlap.
+    pub fn ray_hit(&self, origin: Vec3, dir: Vec3, max: f32) -> Option<f32> {
+        let mut t_min: f32 = 0.0;
+        let mut t_max = max;
+        for axis in 0..3 {
+            let (o, d) = (origin[axis], dir[axis]);
+            if d.abs() < 1e-8 {
+                if o < self.min[axis] || o > self.max[axis] {
+                    return None;
+                }
+                continue;
+            }
+            let (mut t1, mut t2) = ((self.min[axis] - o) / d, (self.max[axis] - o) / d);
+            if t1 > t2 {
+                std::mem::swap(&mut t1, &mut t2);
+            }
+            t_min = t_min.max(t1);
+            t_max = t_max.min(t2);
+            if t_min > t_max {
+                return None;
+            }
+        }
+        Some(t_min)
+    }
+
+    /// The box grown by `r` on every side.
+    pub fn inflate(&self, r: f32) -> Aabb {
+        Aabb {
+            min: self.min - Vec3::splat(r),
+            max: self.max + Vec3::splat(r),
         }
     }
 
@@ -172,8 +223,11 @@ pub fn step(
     let (sin, cos) = input.yaw.sin_cos();
     let forward = Vec3::new(-sin, 0.0, -cos);
     let right = Vec3::new(cos, 0.0, -sin);
-    let wish = (right * input.movement.x + forward * input.movement.y).clamp_length_max(1.0);
-    let vertical_input = input.jump as i32 as f32 - input.descend as i32 as f32;
+    let mult = input.speed.clamp(0.0, 4.0);
+    let wish = (right * input.movement.x + forward * input.movement.y).clamp_length_max(1.0) * mult;
+    let vertical_input = (input.jump as i32 as f32 - input.descend as i32 as f32) * mult.min(1.0);
+    // Frozen players (speed 0) can't jump either.
+    let can_jump = mult > 0.0;
 
     if state.flying {
         let speed = if input.sprint {
@@ -216,7 +270,7 @@ pub fn step(
         } * dt;
         state.velocity.x = approach(state.velocity.x, target.x, a);
         state.velocity.z = approach(state.velocity.z, target.z, a);
-        if input.jump && state.on_ground {
+        if input.jump && state.on_ground && can_jump {
             state.velocity.y = JUMP_SPEED;
         }
         state.velocity.y = (state.velocity.y - GRAVITY * dt).max(-TERMINAL_SPEED);
@@ -451,6 +505,47 @@ mod tests {
             s.position.x < 6.0 && s.position.x > 5.0,
             "x = {}",
             s.position.x
+        );
+    }
+
+    #[test]
+    fn speed_multiplier_scales_and_freezes() {
+        let w = flat_world();
+        let walk = |speed| {
+            let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+            let input = PlayerInput {
+                movement: Vec2::new(0.0, 1.0),
+                jump: true,
+                speed,
+                ..default_input()
+            };
+            run(&mut s, input, &w, 60);
+            s
+        };
+        let normal = walk(1.0);
+        let fast = walk(1.5);
+        let frozen = walk(0.0);
+        assert!(
+            fast.position.z < normal.position.z * 1.3,
+            "fast moves further"
+        );
+        assert!(
+            (frozen.position.z - 0.5).abs() < 1e-4,
+            "frozen doesn't move"
+        );
+        assert!(frozen.on_ground, "frozen can't jump");
+    }
+
+    #[test]
+    fn ray_hits_boxes() {
+        let b = Aabb::block(IVec3::new(5, 0, 0));
+        let t = b.ray_hit(Vec3::new(0.0, 0.5, 0.5), Vec3::X, 10.0).unwrap();
+        assert!((t - 5.0).abs() < 1e-5);
+        assert!(b.ray_hit(Vec3::new(0.0, 0.5, 0.5), Vec3::X, 4.0).is_none());
+        assert!(b.ray_hit(Vec3::new(0.0, 2.5, 0.5), Vec3::X, 10.0).is_none());
+        assert!(
+            b.ray_hit(Vec3::new(0.0, 0.5, 0.5), Vec3::NEG_X, 10.0)
+                .is_none()
         );
     }
 

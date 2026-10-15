@@ -48,6 +48,7 @@ impl NetInput {
             sprint: self.sprint,
             yaw: self.yaw,
             auto_jump: self.auto_jump,
+            speed: self.speed,
         }
     }
 }

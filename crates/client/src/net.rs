@@ -62,8 +62,9 @@ pub struct FromServer(pub ServerMessage);
 
 /// What to do on startup (from the command line until the menu in M10):
 /// - `ourcraft` → single player, world "My World"
-/// - `ourcraft --world NAME [--seed N] [--lan]` → single player, that world
-///   (`--lan` also lets others on your network join)
+/// - `ourcraft --world NAME [--seed N] [--lan] [--mode team_shooter]` →
+///   single player, that world (`--lan` also lets others on your network
+///   join; `--mode` picks a game mode for a new world)
 /// - `ourcraft --connect HOST[:PORT] [--name NAME]` → join a server
 #[derive(Resource, Debug, Clone)]
 pub enum LaunchOptions {
@@ -72,6 +73,8 @@ pub enum LaunchOptions {
         seed: Option<u64>,
         lan: bool,
         name: String,
+        /// Game mode for a new world (e.g. "team_shooter").
+        mode: Option<String>,
     },
     Join {
         address: String,
@@ -99,6 +102,7 @@ impl LaunchOptions {
             seed: value("--seed").and_then(|s| s.parse().ok()),
             lan: args.iter().any(|a| a == "--lan"),
             name,
+            mode: value("--mode"),
         }
     }
 }
@@ -211,8 +215,17 @@ pub struct Connection {
 
 impl Connection {
     /// Start single player: run a server in the background and connect to it.
-    pub fn single_player(world: &str, seed: Option<u64>, lan: bool, name: &str) -> Self {
+    pub fn single_player(
+        world: &str,
+        seed: Option<u64>,
+        lan: bool,
+        name: &str,
+        mode: Option<String>,
+    ) -> Self {
         let config = ServerConfig {
+            game_mode: mode,
+            // Extra mods can be dropped in here (next to the worlds folder).
+            mods_dir: saves_dir().parent().map(|p| p.join("mods")),
             world_dir: saves_dir().join(folder_name(world)),
             world_name: world.to_owned(),
             seed,
@@ -378,8 +391,9 @@ fn connect_from_launch_options(mut commands: Commands, options: Option<Res<Launc
             seed,
             lan,
             name,
+            mode,
         } => {
-            let mut conn = Connection::single_player(&world, seed, lan, &name);
+            let mut conn = Connection::single_player(&world, seed, lan, &name, mode);
             conn.lag = lag;
             commands.insert_resource(conn);
         }

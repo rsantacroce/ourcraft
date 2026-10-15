@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 3;
+pub const PROTOCOL_VERSION: u64 = 4;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -57,7 +57,7 @@ pub struct NetPlayerState {
 }
 
 /// One physics tick of player input (see `prediction`).
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct NetInput {
     /// The client's physics tick number, counting up from 1.
     pub tick: u32,
@@ -71,6 +71,25 @@ pub struct NetInput {
     pub fly: bool,
     pub yaw: f32,
     pub pitch: f32,
+    /// The speed multiplier the client assumed (the server uses its own).
+    pub speed: f32,
+}
+
+impl Default for NetInput {
+    fn default() -> Self {
+        Self {
+            tick: 0,
+            movement: [0.0; 2],
+            jump: false,
+            descend: false,
+            sprint: false,
+            auto_jump: false,
+            fly: false,
+            yaw: 0.0,
+            pitch: 0.0,
+            speed: 1.0,
+        }
+    }
 }
 
 /// Everything mods add, sent to each client when it joins so it can draw
@@ -114,6 +133,12 @@ pub enum ClientMessage {
     },
     Chat {
         text: String,
+    },
+    /// Use a tool the game mode gave us, aiming in `direction`.
+    UseTool {
+        tool: String,
+        direction: [f32; 3],
+        secondary: bool,
     },
 }
 
@@ -175,6 +200,51 @@ pub enum ServerMessage {
     },
     /// You are being disconnected, with a reason to show.
     Kick(String),
+
+    // ---- Game-mode features (driven by mods) ----
+    /// Something appeared. Projectiles (`gravity` set) are moved by the
+    /// client itself between updates, so they fly smoothly.
+    EntitySpawned {
+        id: u64,
+        model: String,
+        position: [f32; 3],
+        velocity: [f32; 3],
+        gravity: Option<f32>,
+    },
+    /// New positions for entities (sent ~20 times a second).
+    EntitiesMoved(Vec<(u64, [f32; 3])>),
+    EntityRemoved(u64),
+    /// Your rules (speed, flying, building).
+    Rules(ourcraft_mod_api::PlayerRules),
+    /// How another player looks (shirt colour, name tag prefix).
+    Appearance {
+        player: PlayerId,
+        color: Option<ourcraft_mod_api::Rgba>,
+        tag: Option<String>,
+    },
+    /// Your health bar (hidden when `max` is 0).
+    Health {
+        health: f32,
+        max: f32,
+    },
+    /// Your HUD panel (top right).
+    Hud(Vec<ourcraft_mod_api::HudLine>),
+    /// A big message in the middle of the screen.
+    Title {
+        text: String,
+        seconds: f32,
+    },
+    /// Your tools (empty = normal block hotbar).
+    Tools(Vec<String>),
+    Effect {
+        kind: ourcraft_mod_api::EffectKind,
+        position: [f32; 3],
+        color: ourcraft_mod_api::Rgba,
+    },
+    Sound {
+        name: String,
+        at: Option<[f32; 3]>,
+    },
 }
 
 /// Encode a message for sending.
