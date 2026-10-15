@@ -23,6 +23,7 @@ pub mod net;
 pub mod players;
 pub mod survival;
 pub mod updates;
+pub mod weather;
 pub mod world;
 
 use std::net::SocketAddr;
@@ -144,6 +145,7 @@ impl Plugin for ServerPlugin {
             building::BuildingPlugin,
             updates::UpdatesPlugin,
             needs::NeedsPlugin,
+            weather::WeatherPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

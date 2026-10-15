@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 8;
+pub const PROTOCOL_VERSION: u64 = 9;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -394,6 +394,10 @@ pub enum ServerMessage {
         health: f32,
         food: f32,
         air: f32,
+    },
+    /// Is it raining? (Snowing, where it's snowy.)
+    Weather {
+        raining: bool,
     },
 }
 

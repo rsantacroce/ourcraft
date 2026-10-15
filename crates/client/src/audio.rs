@@ -23,9 +23,20 @@ pub struct SoundPlugin;
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<PlaySound>()
+            .add_message::<PlayAmbient>()
             .add_systems(Startup, create_sounds)
             .add_systems(PreUpdate, sounds_from_server.after(NetReceiveSet))
-            .add_systems(Update, (sounds_from_edits, play_sounds).chain());
+            .add_systems(
+                Update,
+                (
+                    sounds_from_edits,
+                    play_sounds,
+                    play_ambient,
+                    rain_loop,
+                    music_player,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -43,6 +54,14 @@ impl PlaySound {
             at: None,
         }
     }
+}
+
+/// A background sound (footsteps, birds, wind…) at its own volume.
+#[derive(Message, Debug, Clone)]
+pub struct PlayAmbient {
+    pub name: &'static str,
+    /// 0..1, before the player's volume setting.
+    pub gain: f32,
 }
 
 #[derive(Resource, Default)]
@@ -159,9 +178,173 @@ fn generate(name: &str) -> Vec<f32> {
             let f = 180.0 + 500.0 * t + 40.0 * (TAU * 25.0 * t).sin();
             (TAU * f * t).sin() * 0.5 * env(t, 7.0)
         }),
+        // ---- Footsteps: short and quiet. ----
+        "step_grass" => {
+            let mut low = 0.0;
+            synth(0.09, |t| {
+                low += (noise.next() - low) * 0.15;
+                low * 2.2 * env(t, 40.0)
+            })
+        }
+        "step_stone" => synth(0.06, |t| {
+            ((TAU * 320.0 * t).sin() * 0.4 + noise.next() * 0.35) * env(t, 70.0)
+        }),
+        "step_wood" => synth(0.08, |t| {
+            ((TAU * 170.0 * t).sin() * 0.6 + noise.next() * 0.15) * env(t, 45.0)
+        }),
+        "step_sand" => synth(0.11, |t| {
+            let grit = (TAU * 60.0 * t).sin().abs();
+            noise.next() * 0.45 * grit * env(t, 28.0)
+        }),
+        "step_snow" => {
+            let mut low = 0.0;
+            synth(0.12, |t| {
+                low += (noise.next() - low) * 0.3;
+                low * 1.6 * env(t, 25.0)
+            })
+        }
+        // ---- Ambience ----
+        // A little bird: two or three chirps.
+        "birds" => synth(0.9, |t| {
+            let chirps = [0.0, 0.18, 0.45];
+            let mut v = 0.0;
+            for (i, start) in chirps.iter().enumerate() {
+                let local = t - start;
+                if (0.0..0.09).contains(&local) {
+                    let f = 2200.0 + 1600.0 * (local / 0.09) + i as f32 * 300.0;
+                    v += (TAU * f * local).sin() * (std::f32::consts::PI * local / 0.09).sin();
+                }
+            }
+            v * 0.35
+        }),
+        // Water: gentle bubbling.
+        "water" => {
+            let mut bubbles: Vec<(f32, f32)> = Vec::new();
+            let mut n = Noise(0x1357_9bdf);
+            for _ in 0..9 {
+                bubbles.push((
+                    (n.next() * 0.5 + 0.5) * 1.4,
+                    300.0 + (n.next() * 0.5 + 0.5) * 500.0,
+                ));
+            }
+            synth(1.6, |t| {
+                bubbles
+                    .iter()
+                    .map(|(start, f)| {
+                        let local = t - start;
+                        if (0.0..0.12).contains(&local) {
+                            (TAU * (f + 900.0 * local) * local).sin() * env(local, 30.0)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .sum::<f32>()
+                    * 0.3
+            })
+        }
+        // Wind high up: a soft swell of rushing air.
+        "wind" => {
+            let mut low = 0.0;
+            synth(3.0, |t| {
+                low += (noise.next() - low) * 0.04;
+                low * 4.0 * soft(t, 3.0)
+            })
+        }
+        // Rain: soft, even hiss (played in a loop).
+        "rain" => {
+            let mut low = 0.0;
+            synth(2.0, |_| {
+                low += (noise.next() - low) * 0.35;
+                low * 0.9 + noise.next() * 0.05
+            })
+        }
+        "music1" => music(1),
+        "music2" => music(2),
+        "music3" => music(3),
         // Menu click.
         _ => synth(0.03, |t| (TAU * 1800.0 * t).sin() * 0.4 * env(t, 120.0)),
     }
+}
+
+/// A calm little piece: a melody wandering over a pentatonic scale above
+/// slow, soft chords. `seed` picks the tune.
+fn music(seed: u32) -> Vec<f32> {
+    let beat = 0.6;
+    let bars = 8;
+    let len = beat * 4.0 * bars as f32 + 3.0;
+    let mut out = vec![0.0f32; (len * RATE as f32) as usize];
+    let add_note = |start: f32, dur: f32, freq: f32, gain: f32, out: &mut Vec<f32>| {
+        let s0 = (start * RATE as f32) as usize;
+        let n = ((dur + 1.5) * RATE as f32) as usize;
+        for i in 0..n {
+            let t = i as f32 / RATE as f32;
+            let attack = (t / 0.03).min(1.0);
+            let release = if t > dur {
+                (-(t - dur) * 3.0).exp()
+            } else {
+                1.0
+            };
+            let v = ((TAU * freq * t).sin() + 0.25 * (TAU * 2.0 * freq * t).sin())
+                * attack
+                * release
+                * (-t * 1.2).exp()
+                * gain;
+            if let Some(o) = out.get_mut(s0 + i) {
+                *o += v;
+            }
+        }
+    };
+    // C major pentatonic, two octaves; chords I – vi – IV – V.
+    let scale = [
+        261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99,
+    ];
+    let chords: [[f32; 3]; 4] = [
+        [130.81, 164.81, 196.0],
+        [110.0, 130.81, 164.81],
+        [87.31, 110.0, 130.81],
+        [98.0, 123.47, 146.83],
+    ];
+    let mut rng = Noise(0x9e37_79b9 ^ seed.wrapping_mul(0x85eb_ca6b));
+    let mut note = 4i32;
+    for bar in 0..bars {
+        let chord = chords[(bar + seed as usize) % 4];
+        let t0 = bar as f32 * 4.0 * beat;
+        for f in chord {
+            add_note(t0, 4.0 * beat, f, 0.06, &mut out);
+        }
+        let mut b = 0.0;
+        while b < 4.0 {
+            // Mostly steps, sometimes a little leap; now and then a rest.
+            let r = rng.next();
+            let step = if r > 0.6 {
+                2
+            } else if r > 0.0 {
+                1
+            } else if r > -0.6 {
+                -1
+            } else {
+                -2
+            };
+            note = (note + step).clamp(0, scale.len() as i32 - 1);
+            let dur = if rng.next() > 0.3 { 1.0 } else { 2.0 };
+            if rng.next() > -0.75 {
+                add_note(
+                    t0 + b * beat,
+                    dur * beat,
+                    scale[note as usize],
+                    0.16,
+                    &mut out,
+                );
+            }
+            b += dur;
+        }
+    }
+    // Keep it quiet and avoid clipping.
+    let peak = out.iter().fold(0.0f32, |m, v| m.max(v.abs())).max(1e-3);
+    for v in &mut out {
+        *v = *v / peak * 0.5;
+    }
+    out
 }
 
 /// A buzzy tone (`cycles` = frequency × time) made of `n` harmonics.
@@ -201,9 +384,34 @@ pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     out
 }
 
-pub const SOUND_NAMES: [&str; 15] = [
-    "place", "break", "pop", "splat", "grab", "cheer", "click", "baa", "moo", "oink", "cluck",
-    "munch", "bonk", "grumble", "boing",
+pub const SOUND_NAMES: [&str; 27] = [
+    "place",
+    "break",
+    "pop",
+    "splat",
+    "grab",
+    "cheer",
+    "click",
+    "baa",
+    "moo",
+    "oink",
+    "cluck",
+    "munch",
+    "bonk",
+    "grumble",
+    "boing",
+    "step_grass",
+    "step_stone",
+    "step_wood",
+    "step_sand",
+    "step_snow",
+    "birds",
+    "water",
+    "wind",
+    "rain",
+    "music1",
+    "music2",
+    "music3",
 ];
 
 fn create_sounds(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>>) {
@@ -273,6 +481,110 @@ fn play_sounds(
     }
 }
 
+fn play_ambient(
+    mut commands: Commands,
+    mut requests: MessageReader<PlayAmbient>,
+    sounds: Option<Res<Sounds>>,
+    settings: Res<crate::settings::ClientSettings>,
+) {
+    let Some(sounds) = sounds else { return };
+    for req in requests.read() {
+        let volume = settings.volume * req.gain;
+        if let (Some(handle), true) = (sounds.0.get(req.name), volume > 0.01) {
+            commands.spawn((
+                AudioPlayer(handle.clone()),
+                PlaybackSettings {
+                    mode: PlaybackMode::Despawn,
+                    volume: Volume::Linear(volume),
+                    ..PlaybackSettings::ONCE
+                },
+            ));
+        }
+    }
+}
+
+/// The sound of rain, looping while it rains.
+#[derive(Component)]
+struct RainSound;
+
+fn rain_loop(
+    mut commands: Commands,
+    weather: Res<crate::atmosphere::Weather>,
+    sounds: Option<Res<Sounds>>,
+    settings: Res<crate::settings::ClientSettings>,
+    mut playing: Query<(Entity, &mut AudioSink), With<RainSound>>,
+) {
+    let want = weather.rain_amount * if weather.snow { 0.0 } else { 1.0 } * settings.volume * 0.35;
+    match playing.single_mut() {
+        Ok((e, mut sink)) => {
+            if want < 0.01 {
+                commands.entity(e).despawn();
+            } else {
+                sink.set_volume(Volume::Linear(want));
+            }
+        }
+        Err(_) => {
+            if want >= 0.01
+                && let Some(h) = sounds.as_ref().and_then(|s| s.0.get("rain"))
+            {
+                commands.spawn((
+                    RainSound,
+                    AudioPlayer(h.clone()),
+                    PlaybackSettings {
+                        mode: PlaybackMode::Loop,
+                        volume: Volume::Linear(want),
+                        ..default()
+                    },
+                ));
+            }
+        }
+    }
+}
+
+/// Calm music now and then (every few minutes), if it's switched on.
+#[derive(Component)]
+struct Music;
+
+fn music_player(
+    time: Res<Time>,
+    mut commands: Commands,
+    sounds: Option<Res<Sounds>>,
+    settings: Res<crate::settings::ClientSettings>,
+    playing: Query<Entity, With<Music>>,
+    mut wait: Local<Option<f32>>,
+    mut pick: Local<u32>,
+) {
+    if !settings.music {
+        for e in &playing {
+            commands.entity(e).despawn();
+        }
+        return;
+    }
+    if !playing.is_empty() {
+        return;
+    }
+    // The first piece comes soon after starting, later ones every few minutes.
+    let left = wait.get_or_insert(20.0);
+    *left -= time.delta_secs();
+    if *left > 0.0 {
+        return;
+    }
+    *pick = pick.wrapping_add(1);
+    *left = 150.0 + (*pick % 4) as f32 * 45.0;
+    let name = ["music1", "music2", "music3"][*pick as usize % 3];
+    if let Some(h) = sounds.as_ref().and_then(|s| s.0.get(name)) {
+        commands.spawn((
+            Music,
+            AudioPlayer(h.clone()),
+            PlaybackSettings {
+                mode: PlaybackMode::Despawn,
+                volume: Volume::Linear(settings.volume * 0.4),
+                ..PlaybackSettings::ONCE
+            },
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,8 +593,14 @@ mod tests {
     fn sounds_are_short_valid_wavs() {
         for name in SOUND_NAMES {
             let samples = generate(name);
+            // Effects are short; ambience a few seconds; music under a minute.
+            let max_secs = match name {
+                n if n.starts_with("music") => 60,
+                "wind" | "rain" | "water" => 4,
+                _ => 1,
+            };
             assert!(
-                !samples.is_empty() && samples.len() < RATE as usize,
+                !samples.is_empty() && samples.len() < max_secs * RATE as usize,
                 "{name}"
             );
             assert!(

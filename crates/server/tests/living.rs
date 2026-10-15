@@ -232,6 +232,20 @@ fn flowing_falling_eating_and_monsters() {
     run_until(&mut [&mut max], 0.5, |_| false);
     assert!(!max.has(|m| matches!(m, ServerMessage::TakeItems(_))));
 
+    // ---- The weather is announced, and /weather changes it.
+    assert!(run_until(&mut [&mut max], 8.0, |b| b[0].has(
+        |m| matches!(m, ServerMessage::Weather { raining: false })
+    )));
+    max.send(&ClientMessage::Chat {
+        text: "/weather rain".into(),
+    });
+    assert!(
+        run_until(&mut [&mut max], 3.0, |b| b[0].has(
+            |m| matches!(m, ServerMessage::Weather { raining: true })
+        )),
+        "no rain"
+    );
+
     // ---- Night brings monsters; /peaceful sends them away.
     max.send(&ClientMessage::Chat {
         text: "/time night".into(),

@@ -1,5 +1,6 @@
 //! The Ourcraft client: rendering, input and (for now) the whole game.
 
+pub mod atmosphere;
 pub mod audio;
 pub mod chat;
 pub mod entities;
@@ -62,6 +63,7 @@ impl Plugin for ClientPlugin {
                 survival::SurvivalPlugin,
                 signs::SignsPlugin,
                 vitals::VitalsPlugin,
+                atmosphere::AtmospherePlugin,
             ));
     }
 }

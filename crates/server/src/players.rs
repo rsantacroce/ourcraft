@@ -250,6 +250,7 @@ fn handle_messages(
     world: Res<ServerWorld>,
     content: Res<Content>,
     mut entities: ResMut<crate::entities::Entities>,
+    mut weather: ResMut<crate::weather::Weather>,
     mut queue: ResMut<ModQueue>,
     mut net: ResMut<Network>,
 ) {
@@ -542,7 +543,7 @@ fn handle_messages(
                     );
                     continue;
                 }
-                if let Some(reply) = run_command(&text, &mut open) {
+                if let Some(reply) = run_command(&text, &mut open, &mut weather) {
                     net.send(
                         *client,
                         Channel::Reliable,
@@ -622,11 +623,15 @@ fn simulate_players(
 }
 
 /// A few chat commands. Returns a reply if `text` was a command.
-fn run_command(text: &str, open: &mut OpenWorld) -> Option<String> {
+fn run_command(
+    text: &str,
+    open: &mut OpenWorld,
+    weather: &mut crate::weather::Weather,
+) -> Option<String> {
     let mut words = text.split_whitespace();
     match words.next()? {
         "/help" => Some(
-            "Commands: /time day, /time night, /summon sheep (or pig, cow, chicken), /peaceful (mods may add more)"
+            "Commands: /time day, /time night, /weather rain, /weather clear, /summon sheep (or pig, cow, chicken), /peaceful (mods may add more)"
                 .into(),
         ),
         "/peaceful" => {
@@ -637,6 +642,17 @@ fn run_command(text: &str, open: &mut OpenWorld) -> Option<String> {
                 "Peaceful is off: watch out for monsters at night!".into()
             })
         }
+        "/weather" => match words.next() {
+            Some("rain" | "snow") => {
+                weather.set(true, text.len() as u32 * 977);
+                Some("Here comes the rain!".into())
+            }
+            Some("clear" | "sun") => {
+                weather.set(false, text.len() as u32 * 977);
+                Some("The sun's out!".into())
+            }
+            _ => Some("Use /weather rain or /weather clear".into()),
+        },
         "/time" => match words.next() {
             Some("day") => {
                 open.meta.time_of_day = 0.3;

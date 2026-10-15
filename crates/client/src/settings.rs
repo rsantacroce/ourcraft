@@ -35,6 +35,8 @@ pub struct ClientSettings {
     pub mouse_sensitivity: f32,
     /// Sound volume, 0..1.
     pub volume: f32,
+    /// Play the calm music now and then.
+    pub music: bool,
     /// `None` = automatic (on for touchscreens).
     pub touch_controls: Option<bool>,
     /// Hide rude words in chat.
@@ -57,6 +59,7 @@ impl Default for ClientSettings {
             render_distance: if mobile { 5 } else { 8 },
             mouse_sensitivity: 1.0,
             volume: 0.7,
+            music: true,
             touch_controls: None,
             chat_filter: true,
             show_debug: !mobile,
@@ -111,6 +114,7 @@ impl ClientSettings {
                     }
                 }
                 "chat_filter" => s.chat_filter = value != "off",
+                "music" => s.music = value != "off",
                 "show_debug" => s.show_debug = value == "on",
                 _ => {}
             }
@@ -123,11 +127,12 @@ impl ClientSettings {
         format!(
             "# Ourcraft settings (you can edit this file)\n\
              name = {}\nrender_distance = {}\nmouse_sensitivity = {:.2}\nvolume = {:.2}\n\
-             touch_controls = {}\nchat_filter = {}\nshow_debug = {}\n",
+             music = {}\ntouch_controls = {}\nchat_filter = {}\nshow_debug = {}\n",
             self.name,
             self.render_distance,
             self.mouse_sensitivity,
             self.volume,
+            onoff(self.music),
             match self.touch_controls {
                 Some(true) => "on",
                 Some(false) => "off",
@@ -236,6 +241,7 @@ mod tests {
             render_distance: 12,
             mouse_sensitivity: 1.5,
             volume: 0.25,
+            music: false,
             touch_controls: Some(false),
             chat_filter: false,
             show_debug: true,

@@ -1,7 +1,7 @@
 # Ourcraft roadmap
 
 Where Ourcraft stands compared with the classic block-building game, and
-what to build next. Milestones 1–10 (the original plan) and 11–15 are done; this file
+what to build next. Milestones 1–10 (the original plan) and 11–16 are done; this file
 picks up from there.
 
 ## What we have
@@ -21,12 +21,11 @@ picks up from there.
 | Saving | Several worlds, autosave, region files |
 | Multiplayer | Dedicated server, single player through the same server, LAN discovery, direct connect, chat with commands, avatars with name tags, client prediction |
 | Platform | macOS, Windows, Linux, iPad/iPhone, Android; touch and gamepad controls |
+| Atmosphere | Drifting clouds; rain (snow where it's snowy) that greys the sky and stays outside; footsteps that sound like the ground; birds, water and wind; three calm music pieces now and then (can be switched off); bits flying off broken blocks |
 | Extras | WebAssembly mods, main menu, settings, sound effects, chat filter |
 
 ## Partly done
 
-- **Sound:** effects for placing, breaking and the game mode; no
-  footsteps, ambience or music.
 
 ## Missing
 
@@ -34,7 +33,7 @@ picks up from there.
 - Redstone-style circuits
 - Villages and other generated structures
 - Other dimensions (an "underworld" and an "end" world)
-- Weather (rain, snow, thunder) and clouds
+- Thunder
 - Farming (seeds, wheat, animals to feed)
 - Experience points and achievements
 - Maps and a compass
@@ -178,7 +177,21 @@ What was planned:
 - Flowing water and lava; falling sand and gravel. *Engine: block
   updates.*
 
-### 16. Atmosphere
+### 16. Atmosphere ✅ done
+
+Blocky clouds drift high up (greyer and thicker in the rain). The server
+brings rain now and then (`/weather rain`, `/weather clear`); it greys
+and dims the sky, falls only where the sky is open, sounds like rain, and
+turns to snowflakes where the ground is snowy. Footsteps sound like grass,
+stone, wood, sand or snow; birds sing by day near trees, water burbles,
+wind blows high up. Three calm music pieces (synthesized, like every
+sound) play every few minutes; there's a Music switch in Settings. Bits
+fly off broken blocks in the block's colour.
+
+Not quite as planned: no thunder (gentler for little ones).
+
+What was planned:
+
 
 - Weather (rain, snow in cold biomes) and clouds.
 - Footsteps per block type, ambient sounds (birds, water, wind) and a few
@@ -204,5 +217,9 @@ What was planned:
   world names).
 - Ask Apple for the multicast permission so LAN discovery works on iOS.
 - Move to Bevy 0.20 once the networking crates support it.
-- Sunset sky looks muddy brown; make the colours warmer and brighter.
-- The sun is drawn as a clipped triangle instead of a square.
+- ~~Sunset sky looks muddy brown~~: fixed (the warm glow is now added on
+  top of the sky colour).
+- The sun "drawn as a clipped triangle" turned out to be the sun setting
+  behind far hills that are fully fogged to the sky colour. Correct, but
+  it looks odd; a sky shader that draws the sun and fades distant terrain
+  differently would fix it.

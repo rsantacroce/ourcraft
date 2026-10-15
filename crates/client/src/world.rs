@@ -187,11 +187,14 @@ fn apply_block_edits(
     mut edits: MessageReader<crate::interaction::BlockEditRequest>,
     mut world: ResMut<ClientWorld>,
     mut streaming: ResMut<ChunkStreaming>,
+    blocks: Res<Blocks>,
+    mut broken: MessageWriter<crate::atmosphere::BlockBroken>,
     conn: Option<ResMut<Connection>>,
 ) {
     let Some(mut conn) = conn else { return };
     for edit in edits.read() {
-        set_block(&mut world, &mut streaming, edit.pos, edit.block);
+        let old = set_block(&mut world, &mut streaming, edit.pos, edit.block);
+        report_break(&blocks, &mut broken, edit.pos, old, edit.block);
         conn.send(
             Channel::Reliable,
             &ClientMessage::SetBlock {
@@ -204,10 +207,30 @@ fn apply_block_edits(
 }
 
 /// World data from the server: new columns and changed blocks.
+/// Tell the atmosphere a block broke (for the flying bits), unless it was
+/// just water or lava drying up.
+fn report_break(
+    blocks: &Blocks,
+    broken: &mut MessageWriter<crate::atmosphere::BlockBroken>,
+    pos: IVec3,
+    old: Option<BlockId>,
+    new: BlockId,
+) {
+    if let Some(old) = old
+        && new.is_air()
+        && !old.is_air()
+        && !blocks.0.is_liquid(old)
+    {
+        broken.write(crate::atmosphere::BlockBroken { pos, block: old });
+    }
+}
+
 fn handle_world_messages(
     mut messages: MessageReader<FromServer>,
     mut world: ResMut<ClientWorld>,
     mut streaming: ResMut<ChunkStreaming>,
+    blocks: Res<Blocks>,
+    mut broken: MessageWriter<crate::atmosphere::BlockBroken>,
 ) {
     let pool = AsyncComputeTaskPool::get();
     for FromServer(msg) in messages.read() {
@@ -225,7 +248,8 @@ fn handle_world_messages(
             }
             ServerMessage::BlockChanged { pos, block } => {
                 let pos = IVec3::from_array(*pos);
-                set_block(&mut world, &mut streaming, pos, BlockId(*block));
+                let old = set_block(&mut world, &mut streaming, pos, BlockId(*block));
+                report_break(&blocks, &mut broken, pos, old, BlockId(*block));
             }
             _ => {}
         }

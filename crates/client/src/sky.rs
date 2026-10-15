@@ -143,8 +143,10 @@ fn mix(a: Color, b: Color, t: f32) -> Color {
     Color::LinearRgba(LinearRgba::from_vec4(a.to_vec4().lerp(b.to_vec4(), t)))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_sky(
     tod: Res<TimeOfDay>,
+    weather: Res<crate::atmosphere::Weather>,
     settings: Res<GraphicsSettings>,
     world: Res<ClientWorld>,
     camera: Single<&Transform, With<PlayerCamera>>,
@@ -154,13 +156,27 @@ fn update_sky(
     mut sun: Single<&mut Transform, (With<Sun>, Without<PlayerCamera>, Without<Moon>)>,
     mut moon: Single<&mut Transform, (With<Moon>, Without<PlayerCamera>, Without<Sun>)>,
 ) {
-    let daylight = tod.daylight();
-    let day = Color::srgb(0.53, 0.75, 0.96);
+    // Rain makes the day greyer and a little darker.
+    let rain = weather.rain_amount;
+    let daylight = tod.daylight() * (1.0 - 0.35 * rain);
+    let day = mix(
+        Color::srgb(0.53, 0.75, 0.96),
+        Color::srgb(0.55, 0.6, 0.66),
+        rain,
+    );
     let night = Color::srgb(0.03, 0.04, 0.11);
-    let sunset = Color::srgb(0.98, 0.56, 0.32);
     let h = tod.sun_height();
-    let sunset_amount = (-(h / 0.18).powi(2)).exp() * 0.55;
-    let mut sky = mix(mix(night, day, daylight), sunset, sunset_amount);
+    // Sunsets add a warm glow on top of the sky (instead of mixing orange
+    // into a half-dark blue, which looks muddy brown).
+    let glow = (-(h / 0.2).powi(2)).exp() * (1.0 - rain);
+    let base = mix(night, day, daylight).to_linear();
+    let warm = Color::srgb(1.0, 0.45, 0.25).to_linear();
+    let mut sky = Color::LinearRgba(LinearRgba::new(
+        base.red + warm.red * glow * 0.55,
+        base.green + warm.green * glow * 0.35,
+        base.blue + warm.blue * glow * 0.15,
+        1.0,
+    ));
 
     // Fog ends just before the edge of the loaded area.
     let mut fog_end = (settings.render_distance as f32 - 0.5) * 16.0;

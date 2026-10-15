@@ -120,6 +120,7 @@ enum Action {
     CycleTouch,
     ToggleFilter,
     ToggleDebug,
+    ToggleMusic,
 }
 
 #[derive(Component)]
@@ -376,6 +377,7 @@ fn button_actions(
                 }
             }
             Action::ToggleFilter => settings.chat_filter = !settings.chat_filter,
+            Action::ToggleMusic => settings.music = !settings.music,
             Action::ToggleDebug => settings.show_debug = !settings.show_debug,
         }
     }
@@ -781,6 +783,12 @@ fn rebuild_menu(
                         ui,
                         format!("Hide rude words in chat: {}", onoff(settings.chat_filter)),
                         Action::ToggleFilter,
+                        420.0,
+                    );
+                    button_sized(
+                        ui,
+                        format!("Music: {}", onoff(settings.music)),
+                        Action::ToggleMusic,
                         420.0,
                     );
                     button_sized(
