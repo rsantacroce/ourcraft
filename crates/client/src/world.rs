@@ -27,20 +27,25 @@ use ourcraft_common::world::{ColumnPos, VoxelWorld, WORLD_HEIGHT_CHUNKS};
 use ourcraft_common::worldgen::WorldGenerator;
 
 use crate::meshing::{ChunkMeshData, ChunkMeshes, PaddedChunk, mesh_chunk};
+use crate::persistence::{Storage, WorldChoice, mark_column_changed};
 use crate::render::{BlockTextureLayers, VoxelMaterial, VoxelMaterialHandle, build_mesh};
 use crate::settings::GraphicsSettings;
 
-/// Seed for the world until saves (M5) let you pick one.
+/// Seed for new worlds when none is given with `--seed`.
 pub const DEFAULT_SEED: u64 = 20_261_015;
 
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Blocks(Arc::new(BlockRegistry::with_builtin_blocks())))
-            .insert_resource(TerrainGenerator(Arc::new(WorldGenerator::new(
-                DEFAULT_SEED,
-            ))))
+        let registry = Arc::new(BlockRegistry::with_builtin_blocks());
+        // Open the world now (it's quick) so its seed is known before
+        // anything spawns. M10's menu will choose the world instead.
+        let storage = crate::persistence::open_world(&WorldChoice::from_args(), &registry);
+        let generator = Arc::new(WorldGenerator::new(storage.meta.seed));
+        app.insert_resource(Blocks(registry))
+            .insert_resource(TerrainGenerator(generator))
+            .insert_resource(storage)
             .init_resource::<ClientWorld>()
             .init_resource::<ChunkStreaming>()
             .add_systems(
@@ -165,9 +170,13 @@ fn apply_block_edits(
     mut edits: MessageReader<crate::interaction::BlockEditRequest>,
     mut world: ResMut<ClientWorld>,
     mut streaming: ResMut<ChunkStreaming>,
+    storage: Res<Storage>,
 ) {
     for edit in edits.read() {
-        set_block(&mut world, &mut streaming, edit.pos, edit.block);
+        if set_block(&mut world, &mut streaming, edit.pos, edit.block).is_some() {
+            let col = ColumnPos::from_block(edit.pos.x, edit.pos.z);
+            mark_column_changed(&storage, &world, col);
+        }
     }
 }
 
@@ -186,6 +195,7 @@ fn request_columns(
     settings: Res<GraphicsSettings>,
     world: Res<ClientWorld>,
     generator: Res<TerrainGenerator>,
+    storage: Res<Storage>,
     mut streaming: ResMut<ChunkStreaming>,
 ) {
     let center = viewer_column(&viewer);
@@ -207,7 +217,18 @@ fn request_columns(
     let pool = AsyncComputeTaskPool::get();
     for pos in wanted.into_iter().take(budget) {
         let generator = generator.0.clone();
-        let task = pool.spawn(async move { generator.generate_column(pos) });
+        let storage = storage.storage.clone();
+        // A saved column if there is one, otherwise fresh terrain.
+        let task = pool.spawn(async move {
+            match storage.load_column(pos) {
+                Ok(Some(chunks)) => chunks,
+                Ok(None) => generator.generate_column(pos),
+                Err(e) => {
+                    error!("Column {pos:?} is unreadable ({e}); regenerating it");
+                    generator.generate_column(pos)
+                }
+            }
+        });
         streaming.generating.insert(pos, task);
     }
 }
@@ -254,6 +275,7 @@ fn unload_far_columns(
         .filter(|p| p.chebyshev_distance(center) > keep)
         .collect();
     for pos in far {
+        // Changed columns were already queued for saving when they changed.
         world.remove_column(pos);
         for cy in 0..WORLD_HEIGHT_CHUNKS {
             let cpos = pos.chunk(cy);

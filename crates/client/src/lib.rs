@@ -5,6 +5,7 @@ pub mod input;
 pub mod interaction;
 pub mod inventory_ui;
 pub mod meshing;
+pub mod persistence;
 pub mod player;
 pub mod render;
 pub mod settings;
@@ -26,6 +27,7 @@ impl Plugin for ClientPlugin {
                 settings::SettingsPlugin,
                 render::VoxelRenderPlugin,
                 world::WorldPlugin,
+                persistence::PersistencePlugin,
                 player::PlayerPlugin,
                 interaction::InteractionPlugin,
                 inventory_ui::InventoryUiPlugin,

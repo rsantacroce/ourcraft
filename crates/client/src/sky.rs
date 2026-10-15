@@ -16,7 +16,7 @@ pub struct SkyPlugin;
 impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TimeOfDay>()
-            .add_systems(Startup, spawn_sun_and_moon)
+            .add_systems(Startup, (spawn_sun_and_moon, restore_time))
             .add_systems(
                 Update,
                 (advance_time, update_sky)
@@ -71,6 +71,12 @@ impl TimeOfDay {
     pub fn sun_direction(&self) -> Vec3 {
         let angle = (self.fraction - 0.25) * TAU;
         Vec3::new(angle.cos(), angle.sin(), 0.3).normalize()
+    }
+}
+
+fn restore_time(storage: Option<Res<crate::persistence::Storage>>, mut tod: ResMut<TimeOfDay>) {
+    if let Some(storage) = storage {
+        tod.fraction = storage.meta.time_of_day.rem_euclid(1.0);
     }
 }
 

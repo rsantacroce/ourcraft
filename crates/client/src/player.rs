@@ -77,12 +77,42 @@ impl Player {
 #[derive(Component)]
 pub struct PlayerCamera;
 
-fn spawn_player(mut commands: Commands, generator: Res<TerrainGenerator>) {
-    let (x, ground, z) = generator.0.find_spawn();
-    let feet = Vec3::new(x as f32 + 0.5, ground as f32 + 1.0, z as f32 + 0.5);
-    let mut player = Player::new(feet);
-    player.yaw = -std::f32::consts::FRAC_PI_4;
-    player.pitch = -0.35; // look slightly down at the ground ahead
+fn spawn_player(
+    mut commands: Commands,
+    generator: Res<TerrainGenerator>,
+    storage: Res<crate::persistence::Storage>,
+    mut inventory: ResMut<crate::interaction::PlayerInventory>,
+    mut mode: ResMut<GameMode>,
+) {
+    *mode = if storage.meta.creative {
+        GameMode::Creative
+    } else {
+        GameMode::Survival
+    };
+    let player = match &storage.player {
+        // Back where we left off.
+        Some(save) => {
+            let mut p = Player::new(Vec3::from_array(save.position));
+            p.yaw = save.yaw;
+            p.pitch = save.pitch;
+            p.state.flying = save.flying;
+            inventory.0 = save.inventory(storage.remap.as_ref());
+            p
+        }
+        // New world: find a nice spot.
+        None => {
+            let (x, ground, z) = generator.0.find_spawn();
+            let mut p = Player::new(Vec3::new(
+                x as f32 + 0.5,
+                ground as f32 + 1.0,
+                z as f32 + 0.5,
+            ));
+            p.yaw = -std::f32::consts::FRAC_PI_4;
+            p.pitch = -0.35; // look slightly down at the ground ahead
+            p
+        }
+    };
+    let feet = player.state.position;
     commands.spawn((Name::new("Player"), player));
 
     commands.spawn((
