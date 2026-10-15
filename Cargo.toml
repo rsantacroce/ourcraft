@@ -3,6 +3,9 @@ resolver = "3"
 members = ["crates/common", "crates/client", "crates/server", "crates/mod_api", "crates/mod_host", "mobile"]
 # Mods are built separately for WebAssembly (see mods/README.md).
 exclude = ["mods"]
+# Plain `cargo run` / `cargo build` mean the game. Use --workspace or -p for
+# the rest (the server is built as part of the game anyway).
+default-members = ["crates/client"]
 
 [workspace.package]
 version = "0.1.0"
