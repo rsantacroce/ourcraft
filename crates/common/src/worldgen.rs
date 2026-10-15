@@ -195,7 +195,14 @@ impl WorldGenerator {
                     } else if !(wet && depth < 6) && self.is_cave(wx, y, wz, height) {
                         continue;
                     } else {
-                        surface_block(biome, depth, height)
+                        let b = surface_block(biome, depth, height);
+                        if b == blocks::STONE {
+                            self.ore_at(wx, y, wz).unwrap_or(b)
+                        } else if wet && depth < 2 && self.clay_at(wx, wz) {
+                            blocks::CLAY
+                        } else {
+                            b
+                        }
                     };
                     col[idx(lx, y as usize, lz)] = block;
                 }
@@ -210,6 +217,37 @@ impl WorldGenerator {
         (0..WORLD_HEIGHT_CHUNKS as usize)
             .map(|cy| Chunk::from_blocks(&col[cy * CHUNK_VOLUME..(cy + 1) * CHUNK_VOLUME]))
             .collect()
+    }
+
+    /// Ore veins in stone. The world is cut into 2×2×2 cells; a few cells
+    /// hold an ore, and most blocks in such a cell are that ore, making small
+    /// clumps. Rarer ores only appear deeper down.
+    pub fn ore_at(&self, x: i32, y: i32, z: i32) -> Option<BlockId> {
+        let h3 = |x: i32, y: i32, z: i32| {
+            splitmix64((x as u32 as u64) ^ ((y as u32 as u64) << 21) ^ ((z as u32 as u64) << 42))
+        };
+        let cell = splitmix64(self.seed ^ 0x6f72_6573 ^ h3(x >> 1, y >> 1, z >> 1));
+        let roll = cell % 10_000;
+        let ore = if y < 16 && roll < 15 {
+            blocks::DIAMOND_ORE
+        } else if y < 32 && roll < 45 {
+            blocks::GOLD_ORE
+        } else if y < 64 && roll < 135 {
+            blocks::IRON_ORE
+        } else if y < 128 && roll < 300 {
+            blocks::COAL_ORE
+        } else {
+            return None;
+        };
+        (splitmix64(cell ^ h3(x, y, z)) % 100 < 60).then_some(ore)
+    }
+
+    /// Patches of clay under lakes and the sea.
+    fn clay_at(&self, x: i32, z: i32) -> bool {
+        let patch = splitmix64(
+            self.seed ^ 0x636c_6179 ^ ((x >> 2) as u32 as u64) ^ (((z >> 2) as u32 as u64) << 32),
+        );
+        patch % 100 < 18
     }
 
     /// Trees and cacti. A tree near a column edge spills into the neighbour,
@@ -413,6 +451,30 @@ mod tests {
         }
         assert!(min >= 4 && max < WORLD_HEIGHT - 16);
         assert!(max - min > 10, "terrain is too flat: {min}..{max}");
+    }
+
+    #[test]
+    fn ores_get_rarer_with_depth() {
+        let g = WorldGenerator::new(5);
+        let mut count = std::collections::HashMap::new();
+        for x in 0..64 {
+            for z in 0..64 {
+                for y in 1..100 {
+                    if let Some(o) = g.ore_at(x, y, z) {
+                        *count.entry(o).or_insert(0) += 1;
+                        if o == blocks::DIAMOND_ORE {
+                            assert!(y < 16);
+                        }
+                    }
+                }
+            }
+        }
+        let n = |b| count.get(&b).copied().unwrap_or(0);
+        assert!(n(blocks::COAL_ORE) > n(blocks::IRON_ORE));
+        assert!(n(blocks::IRON_ORE) > n(blocks::GOLD_ORE));
+        assert!(n(blocks::GOLD_ORE) > 0 && n(blocks::DIAMOND_ORE) > 0);
+        // Ores are a small part of the stone.
+        assert!(n(blocks::COAL_ORE) < 64 * 64 * 99 / 50);
     }
 
     #[test]

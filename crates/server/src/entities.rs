@@ -39,6 +39,8 @@ pub struct ServerEntity {
     pub owner: Option<u64>,
     /// Moved by a mod since the last update was sent.
     pub moved: bool,
+    /// For dropped items: what you get by walking over it.
+    pub item: Option<ourcraft_common::inventory::ItemStack>,
 }
 
 #[derive(Resource, Default)]

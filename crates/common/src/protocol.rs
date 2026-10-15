@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 4;
+pub const PROTOCOL_VERSION: u64 = 5;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -120,10 +120,52 @@ pub struct ContentPack {
     pub textures: Vec<(String, Vec<u8>)>,
     pub models: Vec<ourcraft_mod_api::ModelSpec>,
     pub tools: Vec<ourcraft_mod_api::ToolSpec>,
+    /// Every item (blocks first, same numbers), in id order.
+    pub items: Vec<crate::item::ItemDef>,
+    pub recipes: Vec<crate::recipes::Recipe>,
 }
 
-/// One inventory slot: (block id, count).
-pub type NetSlot = Option<(u16, u16)>;
+/// One stack of items on the wire.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NetStack {
+    pub item: u16,
+    pub count: u16,
+    pub wear: u16,
+}
+
+impl From<crate::inventory::ItemStack> for NetStack {
+    fn from(s: crate::inventory::ItemStack) -> Self {
+        Self {
+            item: s.item.0,
+            count: s.count,
+            wear: s.wear,
+        }
+    }
+}
+
+impl From<NetStack> for crate::inventory::ItemStack {
+    fn from(s: NetStack) -> Self {
+        Self {
+            item: crate::item::ItemId(s.item),
+            count: s.count,
+            wear: s.wear,
+        }
+    }
+}
+
+/// One inventory slot.
+pub type NetSlot = Option<NetStack>;
+
+/// A furnace's state as shown on its screen.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct NetContainer {
+    pub pos: [i32; 3],
+    pub kind: crate::container::ContainerKind,
+    pub slots: Vec<NetSlot>,
+    /// 0..1: fire left, and how far the current item has smelted.
+    pub burn: f32,
+    pub smelt: f32,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ClientMessage {
@@ -136,10 +178,12 @@ pub enum ClientMessage {
     },
     /// The client changed its view distance.
     ViewDistance(u8),
-    /// Place (or, with air, break) a block.
+    /// Place (or, with air, break) a block. `held` is the item in hand
+    /// (it decides what a broken block drops).
     SetBlock {
         pos: [i32; 3],
         block: u16,
+        held: u16,
     },
     /// The latest few physics inputs (sent every tick; recent ones are
     /// repeated so a lost packet doesn't lose an input).
@@ -158,6 +202,24 @@ pub enum ClientMessage {
         direction: [f32; 3],
         secondary: bool,
     },
+    /// Switched between creative and survival.
+    GameMode {
+        creative: bool,
+    },
+    /// Open the furnace (or other container) at `pos`.
+    OpenContainer {
+        pos: [i32; 3],
+    },
+    CloseContainer,
+    /// Clicked a slot of the open container while holding `cursor` on the
+    /// mouse. The server replies with `ContainerCursor`.
+    ContainerClick {
+        slot: u8,
+        cursor: NetSlot,
+        secondary: bool,
+    },
+    /// Throw items out in front of you (Q, or leftovers that didn't fit).
+    DropItems(NetStack),
 }
 
 /// Another player as seen by everyone else.
@@ -263,6 +325,16 @@ pub enum ServerMessage {
         name: String,
         at: Option<[f32; 3]>,
     },
+
+    // ---- Survival (milestone 11) ----
+    /// You picked something up: add it to your inventory.
+    GiveItems(NetStack),
+    /// A container screen to show (also sent when its contents change).
+    Container(NetContainer),
+    /// What's on your mouse cursor after a `ContainerClick`.
+    ContainerCursor(NetSlot),
+    /// The container you had open is gone (someone broke it).
+    ContainerClosed,
 }
 
 /// Encode a message for sending.
@@ -307,6 +379,7 @@ mod tests {
             ClientMessage::SetBlock {
                 pos: [-5, 70, 123_456],
                 block: 3,
+                held: 40,
             },
             ClientMessage::Inputs(vec![NetInput {
                 tick: 99,
@@ -316,10 +389,24 @@ mod tests {
                 ..Default::default()
             }]),
             ClientMessage::Inventory {
-                slots: vec![Some((1, 64)), None],
+                slots: vec![
+                    Some(NetStack {
+                        item: 1,
+                        count: 64,
+                        wear: 0,
+                    }),
+                    None,
+                ],
                 selected: 1,
             },
             ClientMessage::Chat { text: "hi!".into() },
+            ClientMessage::GameMode { creative: false },
+            ClientMessage::OpenContainer { pos: [1, 2, 3] },
+            ClientMessage::ContainerClick {
+                slot: 2,
+                cursor: None,
+                secondary: true,
+            },
         ];
         for m in msgs {
             let back: ClientMessage = decode(&encode(&m)).unwrap();
@@ -337,13 +424,25 @@ mod tests {
                 creative: true,
                 time_of_day: 0.5,
                 state: NetPlayerState::default(),
-                inventory: Some((vec![Some((2, 10))], 0)),
-                content: ContentPack {
-                    blocks: crate::block::BlockRegistry::with_builtin_blocks()
-                        .defs()
-                        .to_vec(),
-                    textures: vec![("m:t".into(), vec![1, 2, 3, 4])],
-                    ..Default::default()
+                inventory: Some((
+                    vec![Some(NetStack {
+                        item: 2,
+                        count: 10,
+                        wear: 3,
+                    })],
+                    0,
+                )),
+                content: {
+                    let blocks = crate::block::BlockRegistry::with_builtin_blocks();
+                    ContentPack {
+                        items: crate::item::ItemRegistry::build(&blocks, &[])
+                            .defs()
+                            .to_vec(),
+                        recipes: crate::recipes::builtin_recipes(),
+                        blocks: blocks.defs().to_vec(),
+                        textures: vec![("m:t".into(), vec![1, 2, 3, 4])],
+                        ..Default::default()
+                    }
                 },
                 players: vec![PlayerInfo {
                     id: 3,
@@ -355,6 +454,18 @@ mod tests {
                 z: 2,
                 data: vec![1, 2, 3],
             },
+            ServerMessage::GiveItems(NetStack {
+                item: 5,
+                count: 1,
+                wear: 0,
+            }),
+            ServerMessage::Container(NetContainer {
+                pos: [4, 5, 6],
+                kind: crate::container::ContainerKind::Furnace,
+                slots: vec![None, None, None],
+                burn: 0.5,
+                smelt: 0.25,
+            }),
             ServerMessage::BlockChanged {
                 pos: [0, 1, 2],
                 block: 0,

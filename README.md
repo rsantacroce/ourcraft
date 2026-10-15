@@ -1,7 +1,7 @@
 # Ourcraft
 
 A blocky sandbox game in Rust: infinite generated worlds to explore and
-build in, multiplayer, mods, and a cartoon team game mode called
+build in, survival with ores, tools, crafting and furnaces, multiplayer, mods, and a cartoon team game mode called
 **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
 
 **Website and player manual:** https://rsantacroce.github.io/ourcraft-site/
@@ -39,7 +39,9 @@ cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad netwo
 | Right click place | left trigger | tap |
 | Middle click pick block | D-pad up | |
 | 1–9, wheel: hotbar | bumpers | tap a slot |
-| E inventory, F fly, G creative/survival | Y, X | Bag, Fly buttons |
+| E inventory and crafting, F fly, G creative/survival | Y, X | Bag, Fly buttons |
+| Q drop one (Ctrl+Q: the stack) | | |
+| Right click a crafting table / furnace: use it | left trigger | tap |
 | Enter chat, Esc menu | | Menu button |
 | F3 info text, F7 simulate lag, T skip an hour, [ ] view distance | | |
 

@@ -53,8 +53,8 @@ fn spawn_hud(mut commands: Commands) {
                     "Click: capture mouse   Esc: release   F3: hide this text\n\
                      WASD: move   Space: jump (double-tap: fly)   Shift: down   Ctrl: run\n\
                      Left click: break   Right click: place   Middle click: pick block\n\
-                     1-9 / wheel: hotbar   E: inventory   F: fly   G: creative/survival\n\
-                                          T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag",
+                     1-9 / wheel: hotbar   E: inventory and crafting   Q: drop   F: fly   G: creative/survival\n\
+                     Right click a crafting table or furnace to use it   T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag",
                 ),
                 TextFont::from_font_size(14.0),
                 TextColor(Color::WHITE),

@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::block::{BlockId, BlockRegistry};
 use crate::chunk::Chunk;
 use crate::inventory::{INVENTORY_SLOTS, Inventory, ItemStack};
+use crate::item::ItemRegistry;
 use crate::world::{ColumnPos, WORLD_HEIGHT_CHUNKS};
 
 /// Columns per region side.
@@ -43,8 +44,10 @@ const HEADER_SECTORS: u64 = HEADER_BYTES.div_ceil(SECTOR);
 
 /// Version of the column encoding inside region files.
 const COLUMN_FORMAT: u8 = 1;
-/// Version of `world.dat` and player files.
+/// Version of `world.dat`.
 pub const META_VERSION: u32 = 2;
+/// Version of player files. 3: inventories by item name (milestone 11).
+pub const PLAYER_VERSION: u32 = 3;
 
 fn invalid(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
@@ -311,6 +314,14 @@ impl WorldMeta {
     }
 }
 
+/// One saved inventory slot. Items are saved by name, like blocks.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SavedStack {
+    pub item: String,
+    pub count: u16,
+    pub wear: u16,
+}
+
 /// A player's saved state.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct PlayerSave {
@@ -319,32 +330,112 @@ pub struct PlayerSave {
     pub yaw: f32,
     pub pitch: f32,
     pub flying: bool,
-    /// (block id, count) per inventory slot.
-    pub inventory: Vec<Option<(u16, u16)>>,
+    pub inventory: Vec<Option<SavedStack>>,
     pub selected: usize,
+    /// Playing in creative mode (players can switch in any world).
+    pub creative: bool,
+}
+
+/// A player file as saved by version 2 (block ids, no items yet).
+#[derive(Deserialize)]
+struct PlayerSaveV2 {
+    version: u32,
+    position: [f32; 3],
+    yaw: f32,
+    pitch: f32,
+    flying: bool,
+    inventory: Vec<Option<(u16, u16)>>,
+    selected: usize,
 }
 
 impl PlayerSave {
-    pub fn inventory(&self, remap: Option<&BlockRemap>) -> Inventory {
+    pub fn inventory(&self, items: &ItemRegistry) -> Inventory {
         let mut inv = Inventory::default();
         for (slot, saved) in inv.slots.iter_mut().zip(&self.inventory) {
-            *slot = saved.map(|(id, count)| ItemStack {
-                block: remap.map_or(BlockId(id), |r| r.map(BlockId(id))),
-                count,
+            // Items that no longer exist (a removed mod) are dropped.
+            *slot = saved.as_ref().and_then(|s| {
+                Some(ItemStack {
+                    item: items.by_name(&s.item)?,
+                    count: s.count,
+                    wear: s.wear,
+                })
             });
         }
         inv.select(self.selected);
         inv
     }
 
-    pub fn store_inventory(&mut self, inv: &Inventory) {
+    pub fn store_inventory(&mut self, inv: &Inventory, items: &ItemRegistry) {
         self.inventory = inv
             .slots
             .iter()
-            .map(|s| s.map(|s| (s.block.0, s.count)))
+            .map(|s| {
+                s.map(|s| SavedStack {
+                    item: items.name(s.item).to_owned(),
+                    count: s.count,
+                    wear: s.wear,
+                })
+            })
             .collect();
         self.inventory.resize(INVENTORY_SLOTS, None);
         self.selected = inv.selected;
+    }
+}
+
+/// A saved furnace (or other container) and where it is.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SavedContainer {
+    pub pos: [i32; 3],
+    pub kind: crate::container::ContainerKind,
+    pub slots: Vec<Option<SavedStack>>,
+    pub burn_left: f32,
+    pub burn_total: f32,
+    pub progress: f32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ContainersFile {
+    version: u32,
+    containers: Vec<SavedContainer>,
+}
+
+impl SavedContainer {
+    pub fn new(pos: [i32; 3], c: &crate::container::Container, items: &ItemRegistry) -> Self {
+        Self {
+            pos,
+            kind: c.kind,
+            slots: c
+                .slots
+                .iter()
+                .map(|s| {
+                    s.map(|s| SavedStack {
+                        item: items.name(s.item).to_owned(),
+                        count: s.count,
+                        wear: s.wear,
+                    })
+                })
+                .collect(),
+            burn_left: c.burn_left,
+            burn_total: c.burn_total,
+            progress: c.progress,
+        }
+    }
+
+    pub fn restore(&self, items: &ItemRegistry) -> crate::container::Container {
+        let mut c = crate::container::Container::new(self.kind);
+        for (slot, saved) in c.slots.iter_mut().zip(&self.slots) {
+            *slot = saved.as_ref().and_then(|s| {
+                Some(ItemStack {
+                    item: items.by_name(&s.item)?,
+                    count: s.count,
+                    wear: s.wear,
+                })
+            });
+        }
+        c.burn_left = self.burn_left;
+        c.burn_total = self.burn_total;
+        c.progress = self.progress;
+        c
     }
 }
 
@@ -505,13 +596,83 @@ impl WorldStorage {
         self.dir.join("players").join(format!("{safe}.dat"))
     }
 
-    pub fn load_player(&self, name: &str) -> io::Result<Option<PlayerSave>> {
+    /// Load a player. `block_names` are the world's saved block names
+    /// (from [`WorldMeta`]), needed to upgrade older player files whose
+    /// inventories held block ids.
+    pub fn load_player(
+        &self,
+        name: &str,
+        block_names: &[String],
+    ) -> io::Result<Option<PlayerSave>> {
         let path = self.player_path(name);
         if !path.exists() {
             return Ok(None);
         }
-        let p = postcard::from_bytes(&fs::read(path)?).map_err(|e| invalid(e.to_string()))?;
-        Ok(Some(p))
+        let bytes = fs::read(path)?;
+        if let Ok(p) = postcard::from_bytes::<PlayerSave>(&bytes)
+            && p.version == PLAYER_VERSION
+        {
+            return Ok(Some(p));
+        }
+        let old: PlayerSaveV2 = postcard::from_bytes(&bytes).map_err(|e| invalid(e.to_string()))?;
+        if old.version != 2 {
+            return Err(invalid(format!("unknown player version {}", old.version)));
+        }
+        Ok(Some(PlayerSave {
+            version: PLAYER_VERSION,
+            position: old.position,
+            yaw: old.yaw,
+            pitch: old.pitch,
+            flying: old.flying,
+            inventory: old
+                .inventory
+                .iter()
+                .map(|s| {
+                    let (id, count) = (*s)?;
+                    Some(SavedStack {
+                        item: block_names.get(id as usize)?.clone(),
+                        count,
+                        wear: 0,
+                    })
+                })
+                .collect(),
+            selected: old.selected,
+            creative: true,
+        }))
+    }
+
+    /// Names of all saved players.
+    pub fn player_names(&self) -> Vec<String> {
+        let Ok(entries) = fs::read_dir(self.dir.join("players")) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .filter_map(|e| {
+                let p = e.path();
+                (p.extension()? == "dat").then(|| p.file_stem()?.to_str().map(String::from))?
+            })
+            .collect()
+    }
+
+    /// Furnaces and other blocks holding items (`containers.dat`).
+    pub fn load_containers(&self) -> io::Result<Vec<SavedContainer>> {
+        let path = self.dir.join("containers.dat");
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let file: ContainersFile =
+            postcard::from_bytes(&fs::read(path)?).map_err(|e| invalid(e.to_string()))?;
+        Ok(file.containers)
+    }
+
+    pub fn save_containers(&self, containers: Vec<SavedContainer>) -> io::Result<()> {
+        let file = ContainersFile {
+            version: 1,
+            containers,
+        };
+        let bytes = postcard::to_allocvec(&file).map_err(|e| invalid(e.to_string()))?;
+        write_atomic(&self.dir.join("containers.dat"), &bytes)
     }
 
     pub fn save_player(&self, name: &str, player: &PlayerSave) -> io::Result<()> {
@@ -641,28 +802,88 @@ mod tests {
         storage.save_meta(&meta).unwrap();
         assert_eq!(storage.load_meta().unwrap().unwrap(), meta);
 
+        let items = ItemRegistry::build(&reg, &[]);
         let mut inv = Inventory::default();
-        inv.add(blocks::BRICKS, 10);
+        inv.add(&items, crate::item::ItemId::from_block(blocks::BRICKS), 10);
+        inv.add(&items, items.by_name("core:stone_axe").unwrap(), 1);
+        inv.slots[1].as_mut().unwrap().wear = 7;
         let mut player = PlayerSave {
-            version: META_VERSION,
+            version: PLAYER_VERSION,
             position: [1.0, 70.0, -3.5],
             yaw: 0.5,
             pitch: -0.2,
             flying: true,
             inventory: vec![],
             selected: 0,
+            creative: false,
         };
-        player.store_inventory(&inv);
+        player.store_inventory(&inv, &items);
         storage.save_player("Alex/../evil", &player).unwrap();
         assert_eq!(
-            storage.load_player("Alex/../evil").unwrap().unwrap(),
+            storage.load_player("Alex/../evil", &[]).unwrap().unwrap(),
             player
         );
         assert!(dir.join("players/Alexevil.dat").exists());
-        assert_eq!(player.inventory(None), inv);
+        assert_eq!(player.inventory(&items), inv);
 
         let worlds = list_worlds(dir.parent().unwrap());
         assert!(worlds.iter().any(|(_, m)| m.name == "Test World"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn containers_round_trip() {
+        use crate::container::{Container, ContainerKind};
+        let dir = temp_dir("containers");
+        let storage = WorldStorage::open(&dir).unwrap();
+        assert!(storage.load_containers().unwrap().is_empty());
+        let items = ItemRegistry::build(&BlockRegistry::with_builtin_blocks(), &[]);
+        let mut f = Container::new(ContainerKind::Furnace);
+        f.slots[0] = Some(ItemStack::new(
+            crate::item::ItemId::from_block(blocks::SAND),
+            5,
+        ));
+        f.burn_left = 3.0;
+        storage
+            .save_containers(vec![SavedContainer::new([1, 2, 3], &f, &items)])
+            .unwrap();
+        let back = storage.load_containers().unwrap();
+        assert_eq!(back[0].pos, [1, 2, 3]);
+        assert_eq!(back[0].restore(&items), f);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn version_2_players_get_item_names() {
+        #[derive(Serialize)]
+        struct V2 {
+            version: u32,
+            position: [f32; 3],
+            yaw: f32,
+            pitch: f32,
+            flying: bool,
+            inventory: Vec<Option<(u16, u16)>>,
+            selected: usize,
+        }
+        let dir = temp_dir("player-v2");
+        let storage = WorldStorage::open(&dir).unwrap();
+        let old = V2 {
+            version: 2,
+            position: [0.0, 64.0, 0.0],
+            yaw: 0.0,
+            pitch: 0.0,
+            flying: false,
+            inventory: vec![Some((1, 5)), None, Some((99, 1))],
+            selected: 0,
+        };
+        let path = dir.join("players/Sam.dat");
+        fs::write(&path, postcard::to_allocvec(&old).unwrap()).unwrap();
+        let names = vec!["core:air".to_string(), "paint:red".to_string()];
+        let p = storage.load_player("Sam", &names).unwrap().unwrap();
+        assert_eq!(p.version, PLAYER_VERSION);
+        assert_eq!(p.inventory[0].as_ref().unwrap().item, "paint:red");
+        assert_eq!(p.inventory[0].as_ref().unwrap().count, 5);
+        assert_eq!(p.inventory[2], None, "unknown ids are dropped");
         fs::remove_dir_all(dir).unwrap();
     }
 

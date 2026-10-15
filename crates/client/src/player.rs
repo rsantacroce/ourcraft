@@ -5,7 +5,6 @@ use std::f32::consts::FRAC_PI_2;
 
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
-use ourcraft_common::block::BlockId;
 use ourcraft_common::inventory::ItemStack;
 use ourcraft_common::physics::{self, PlayerState, TICK_RATE};
 use ourcraft_common::prediction::{PredictionHistory, Reconciled, apply_input};
@@ -192,12 +191,17 @@ fn handle_welcome(
         // A fresh start: no predictions to check yet.
         player.history = PredictionHistory::default();
         player.visual_offset = Vec3::ZERO;
+        // New players: a starter hotbar in creative, nothing in survival.
+        if saved.is_none() {
+            inventory.0 = if *creative {
+                crate::interaction::creative_hotbar()
+            } else {
+                Default::default()
+            };
+        }
         if let Some((slots, selected)) = saved {
             for (slot, saved) in inventory.slots.iter_mut().zip(slots) {
-                *slot = saved.map(|(id, count)| ItemStack {
-                    block: BlockId(id),
-                    count,
-                });
+                *slot = saved.map(ItemStack::from);
             }
             inventory.select(*selected as usize);
         }
@@ -234,11 +238,7 @@ fn send_inventory(
         *timer = 0.0;
         *pending = false;
         let msg = ClientMessage::Inventory {
-            slots: inventory
-                .slots
-                .iter()
-                .map(|s| s.map(|s| (s.block.0, s.count)))
-                .collect(),
+            slots: inventory.slots.iter().map(|s| s.map(Into::into)).collect(),
             selected: inventory.selected as u8,
         };
         conn.send(Channel::Reliable, &msg);

@@ -2,11 +2,14 @@
 
 pub mod block;
 pub mod chunk;
+pub mod container;
 pub mod inventory;
+pub mod item;
 pub mod physics;
 pub mod prediction;
 pub mod protocol;
 pub mod raycast;
+pub mod recipes;
 pub mod save;
 pub mod world;
 pub mod worldgen;

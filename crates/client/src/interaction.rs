@@ -1,18 +1,30 @@
-//! Looking at, breaking and placing blocks.
+//! Looking at, breaking and placing blocks, and using crafting tables and
+//! furnaces.
 //!
 //! Interaction doesn't change the world directly. It sends a
 //! [`BlockEditRequest`] message, and whoever owns the world applies it: in
 //! single player that's a local system; from M6 it's the server, which can
 //! refuse (say, if you're too far away). Keeping that split from the start
 //! makes multiplayer a much smaller change.
+//!
+//! In survival, breaking takes time (depending on the block and the tool
+//! in hand), shown as cracks spreading over the block. What it drops is up
+//! to the server: it appears as an item to pick up.
 
+use bevy::asset::RenderAssetUsages;
+use bevy::image::ImageSampler;
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use ourcraft_common::block::{BlockId, blocks};
 use ourcraft_common::inventory::{Inventory, ItemStack};
+use ourcraft_common::item::ItemId;
 use ourcraft_common::physics::Aabb;
+use ourcraft_common::protocol::{Channel, ClientMessage};
 use ourcraft_common::raycast::{RayHit, raycast};
 
-use crate::input::Actions;
+use crate::input::{Actions, UiFocus};
+use crate::inventory_ui::OpenScreen;
+use crate::items::Items;
 use crate::player::{GameMode, Player, PlayerCamera};
 use crate::world::{Blocks, ClientWorld};
 
@@ -20,6 +32,8 @@ use crate::world::{Blocks, ClientWorld};
 pub const REACH: f32 = 6.0;
 /// Seconds between repeated breaks/places while the button is held.
 const REPEAT_DELAY: f32 = 0.22;
+/// Crack pictures, from a scratch to nearly broken.
+const CRACK_STAGES: usize = 6;
 
 pub struct InteractionPlugin;
 
@@ -27,15 +41,20 @@ impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<BlockEditRequest>()
             .init_resource::<Target>()
+            .init_resource::<BreakProgress>()
             .insert_resource(PlayerInventory(creative_hotbar()))
+            .add_systems(Startup, setup_cracks)
             .add_systems(
                 Update,
                 (
                     update_target,
                     hotbar_selection,
+                    use_blocks,
                     break_and_place,
                     use_tools,
+                    drop_items,
                     draw_highlight,
+                    draw_cracks,
                 )
                     .chain()
                     .after(crate::player::PlayerUpdateSet),
@@ -48,6 +67,8 @@ impl Plugin for InteractionPlugin {
 pub struct BlockEditRequest {
     pub pos: IVec3,
     pub block: BlockId,
+    /// The item in hand (decides what a broken block drops).
+    pub held: ItemId,
 }
 
 /// The block under the crosshair, if any.
@@ -57,6 +78,25 @@ pub struct Target(pub Option<RayHit>);
 /// The local player's inventory.
 #[derive(Resource, Debug, Deref, DerefMut)]
 pub struct PlayerInventory(pub Inventory);
+
+/// How far along breaking the targeted block is (survival).
+#[derive(Resource, Default, Debug)]
+pub struct BreakProgress {
+    pub pos: Option<IVec3>,
+    /// Seconds spent so far, and seconds needed.
+    pub time: f32,
+    pub needed: f32,
+}
+
+impl BreakProgress {
+    pub fn fraction(&self) -> f32 {
+        if self.needed > 0.0 {
+            (self.time / self.needed).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+}
 
 /// A hotbar with a good selection of building blocks.
 pub fn creative_hotbar() -> Inventory {
@@ -73,7 +113,7 @@ pub fn creative_hotbar() -> Inventory {
         blocks::LAMP,
     ];
     for (slot, block) in inv.slots.iter_mut().zip(picks) {
-        *slot = Some(ItemStack { block, count: 64 });
+        *slot = Some(ItemStack::new(ItemId::from_block(block), 64));
     }
     inv
 }
@@ -100,75 +140,148 @@ fn hotbar_selection(actions: Res<Actions>, mut inventory: ResMut<PlayerInventory
     }
 }
 
+/// Placing against a crafting table or furnace opens it instead (hold the
+/// "down" key to place a block against it after all).
+#[allow(clippy::too_many_arguments)]
+fn use_blocks(
+    actions: Res<Actions>,
+    target: Res<Target>,
+    rules: Res<crate::gamemode::Rules>,
+    tools: Res<crate::gamemode::ToolHotbar>,
+    mut focus: ResMut<UiFocus>,
+    mut screen: ResMut<OpenScreen>,
+    mut furnace: ResMut<crate::inventory_ui::FurnaceView>,
+    conn: Option<ResMut<crate::net::Connection>>,
+    mut held_before: Local<bool>,
+) {
+    // Only on a fresh press, so holding "place" doesn't reopen the screen.
+    let fresh = actions.place_block && !*held_before;
+    *held_before = actions.place_block;
+    if !fresh || tools.active() || !rules.0.can_build || actions.descend || focus.gameplay_blocked()
+    {
+        return;
+    }
+    let Some(hit) = target.0 else { return };
+    let opened = if hit.id == blocks::CRAFTING_TABLE {
+        OpenScreen::CraftingTable
+    } else if hit.id == blocks::FURNACE {
+        let Some(mut conn) = conn else { return };
+        furnace.0 = None;
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::OpenContainer {
+                pos: hit.block.to_array(),
+            },
+        );
+        OpenScreen::Furnace(hit.block)
+    } else {
+        return;
+    };
+    *screen = opened;
+    focus.inventory_open = true;
+}
+
+#[allow(clippy::too_many_arguments)]
 fn break_and_place(
     time: Res<Time>,
     actions: Res<Actions>,
     target: Res<Target>,
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
+    items: Res<Items>,
     mode: Res<GameMode>,
     rules: Res<crate::gamemode::Rules>,
     tools: Res<crate::gamemode::ToolHotbar>,
+    focus: Res<UiFocus>,
     player: Single<&Player>,
     mut inventory: ResMut<PlayerInventory>,
+    mut progress: ResMut<BreakProgress>,
     mut edits: MessageWriter<BlockEditRequest>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut cooldown: Local<f32>,
 ) {
     // In some game modes you use tools instead, or can't build at all.
-    if tools.active() || !rules.0.can_build {
+    if tools.active() || !rules.0.can_build || focus.gameplay_blocked() {
+        *progress = BreakProgress::default();
         return;
     }
     *cooldown -= time.delta_secs();
+    let survival = *mode == GameMode::Survival;
+    let target_pos = target.0.map(|h| h.block);
+    if !actions.break_block || progress.pos != target_pos {
+        *progress = BreakProgress::default();
+    }
     let wants = actions.break_block || actions.place_block || actions.pick_block;
     if !wants {
         *cooldown = 0.0; // releasing the button allows an instant next click
         return;
     }
     let Some(hit) = target.0 else { return };
+    let held = inventory.held();
 
-    if actions.pick_block && *mode == GameMode::Creative {
+    if actions.pick_block && !survival {
         let selected = inventory.selected;
-        inventory.slots[selected] = Some(ItemStack {
-            block: hit.id,
-            count: 64,
-        });
-        return;
-    }
-    if *cooldown > 0.0 {
+        inventory.slots[selected] = Some(ItemStack::new(ItemId::from_block(hit.id), 64));
         return;
     }
 
     if actions.break_block {
-        if blocks.0.is_breakable(hit.id) {
-            edits.write(BlockEditRequest {
-                pos: hit.block,
-                block: BlockId::AIR,
-            });
-            if *mode == GameMode::Survival
-                && let Some(drop) = blocks.0.drop_for(hit.id)
-            {
-                inventory.add(drop, 1);
-            }
-            *cooldown = REPEAT_DELAY;
-        }
-    } else if actions.place_block {
-        let pos = hit.block + hit.normal;
-        let Some(stack) = inventory.selected_stack() else {
+        if !blocks.0.is_breakable(hit.id) {
             return;
+        }
+        if survival {
+            // Keep hitting until it gives way.
+            progress.pos = Some(hit.block);
+            progress.needed = items.break_time(&blocks.0, hit.id, held);
+            progress.time += time.delta_secs();
+            if progress.time < progress.needed {
+                return;
+            }
+            *progress = BreakProgress::default();
+            if held.is_some_and(|h| items.get(h).is_some_and(|d| d.tool().is_some()))
+                && inventory.wear_selected(&items)
+            {
+                sounds.write(crate::audio::PlaySound {
+                    name: "break".into(),
+                    at: None,
+                });
+            }
+        } else if *cooldown > 0.0 {
+            return;
+        }
+        edits.write(BlockEditRequest {
+            pos: hit.block,
+            block: BlockId::AIR,
+            held: held.unwrap_or(ItemId::NONE),
+        });
+        *cooldown = REPEAT_DELAY;
+    } else if actions.place_block && *cooldown <= 0.0 {
+        // Using a crafting table or furnace instead (see `use_blocks`).
+        if (hit.id == blocks::CRAFTING_TABLE || hit.id == blocks::FURNACE) && !actions.descend {
+            return;
+        }
+        let pos = hit.block + hit.normal;
+        let Some(block) = inventory
+            .selected_stack()
+            .and_then(|s| items.get(s.item))
+            .and_then(|d| d.block())
+        else {
+            return; // not holding a block
         };
         // Only place into empty space (air or water)…
         let existing = world.block(pos.x, pos.y, pos.z);
         let replaceable = existing.is_air() || blocks.0.is_liquid(existing);
         // …and never inside the player.
-        let inside_player = blocks.0.is_solid(stack.block)
+        let inside_player = blocks.0.is_solid(block)
             && Aabb::player(player.state.position).intersects(&Aabb::block(pos));
         if replaceable && !inside_player {
-            if *mode == GameMode::Survival {
+            if survival {
                 inventory.take_selected();
             }
             edits.write(BlockEditRequest {
                 pos,
-                block: stack.block,
+                block,
+                held: held.unwrap_or(ItemId::NONE),
             });
             *cooldown = REPEAT_DELAY;
         }
@@ -199,12 +312,39 @@ fn use_tools(
     };
     *cooldown = specs.specs.get(tool).map_or(0.2, |s| s.cooldown.max(0.05));
     conn.send(
-        ourcraft_common::protocol::Channel::Reliable,
-        &ourcraft_common::protocol::ClientMessage::UseTool {
+        Channel::Reliable,
+        &ClientMessage::UseTool {
             tool: tool.clone(),
             direction: player.look_direction().to_array(),
             secondary: !actions.break_block,
         },
+    );
+}
+
+/// Q throws one item from your hand; Ctrl+Q the whole stack.
+fn drop_items(
+    keys: Res<ButtonInput<KeyCode>>,
+    focus: Res<UiFocus>,
+    tools: Res<crate::gamemode::ToolHotbar>,
+    mut inventory: ResMut<PlayerInventory>,
+    conn: Option<ResMut<crate::net::Connection>>,
+) {
+    if !keys.just_pressed(KeyCode::KeyQ) || focus.gameplay_blocked() || tools.active() {
+        return;
+    }
+    let (Some(mut conn), Some(stack)) = (conn, inventory.selected_stack()) else {
+        return;
+    };
+    let all = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    let n = if all { stack.count } else { 1 };
+    let selected = inventory.selected;
+    inventory.slots[selected] = (stack.count > n).then_some(ItemStack {
+        count: stack.count - n,
+        ..stack
+    });
+    conn.send(
+        Channel::Reliable,
+        &ClientMessage::DropItems(ItemStack { count: n, ..stack }.into()),
     );
 }
 
@@ -224,5 +364,127 @@ fn draw_highlight(
             Transform::from_translation(center).with_scale(Vec3::splat(1.004)),
             Color::srgba(0.05, 0.05, 0.05, 0.9),
         );
+    }
+}
+
+/// The crack overlay: a slightly oversized cube, one material per stage.
+#[derive(Resource)]
+struct Cracks {
+    entity: Entity,
+    stages: Vec<Handle<StandardMaterial>>,
+}
+
+/// Cracks spreading from the middle: stage `s` (0-based) of `CRACK_STAGES`.
+fn crack_pixels(stage: usize) -> Vec<u8> {
+    let n = 16usize;
+    let mut out = vec![0u8; n * n * 4];
+    // A few crooked lines from the centre outwards; later stages draw more
+    // of each line, and more lines.
+    let lines: [(i32, i32); 8] = [
+        (1, 0),
+        (1, 1),
+        (0, 1),
+        (-1, 1),
+        (-1, 0),
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+    ];
+    let count = 2 + stage;
+    let length = 3 + stage as i32;
+    for (i, (dx, dy)) in lines.iter().enumerate().take(count.min(8)) {
+        let (mut x, mut y) = (7 + (i as i32 % 2), 7 + (i as i32 / 4));
+        for step in 0..length {
+            // Wobble sideways now and then.
+            let wobble = ((i as i32 * 7 + step * 3) % 5 == 0) as i32;
+            x += dx + if *dy != 0 { wobble } else { 0 };
+            y += dy + if *dx != 0 { wobble } else { 0 };
+            if !(0..16).contains(&x) || !(0..16).contains(&y) {
+                break;
+            }
+            let p = (y as usize * n + x as usize) * 4;
+            out[p..p + 4].copy_from_slice(&[20, 20, 20, 200]);
+        }
+    }
+    out
+}
+
+fn setup_cracks(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let stages = (0..CRACK_STAGES)
+        .map(|s| {
+            let mut image = Image::new(
+                Extent3d {
+                    width: 16,
+                    height: 16,
+                    depth_or_array_layers: 1,
+                },
+                TextureDimension::D2,
+                crack_pixels(s),
+                TextureFormat::Rgba8UnormSrgb,
+                RenderAssetUsages::RENDER_WORLD,
+            );
+            image.sampler = ImageSampler::nearest();
+            materials.add(StandardMaterial {
+                base_color_texture: Some(images.add(image)),
+                alpha_mode: AlphaMode::Blend,
+                unlit: true,
+                ..default()
+            })
+        })
+        .collect::<Vec<_>>();
+    let entity = commands
+        .spawn((
+            Name::new("Cracks"),
+            Mesh3d(meshes.add(Cuboid::new(1.006, 1.006, 1.006))),
+            MeshMaterial3d(stages[0].clone()),
+            Transform::default(),
+            Visibility::Hidden,
+        ))
+        .id();
+    commands.insert_resource(Cracks { entity, stages });
+}
+
+fn draw_cracks(
+    progress: Res<BreakProgress>,
+    cracks: Res<Cracks>,
+    mut query: Query<(
+        &mut Transform,
+        &mut Visibility,
+        &mut MeshMaterial3d<StandardMaterial>,
+    )>,
+) {
+    let Ok((mut transform, mut visibility, mut material)) = query.get_mut(cracks.entity) else {
+        return;
+    };
+    let (Some(pos), f) = (progress.pos, progress.fraction()) else {
+        *visibility = Visibility::Hidden;
+        return;
+    };
+    if f <= 0.02 {
+        *visibility = Visibility::Hidden;
+        return;
+    }
+    let stage = ((f * CRACK_STAGES as f32) as usize).min(CRACK_STAGES - 1);
+    transform.translation = pos.as_vec3() + Vec3::splat(0.5);
+    *visibility = Visibility::Visible;
+    if material.0 != cracks.stages[stage] {
+        material.0 = cracks.stages[stage].clone();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cracks_grow() {
+        let ink = |s| crack_pixels(s).chunks(4).filter(|p| p[3] > 0).count();
+        assert!(ink(0) > 0);
+        assert!(ink(CRACK_STAGES - 1) > ink(0));
     }
 }

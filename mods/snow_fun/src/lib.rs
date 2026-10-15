@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use ourcraft_mod_api::guest::{self, Mod};
 use ourcraft_mod_api::{
     BlockPos, BlockSpec, EffectKind, EntityId, EntityMotion, EntitySpec, Event, EventReply, Hit,
-    ModelBox, ModelSpec, PlayerId, ToolSpec, Vec3, pixel_art, speckled,
+    ModelBox, ModelSpec, PlayerId, RecipeSpec, ToolSpec, Vec3, pixel_art, speckled,
 };
 
 const SNOW_WHITE: [u8; 4] = [240, 248, 255, 255];
@@ -171,6 +171,18 @@ fn register_content() {
     guest::register_block(BlockSpec {
         light: 12,
         ..BlockSpec::simple("snow_fun:ice_lantern", "Ice Lantern", "ice_lantern")
+    });
+
+    // A recipe for survival: a snow brick on top of a piece of coal makes
+    // an ice lantern (on a crafting table or in the inventory's grid).
+    guest::register_recipe(RecipeSpec::Shaped {
+        pattern: vec!["S".into(), "C".into()],
+        key: vec![
+            ('S', "snow_fun:snow_bricks".into()),
+            ('C', "core:coal".into()),
+        ],
+        result: "snow_fun:ice_lantern".into(),
+        count: 1,
     });
 
     // What a snowball looks like in the air: one small white box.

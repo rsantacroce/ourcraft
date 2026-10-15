@@ -126,12 +126,13 @@ fn snow_fun_commands_and_snowballs() {
     );
 
     // Wait for some terrain, like a real player would have.
-    assert!(run_until(&mut [&mut sam], 10.0, |b| {
+    // All the columns in view (7×7 at view distance 3).
+    assert!(run_until(&mut [&mut sam], 20.0, |b| {
         b[0].received
             .iter()
             .filter(|m| matches!(m, ServerMessage::Column { .. }))
             .count()
-            >= 9
+            >= 49
     }));
 
     // Step 2: the blocks, model and tool were registered.
@@ -154,6 +155,13 @@ fn snow_fun_commands_and_snowballs() {
     let lantern = id_of("snow_fun:ice_lantern");
     assert!(content.tools.iter().any(|t| t.name == "snow_fun:thrower"));
     assert!(content.models.iter().any(|m| m.name == "snow_fun:snowball"));
+    assert!(
+        content.recipes.iter().any(|r| matches!(
+            r,
+            ourcraft_common::recipes::Recipe::Shaped { result, .. } if result == "snow_fun:ice_lantern"
+        )),
+        "the mod's recipe reached the client"
+    );
 
     // Step 3: /snowman builds bricks and a lantern head, and stays out of chat.
     sam.send(&ClientMessage::Chat {

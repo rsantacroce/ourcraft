@@ -1,7 +1,7 @@
 # Ourcraft roadmap
 
 Where Ourcraft stands compared with the classic block-building game, and
-what to build next. Milestones 1–10 (the original plan) are done; this file
+what to build next. Milestones 1–10 (the original plan) and 11 are done; this file
 picks up from there.
 
 ## What we have
@@ -9,9 +9,11 @@ picks up from there.
 | Area | Done |
 |---|---|
 | World | Infinite generated terrain; plains, forest, desert, snowy and mountain biomes; caves; trees; cacti; seas and lakes; beaches; bedrock floor; a seed per world |
-| Blocks | 16 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water), plus 9 from the Paint Blocks mod and 2 from the Snow Fun tutorial mod |
-| Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative block palette |
-| Game modes | Creative (fly, endless blocks) and survival (collect what you break; stone gives cobblestone, grass gives dirt); Splat Squad team game (mod) |
+| Blocks | 26 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water, coal/iron/gold/diamond ore, clay, crafting table, furnace, iron/gold/diamond blocks), plus 9 from the Paint Blocks mod and 2 from the Snow Fun tutorial mod |
+| Items | Sticks, coal, iron and gold ingots, diamonds, clay balls, bricks; wooden, stone, iron and diamond pickaxes, axes and shovels that wear out |
+| Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative palette of every item |
+| Crafting | 2×2 grid in the inventory, 3×3 on a crafting table, 25 recipes (mods can add more); furnace that smelts ore, sand, clay and cobblestone with coal or wood |
+| Game modes | Creative (fly, endless blocks) and survival (blocks take time to break, the right tool is faster, drops land as items you pick up); Splat Squad team game (mod) |
 | Movement | Walk, sprint, jump, gravity, collision, swimming, flying (double-tap jump), auto-jump on touch screens |
 | Looks | Day/night cycle, sun and moon, sunset colours, fog, ambient occlusion, see-through leaves and glass, glowing lamps |
 | Saving | Several worlds, autosave, region files |
@@ -23,21 +25,17 @@ picks up from there.
 
 - **Lighting:** sunlight dims at night, but caves aren't dark, and lamps
   glow without lighting their surroundings.
-- **Survival:** broken blocks go straight into the inventory (no dropped
-  items), every block breaks instantly, and there are no tools.
 - **Water:** still; it doesn't flow.
 - **Sound:** effects for placing, breaking and the game mode; no
   footsteps, ambience or music.
 
 ## Missing
 
-- Crafting (crafting table, furnace, recipes)
 - Mobs: animals and monsters
 - Health, hunger, fall damage and drowning outside Splat Squad
-- Tools, armour, food
-- Ores: coal, iron, gold, diamond
+- Armour, food, swords
 - Non-cube blocks: stairs, slabs, doors, fences, torches on walls
-- Blocks with storage or behaviour: chests, furnaces, beds, signs
+- Blocks with storage or behaviour: chests, beds, signs
 - Redstone-style circuits
 - Falling sand and gravel; flowing water and lava
 - Villages and other generated structures
@@ -54,7 +52,21 @@ company in the world, then atmosphere. Each one should be playable before
 moving on, like milestones 1–10. "Mod" means it can be built with the
 existing mod API; "engine" means the game itself needs changes.
 
-### 11. Ores and crafting
+### 11. Ores and crafting ✅ done
+
+Ores (coal, iron, gold, diamond, rarer deeper down) and clay under water;
+items, including tools in four tiers that wear out; break times with
+cracks; drops that pop out and get picked up (Q throws items); crafting in
+the inventory and on a crafting table; furnaces kept and saved by the
+server; recipes from mods (`register_recipe`). Old saves upgrade on their
+own (inventories are now stored by item name).
+
+Not quite as planned: the player's own game checks crafting recipes, not
+the server (the server trusts players' inventories, as before). Mods can
+add recipes but not yet new items.
+
+What was planned:
+
 
 - Ore blocks in the world generator: coal, iron, gold, diamond (deeper
   means rarer). *Engine: world generation.*
@@ -93,7 +105,7 @@ existing mod API; "engine" means the game itself needs changes.
 - Stairs, slabs, fences, doors, trapdoors, ladders. *Engine: non-cube
   block shapes in meshing, collision and raycasts.*
 - Chests (storage UI, shared in multiplayer) and signs (text on blocks).
-  *Engine: block entities from milestone 11.*
+  *Engine: containers from milestone 11 (furnaces) make chests easy.*
 - Beds: sleep through the night, and set where you respawn.
 
 ### 15. Living world

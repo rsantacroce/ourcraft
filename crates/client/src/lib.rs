@@ -9,6 +9,7 @@ pub mod hud;
 pub mod input;
 pub mod interaction;
 pub mod inventory_ui;
+pub mod items;
 pub mod lan;
 pub mod menu;
 pub mod meshing;
@@ -20,6 +21,7 @@ pub mod remote_players;
 pub mod render;
 pub mod settings;
 pub mod sky;
+pub mod survival;
 pub mod touch;
 pub mod world;
 
@@ -53,6 +55,8 @@ impl Plugin for ClientPlugin {
                 audio::SoundPlugin,
                 lan::LanPlugin,
                 entities::EntitiesPlugin,
+                items::ItemsPlugin,
+                survival::SurvivalPlugin,
             ));
     }
 }

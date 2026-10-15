@@ -172,6 +172,7 @@ fn apply_block_edits(
             &ClientMessage::SetBlock {
                 pos: edit.pos.to_array(),
                 block: edit.block.0,
+                held: edit.held.0,
             },
         );
     }

@@ -5,13 +5,15 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use ourcraft_common::block::BlockId;
+use ourcraft_common::inventory::{INVENTORY_SLOTS, Inventory, ItemStack};
+use ourcraft_common::item::{ItemId, ItemRegistry};
 use ourcraft_common::physics::{Aabb, EYE_HEIGHT, PlayerState};
 use ourcraft_common::prediction::{InputBuffer, apply_input};
 use ourcraft_common::protocol::{
     Channel, ClientMessage, MAX_CHAT_LEN, NetPlayerState, NetSlot, PROTOCOL_VERSION, PlayerInfo,
     ServerMessage, sanitize_name,
 };
-use ourcraft_common::save::{META_VERSION, PlayerSave};
+use ourcraft_common::save::{PLAYER_VERSION, PlayerSave};
 use ourcraft_common::world::{ColumnPos, WORLD_HEIGHT};
 use renet::ClientId;
 
@@ -48,6 +50,7 @@ impl Plugin for PlayersPlugin {
                     compute_wanted_columns,
                 )
                     .chain()
+                    .in_set(PlayersSet)
                     .before(WorldSet),
             )
             .add_systems(
@@ -65,6 +68,10 @@ impl Plugin for PlayersPlugin {
     }
 }
 
+/// Joining, messages, mods and movement (other modules run after it).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PlayersSet;
+
 /// Client id → player entity.
 #[derive(Resource, Default)]
 pub struct Players(pub HashMap<ClientId, Entity>);
@@ -81,7 +88,13 @@ pub struct ConnectedPlayer {
     pub physics: PlayerState,
     /// Inputs received but not yet applied.
     pub inputs: InputBuffer,
-    pub inventory: Option<(Vec<NetSlot>, u8)>,
+    /// The player's inventory as last reported by their game (the client
+    /// owns it; the server keeps a copy to save and to check pickups).
+    pub inventory: Inventory,
+    /// Creative (fly, endless blocks, nothing drops) or survival.
+    pub creative: bool,
+    /// The furnace whose screen this player has open.
+    pub open_container: Option<IVec3>,
     /// Columns this client has been sent and (as far as we know) still has.
     pub sent: HashSet<ColumnPos>,
     pub connected_for: f32,
@@ -101,17 +114,24 @@ impl ConnectedPlayer {
         Vec3::from_array(self.state.position)
     }
 
-    fn save(&self) -> PlayerSave {
-        let (inventory, selected) = self.inventory.clone().unwrap_or_default();
-        PlayerSave {
-            version: META_VERSION,
+    fn save(&self, items: &ItemRegistry) -> PlayerSave {
+        let mut save = PlayerSave {
+            version: PLAYER_VERSION,
             position: self.state.position,
             yaw: self.state.yaw,
             pitch: self.state.pitch,
             flying: self.state.flying,
-            inventory,
-            selected: selected as usize,
-        }
+            inventory: Vec::new(),
+            selected: 0,
+            creative: self.creative,
+        };
+        save.store_inventory(&self.inventory, items);
+        save
+    }
+
+    /// Feet position.
+    pub fn position(&self) -> Vec3 {
+        self.feet()
     }
 }
 
@@ -130,7 +150,9 @@ fn on_connect(
                 state: NetPlayerState::default(),
                 physics: PlayerState::new(Vec3::ZERO),
                 inputs: InputBuffer::default(),
-                inventory: None,
+                inventory: Inventory::default(),
+                creative: true,
+                open_container: None,
                 sent: HashSet::new(),
                 connected_for: 0.0,
                 rules: ourcraft_mod_api::PlayerRules::default(),
@@ -144,7 +166,7 @@ fn on_connect(
 
 fn save_player(open: &OpenWorld, player: &ConnectedPlayer) {
     if let Some(name) = &player.name
-        && let Err(e) = open.storage.save_player(name, &player.save())
+        && let Err(e) = open.storage.save_player(name, &player.save(&open.items))
     {
         error!("Saving player {name} failed: {e}");
     }
@@ -259,34 +281,38 @@ fn handle_messages(
                 p.view_distance = (*view_distance as i32).clamp(2, config.max_view_distance as i32);
 
                 // Back where they left off, or at the world spawn.
-                let saved = open.storage.load_player(&name).unwrap_or_else(|e| {
-                    error!("Can't read save for {name}: {e}");
-                    None
-                });
+                let saved = open
+                    .storage
+                    .load_player(&name, &open.meta.block_names)
+                    .unwrap_or_else(|e| {
+                        error!("Can't read save for {name}: {e}");
+                        None
+                    });
                 match &saved {
                     Some(s) => {
                         p.state.position = s.position;
                         p.state.yaw = s.yaw;
                         p.state.pitch = s.pitch;
                         p.state.flying = s.flying;
-                        p.inventory = Some((s.inventory.clone(), s.selected as u8));
+                        p.inventory = s.inventory(&open.items);
+                        p.creative = s.creative;
                     }
                     None => {
+                        p.creative = open.meta.creative;
                         let s = open.spawn;
                         p.state.position = [s.x as f32 + 0.5, s.y as f32 + 1.0, s.z as f32 + 0.5];
                         p.state.yaw = -std::f32::consts::FRAC_PI_4;
                         p.state.pitch = -0.35;
                     }
                 }
-                // Inventories saved before a mod change need their ids fixed.
-                let inventory = saved.as_ref().map(|s| {
-                    let inv = s.inventory(open.remap.as_ref());
-                    let slots = inv
+                let inventory = saved.as_ref().map(|_| {
+                    let slots = p
+                        .inventory
                         .slots
                         .iter()
-                        .map(|s| s.map(|s| (s.block.0, s.count)))
+                        .map(|s| s.map(Into::into))
                         .collect();
-                    (slots, inv.selected as u8)
+                    (slots, p.inventory.selected as u8)
                 });
                 p.physics = PlayerState::new(Vec3::from_array(p.state.position));
                 p.physics.flying = p.state.flying;
@@ -300,7 +326,7 @@ fn handle_messages(
                         your_id: *client,
                         server_name: config.server_name.clone(),
                         motd: config.motd.clone(),
-                        creative: open.meta.creative,
+                        creative: p.creative,
                         time_of_day: open.time_of_day(),
                         state: p.state,
                         inventory,
@@ -416,12 +442,20 @@ fn handle_messages(
             }
             ClientMessage::Inventory { slots, selected } => {
                 if let Ok(mut p) = query.get_mut(entity) {
-                    let mut slots = slots.clone();
-                    slots.truncate(ourcraft_common::inventory::INVENTORY_SLOTS);
-                    p.inventory = Some((slots, *selected));
+                    p.inventory = inventory_from_net(slots, *selected, &open.items);
                 }
             }
-            ClientMessage::SetBlock { pos, block } => {
+            ClientMessage::GameMode { creative } => {
+                if let Ok(mut p) = query.get_mut(entity) {
+                    p.creative = *creative;
+                }
+            }
+            // Furnace screens: see the survival module.
+            ClientMessage::OpenContainer { .. }
+            | ClientMessage::CloseContainer
+            | ClientMessage::ContainerClick { .. }
+            | ClientMessage::DropItems(_) => {}
+            ClientMessage::SetBlock { pos, block, held } => {
                 let pos = IVec3::from_array(*pos);
                 let block = BlockId(*block);
                 let Ok(p) = query.get(entity) else { continue };
@@ -438,6 +472,7 @@ fn handle_messages(
                         pos,
                         old,
                         new: block,
+                        held: ItemId(*held),
                     }),
                     // Refused: put the client's copy back the way it was.
                     (false, Some(actual)) => net.send(
@@ -485,6 +520,23 @@ fn handle_messages(
             }
         }
     }
+}
+
+/// An inventory reported by a client, with nonsense (unknown items, empty
+/// stacks, oversized stacks) removed.
+fn inventory_from_net(slots: &[NetSlot], selected: u8, items: &ItemRegistry) -> Inventory {
+    let mut inv = Inventory::default();
+    for (slot, net) in inv.slots.iter_mut().zip(slots.iter().take(INVENTORY_SLOTS)) {
+        *slot = net
+            .map(ItemStack::from)
+            .filter(|s| s.count > 0 && (s.item.0 as usize) < items.len() && s.item.0 != 0)
+            .map(|s| ItemStack {
+                count: s.count.min(items.max_stack(s.item)),
+                ..s
+            });
+    }
+    inv.select(selected as usize);
+    inv
 }
 
 /// Inputs applied per player per server tick, at most. One arrives per

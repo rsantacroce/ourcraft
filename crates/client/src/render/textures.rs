@@ -243,6 +243,138 @@ fn water(x: usize, y: usize) -> Rgba {
     [c[0], c[1], c[2], 170]
 }
 
+/// Stone with clumps of coloured flecks: the look of every ore.
+fn ore(x: usize, y: usize, fleck: Rgba, seed: u32) -> Rgba {
+    // A few blobs per texture: pixels near a blob centre become flecks.
+    let blobs = [(3usize, 4usize), (10, 2), (12, 10), (5, 12), (8, 7)];
+    let near = blobs.iter().enumerate().any(|(i, &(bx, by))| {
+        let r = 1 + (hash(i, 0, seed) % 2) as usize;
+        x.abs_diff(bx) + y.abs_diff(by) <= r && !one_in(x, y, seed + 1, 4)
+    });
+    if near {
+        let light = x.abs_diff(blobs[0].0).is_multiple_of(2);
+        speckle(
+            shift(fleck, if light { 18.0 } else { 0.0 }),
+            x,
+            y,
+            seed + 2,
+            12.0,
+        )
+    } else {
+        stone(x, y)
+    }
+}
+
+fn coal_ore(x: usize, y: usize) -> Rgba {
+    ore(x, y, rgb(38, 38, 42), 40)
+}
+
+fn iron_ore(x: usize, y: usize) -> Rgba {
+    ore(x, y, rgb(214, 170, 134), 43)
+}
+
+fn gold_ore(x: usize, y: usize) -> Rgba {
+    ore(x, y, rgb(250, 212, 64), 46)
+}
+
+fn diamond_ore(x: usize, y: usize) -> Rgba {
+    ore(x, y, rgb(96, 232, 226), 49)
+}
+
+fn clay(x: usize, y: usize) -> Rgba {
+    let band = ((y as f32 * 0.9 + (x as f32 * 0.5).sin()) as usize).is_multiple_of(5);
+    let c = speckle(rgb(160, 166, 180), x, y, 52, 8.0);
+    if band { shift(c, -10.0) } else { c }
+}
+
+fn crafting_table_top(x: usize, y: usize) -> Rgba {
+    // Planks with a darker frame and a little grid drawn on top.
+    let edge = x == 0 || y == 0 || x == N - 1 || y == N - 1;
+    let grid =
+        (x == 5 || x == 10 || y == 5 || y == 10) && (2..14).contains(&x) && (2..14).contains(&y);
+    if edge {
+        rgb(110, 76, 44)
+    } else if grid {
+        rgb(126, 90, 54)
+    } else {
+        planks(x, y)
+    }
+}
+
+fn crafting_table_side(x: usize, y: usize) -> Rgba {
+    // A tool rack: a saw and a hammer hanging on planks.
+    let top = y < 3;
+    let saw = (4..=6).contains(&x) && (4..12).contains(&y);
+    let saw_teeth = x == 7 && (4..12).contains(&y) && y.is_multiple_of(2);
+    let hammer_handle = x == 11 && (6..13).contains(&y);
+    let hammer_head = (9..=13).contains(&x) && (4..=5).contains(&y);
+    if top {
+        speckle(rgb(110, 76, 44), x, y, 53, 6.0)
+    } else if saw || saw_teeth {
+        speckle(rgb(190, 192, 198), x, y, 54, 8.0)
+    } else if hammer_head {
+        rgb(90, 90, 96)
+    } else if hammer_handle {
+        rgb(140, 96, 54)
+    } else {
+        planks(x, y)
+    }
+}
+
+fn furnace_top(x: usize, y: usize) -> Rgba {
+    let c = speckle(rgb(118, 118, 122), x, y, 55, 10.0);
+    let edge = x == 0 || y == 0 || x == N - 1 || y == N - 1;
+    if edge { shift(c, -30.0) } else { c }
+}
+
+fn furnace_front(x: usize, y: usize) -> Rgba {
+    // Stone bricks with a dark mouth and a warm glow at the bottom of it.
+    let mouth = (4..12).contains(&x) && (7..13).contains(&y);
+    if mouth {
+        if y >= 11 {
+            shift(rgb(255, 140, 40), -(((x as f32 - 7.5).abs()) * 12.0))
+        } else {
+            rgb(30, 26, 26)
+        }
+    } else {
+        let mortar = y % 5 == 4 || (x + if (y / 5).is_multiple_of(2) { 0 } else { 4 }) % 8 == 7;
+        if mortar {
+            speckle(rgb(80, 80, 84), x, y, 56, 6.0)
+        } else {
+            speckle(rgb(128, 128, 132), x, y, 57, 10.0)
+        }
+    }
+}
+
+/// A shiny metal block: bright edges, a soft gradient and a highlight.
+fn metal(x: usize, y: usize, base: Rgba, seed: u32) -> Rgba {
+    let edge = x == 0 || y == 0 || x == N - 1 || y == N - 1;
+    let inner_edge = x == 1 || y == 1 || x == N - 2 || y == N - 2;
+    let shine = (x + y) as f32 / 30.0;
+    let c = speckle(shift(base, 20.0 - shine * 40.0), x, y, seed, 4.0);
+    if edge {
+        shift(base, -40.0)
+    } else if inner_edge {
+        shift(base, 30.0)
+    } else if (3..6).contains(&x) && (3..6).contains(&y) && x + y < 9 {
+        shift(base, 60.0)
+    } else {
+        c
+    }
+}
+
+fn iron_block(x: usize, y: usize) -> Rgba {
+    metal(x, y, rgb(200, 202, 208), 58)
+}
+
+fn gold_block(x: usize, y: usize) -> Rgba {
+    metal(x, y, rgb(240, 196, 40), 59)
+}
+
+fn diamond_block(x: usize, y: usize) -> Rgba {
+    metal(x, y, rgb(90, 220, 214), 60)
+}
+
 /// Magenta and black checkerboard: impossible to miss in-game.
 fn missing(x: usize, y: usize) -> Rgba {
     if (x / 8 + y / 8).is_multiple_of(2) {
@@ -275,6 +407,18 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
         "bricks" => bricks,
         "lamp" => lamp,
         "water" => water,
+        "coal_ore" => coal_ore,
+        "iron_ore" => iron_ore,
+        "gold_ore" => gold_ore,
+        "diamond_ore" => diamond_ore,
+        "clay" => clay,
+        "crafting_table_top" => crafting_table_top,
+        "crafting_table_side" => crafting_table_side,
+        "furnace_top" => furnace_top,
+        "furnace_front" => furnace_front,
+        "iron_block" => iron_block,
+        "gold_block" => gold_block,
+        "diamond_block" => diamond_block,
         _ => return None,
     })
 }

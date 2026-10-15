@@ -40,6 +40,16 @@ pub mod blocks {
     pub const BRICKS: BlockId = BlockId(14);
     pub const LAMP: BlockId = BlockId(15);
     pub const WATER: BlockId = BlockId(16);
+    pub const COAL_ORE: BlockId = BlockId(17);
+    pub const IRON_ORE: BlockId = BlockId(18);
+    pub const GOLD_ORE: BlockId = BlockId(19);
+    pub const DIAMOND_ORE: BlockId = BlockId(20);
+    pub const CLAY: BlockId = BlockId(21);
+    pub const CRAFTING_TABLE: BlockId = BlockId(22);
+    pub const FURNACE: BlockId = BlockId(23);
+    pub const IRON_BLOCK: BlockId = BlockId(24);
+    pub const GOLD_BLOCK: BlockId = BlockId(25);
+    pub const DIAMOND_BLOCK: BlockId = BlockId(26);
 }
 
 /// The six faces of a block, in the order used for per-face lookups.
@@ -129,13 +139,23 @@ pub enum RenderKind {
 }
 
 /// What you get when you break a block (in survival).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Drops {
     /// The block itself.
     Itself,
     /// A different block (stone drops cobblestone).
     Block(BlockId),
+    /// Some of an item, by name (coal ore drops `core:coal`).
+    Item(String, u16),
     Nothing,
+}
+
+/// The kinds of tool. Each block is quickest to break with one of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ToolKind {
+    Pickaxe,
+    Axe,
+    Shovel,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -156,6 +176,13 @@ pub struct BlockDef {
     pub drops: Drops,
     /// `None` for air (nothing is drawn).
     pub textures: Option<BlockTextures>,
+    /// How long it takes to break, roughly in seconds by hand.
+    pub hardness: f32,
+    /// The tool that breaks it fastest.
+    pub tool: Option<ToolKind>,
+    /// The tool tier needed to get anything when it breaks (0 = bare
+    /// hands are fine; 1 = wood, 2 = stone, 3 = iron, 4 = diamond).
+    pub min_tier: u8,
 }
 
 impl BlockDef {
@@ -171,6 +198,19 @@ impl BlockDef {
             light: 0,
             drops: Drops::Itself,
             textures: Some(textures),
+            hardness: 1.0,
+            tool: None,
+            min_tier: 0,
+        }
+    }
+
+    /// Set how it's broken: hardness, best tool and the tier it needs.
+    pub fn mined(self, hardness: f32, tool: Option<ToolKind>, min_tier: u8) -> Self {
+        Self {
+            hardness,
+            tool,
+            min_tier,
+            ..self
         }
     }
 
@@ -203,6 +243,9 @@ impl BlockRegistry {
                 light: 0,
                 drops: Drops::Nothing,
                 textures: None,
+                hardness: 0.0,
+                tool: None,
+                min_tier: 0,
             }],
         }
     }
@@ -210,56 +253,90 @@ impl BlockRegistry {
     /// A registry with all built-in blocks, matching the ids in [`blocks`].
     pub fn with_builtin_blocks() -> Self {
         use BlockTextures as T;
+        use ToolKind::{Axe, Pickaxe, Shovel};
         let mut reg = Self::new();
-        reg.register(BlockDef {
-            drops: Drops::Block(blocks::COBBLESTONE),
-            ..BlockDef::solid("core:stone", "Stone", T::all("stone"))
-        });
-        reg.register(BlockDef::solid("core:dirt", "Dirt", T::all("dirt")));
-        reg.register(BlockDef {
-            drops: Drops::Block(blocks::DIRT),
-            ..BlockDef::solid(
-                "core:grass",
-                "Grass",
-                T::top_bottom_side("grass_top", "dirt", "grass_side"),
-            )
-        });
-        reg.register(BlockDef::solid("core:sand", "Sand", T::all("sand")));
-        reg.register(BlockDef::solid(
-            "core:log",
-            "Log",
-            T::top_bottom_side("log_top", "log_top", "log_side"),
+        reg.register(
+            BlockDef {
+                drops: Drops::Block(blocks::COBBLESTONE),
+                ..BlockDef::solid("core:stone", "Stone", T::all("stone"))
+            }
+            .mined(1.5, Some(Pickaxe), 1),
+        );
+        reg.register(BlockDef::solid("core:dirt", "Dirt", T::all("dirt")).mined(
+            0.5,
+            Some(Shovel),
+            0,
         ));
-        reg.register(BlockDef::cutout("core:leaves", "Leaves", T::all("leaves")));
-        reg.register(BlockDef::solid("core:planks", "Planks", T::all("planks")));
-        reg.register(BlockDef {
-            drops: Drops::Block(blocks::DIRT),
-            ..BlockDef::solid(
-                "core:snow",
-                "Snowy Grass",
-                T::top_bottom_side("snow", "dirt", "snow_side"),
-            )
-        });
-        reg.register(BlockDef::solid(
-            "core:cactus",
-            "Cactus",
-            T::top_bottom_side("cactus_top", "cactus_top", "cactus_side"),
+        reg.register(
+            BlockDef {
+                drops: Drops::Block(blocks::DIRT),
+                ..BlockDef::solid(
+                    "core:grass",
+                    "Grass",
+                    T::top_bottom_side("grass_top", "dirt", "grass_side"),
+                )
+            }
+            .mined(0.6, Some(Shovel), 0),
+        );
+        reg.register(BlockDef::solid("core:sand", "Sand", T::all("sand")).mined(
+            0.5,
+            Some(Shovel),
+            0,
         ));
+        reg.register(
+            BlockDef::solid(
+                "core:log",
+                "Log",
+                T::top_bottom_side("log_top", "log_top", "log_side"),
+            )
+            .mined(2.0, Some(Axe), 0),
+        );
+        reg.register(
+            BlockDef::cutout("core:leaves", "Leaves", T::all("leaves")).mined(0.2, None, 0),
+        );
+        reg.register(
+            BlockDef::solid("core:planks", "Planks", T::all("planks")).mined(2.0, Some(Axe), 0),
+        );
+        reg.register(
+            BlockDef {
+                drops: Drops::Block(blocks::DIRT),
+                ..BlockDef::solid(
+                    "core:snow",
+                    "Snowy Grass",
+                    T::top_bottom_side("snow", "dirt", "snow_side"),
+                )
+            }
+            .mined(0.6, Some(Shovel), 0),
+        );
+        reg.register(
+            BlockDef::solid(
+                "core:cactus",
+                "Cactus",
+                T::top_bottom_side("cactus_top", "cactus_top", "cactus_side"),
+            )
+            .mined(0.4, None, 0),
+        );
         reg.register(BlockDef {
             breakable: false,
             ..BlockDef::solid("core:bedrock", "Bedrock", T::all("bedrock"))
         });
-        reg.register(BlockDef::solid("core:gravel", "Gravel", T::all("gravel")));
-        reg.register(BlockDef::solid(
-            "core:cobblestone",
-            "Cobblestone",
-            T::all("cobblestone"),
-        ));
-        reg.register(BlockDef::cutout("core:glass", "Glass", T::all("glass")));
-        reg.register(BlockDef::solid("core:bricks", "Bricks", T::all("bricks")));
+        reg.register(
+            BlockDef::solid("core:gravel", "Gravel", T::all("gravel")).mined(0.6, Some(Shovel), 0),
+        );
+        reg.register(
+            BlockDef::solid("core:cobblestone", "Cobblestone", T::all("cobblestone")).mined(
+                2.0,
+                Some(Pickaxe),
+                1,
+            ),
+        );
+        reg.register(BlockDef::cutout("core:glass", "Glass", T::all("glass")).mined(0.3, None, 0));
+        reg.register(
+            BlockDef::solid("core:bricks", "Bricks", T::all("bricks")).mined(2.0, Some(Pickaxe), 1),
+        );
         reg.register(BlockDef {
             light: 15,
-            ..BlockDef::solid("core:lamp", "Lamp", T::all("lamp"))
+            ..BlockDef::solid("core:lamp", "Lamp", T::all("lamp")).mined(0.3, None, 0)
         });
         reg.register(BlockDef {
             render: RenderKind::Translucent,
@@ -268,6 +345,62 @@ impl BlockRegistry {
             liquid: true,
             ..BlockDef::solid("core:water", "Water", T::all("water"))
         });
+        // ---- Milestone 11: ores, crafting ----
+        let ore = |name: &str, display: &str, tex: &str, tier: u8| {
+            BlockDef::solid(name, display, T::all(tex)).mined(3.0, Some(Pickaxe), tier)
+        };
+        reg.register(BlockDef {
+            drops: Drops::Item("core:coal".into(), 1),
+            ..ore("core:coal_ore", "Coal Ore", "coal_ore", 1)
+        });
+        reg.register(ore("core:iron_ore", "Iron Ore", "iron_ore", 2));
+        reg.register(ore("core:gold_ore", "Gold Ore", "gold_ore", 3));
+        reg.register(BlockDef {
+            drops: Drops::Item("core:diamond".into(), 1),
+            ..ore("core:diamond_ore", "Diamond Ore", "diamond_ore", 3)
+        });
+        reg.register(BlockDef {
+            drops: Drops::Item("core:clay_ball".into(), 4),
+            ..BlockDef::solid("core:clay", "Clay", T::all("clay")).mined(0.6, Some(Shovel), 0)
+        });
+        reg.register(
+            BlockDef::solid(
+                "core:crafting_table",
+                "Crafting Table",
+                T::top_bottom_side("crafting_table_top", "planks", "crafting_table_side"),
+            )
+            .mined(2.5, Some(Axe), 0),
+        );
+        reg.register(
+            BlockDef::solid(
+                "core:furnace",
+                "Furnace",
+                T::top_bottom_side("furnace_top", "furnace_top", "furnace_front"),
+            )
+            .mined(3.5, Some(Pickaxe), 1),
+        );
+        reg.register(
+            BlockDef::solid("core:iron_block", "Block of Iron", T::all("iron_block")).mined(
+                5.0,
+                Some(Pickaxe),
+                2,
+            ),
+        );
+        reg.register(
+            BlockDef::solid("core:gold_block", "Block of Gold", T::all("gold_block")).mined(
+                4.0,
+                Some(Pickaxe),
+                3,
+            ),
+        );
+        reg.register(
+            BlockDef::solid(
+                "core:diamond_block",
+                "Block of Diamond",
+                T::all("diamond_block"),
+            )
+            .mined(5.0, Some(Pickaxe), 3),
+        );
         reg
     }
 
@@ -310,6 +443,9 @@ impl BlockRegistry {
                 &spec.texture_bottom,
                 &spec.texture_side,
             )),
+            hardness: 1.0,
+            tool: None,
+            min_tier: 0,
         }))
     }
 
@@ -333,15 +469,6 @@ impl BlockRegistry {
     /// Solid blocks stop movement.
     pub fn is_solid(&self, id: BlockId) -> bool {
         self.defs.get(id.0 as usize).is_some_and(|d| d.solid)
-    }
-
-    /// The block added to your inventory when `id` is broken.
-    pub fn drop_for(&self, id: BlockId) -> Option<BlockId> {
-        match self.defs.get(id.0 as usize)?.drops {
-            Drops::Itself => Some(id),
-            Drops::Block(b) => Some(b),
-            Drops::Nothing => None,
-        }
     }
 
     pub fn is_breakable(&self, id: BlockId) -> bool {
@@ -402,6 +529,9 @@ mod tests {
         assert_eq!(reg.get(blocks::PLANKS).name, "core:planks");
         assert_eq!(reg.get(blocks::LAMP).name, "core:lamp");
         assert_eq!(reg.by_name("core:glass"), Some(blocks::GLASS));
+        assert_eq!(reg.get(blocks::COAL_ORE).name, "core:coal_ore");
+        assert_eq!(reg.get(blocks::FURNACE).name, "core:furnace");
+        assert_eq!(reg.get(blocks::DIAMOND_BLOCK).name, "core:diamond_block");
     }
 
     #[test]

@@ -247,6 +247,26 @@ pub struct HudLine {
     pub color: Rgba,
 }
 
+/// A crafting recipe. Items are named like blocks (`"core:planks"`,
+/// `"yourmod:thing"`); every block is also an item.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum RecipeSpec {
+    /// A picture of up to 3×3 cells: `pattern` rows use one character per
+    /// cell (`' '` = empty), `key` says which item each character is.
+    Shaped {
+        pattern: Vec<String>,
+        key: Vec<(char, String)>,
+        result: String,
+        count: u16,
+    },
+    /// Any arrangement of these items.
+    Shapeless {
+        ingredients: Vec<String>,
+        result: String,
+        count: u16,
+    },
+}
+
 /// Everything a mod can ask the game to do.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum HostCall {
@@ -349,6 +369,8 @@ pub enum HostCall {
     /// `HostReply::Position`. Handy for placing things that must be in the
     /// same place every time the server starts.
     WorldSpawn,
+    /// Add a crafting recipe. *Init only.*
+    RegisterRecipe(RecipeSpec),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

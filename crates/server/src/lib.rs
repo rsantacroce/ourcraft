@@ -18,6 +18,7 @@ pub mod mods;
 
 pub mod net;
 pub mod players;
+pub mod survival;
 pub mod world;
 
 use std::net::SocketAddr;
@@ -134,6 +135,7 @@ impl Plugin for ServerPlugin {
             net::NetPlugin,
             players::PlayersPlugin,
             entities::EntitiesPlugin,
+            survival::SurvivalPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

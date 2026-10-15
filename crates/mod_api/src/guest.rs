@@ -144,6 +144,13 @@ pub fn register_tool(spec: ToolSpec) {
     host(&HostCall::RegisterTool(spec));
 }
 
+/// Add a crafting recipe (during `Init`). For example, two snow bricks on
+/// top of each other make an ice lantern:
+/// `register_recipe(RecipeSpec::Shaped { pattern: vec!["S".into(), "S".into()], key: vec![('S', "snow_fun:snow_bricks".into())], result: "snow_fun:ice_lantern".into(), count: 1 })`
+pub fn register_recipe(spec: RecipeSpec) {
+    host(&HostCall::RegisterRecipe(spec));
+}
+
 /// The id of a block by name (`"core:stone"`, `"yourmod:thing"`).
 pub fn block_id(name: &str) -> Option<BlockId> {
     match host(&HostCall::BlockId(name.into())) {

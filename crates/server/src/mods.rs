@@ -43,7 +43,14 @@ pub struct PendingEdit {
     pub pos: IVec3,
     pub old: BlockId,
     pub new: BlockId,
+    /// The item the player was holding (decides what a broken block drops).
+    pub held: ourcraft_common::item::ItemId,
 }
+
+/// Player edits that went through this tick (the survival module drops
+/// items for broken blocks).
+#[derive(Resource, Default)]
+pub struct AppliedEdits(pub Vec<PendingEdit>);
 
 /// Things for the mods to look at this tick.
 #[derive(Resource, Default)]
@@ -72,7 +79,7 @@ pub enum ModCommand {
     Hud(Option<ClientId>, Vec<api::HudLine>),
     Title(Option<ClientId>, String, f32),
     Tools(ClientId, Vec<String>),
-    Broadcast(ServerMessage),
+    Broadcast(Box<ServerMessage>),
 }
 
 enum Phase {
@@ -89,6 +96,7 @@ pub struct ServerHost {
     pub textures: Vec<(String, Vec<u8>)>,
     pub models: Vec<api::ModelSpec>,
     pub tools: Vec<api::ToolSpec>,
+    pub recipes: Vec<ourcraft_common::recipes::Recipe>,
     world: Option<ServerWorld>,
     cache: Option<ColumnCache>,
     open: Option<OpenWorld>,
@@ -105,6 +113,7 @@ impl ServerHost {
             textures: Vec::new(),
             models: Vec::new(),
             tools: Vec::new(),
+            recipes: Vec::new(),
             world: None,
             cache: None,
             open: None,
@@ -178,7 +187,7 @@ fn error(text: &str) -> HostReply {
 }
 
 /// Look direction from yaw and pitch (matches the client's camera).
-fn look_vector(yaw: f32, pitch: f32) -> [f32; 3] {
+pub fn look_vector(yaw: f32, pitch: f32) -> [f32; 3] {
     let (sy, cy) = yaw.sin_cos();
     let (sp, cp) = pitch.sin_cos();
     [-sy * cp, sp, -cy * cp]
@@ -213,10 +222,15 @@ impl Host for ServerHost {
                 self.tools.push(t);
                 HostReply::Ok
             }
+            HostCall::RegisterRecipe(r) if init => {
+                self.recipes.push(r.into());
+                HostReply::Ok
+            }
             HostCall::RegisterBlock(_)
             | HostCall::RegisterTexture(_)
             | HostCall::RegisterModel(_)
-            | HostCall::RegisterTool(_) => error("content can only be registered during Init"),
+            | HostCall::RegisterTool(_)
+            | HostCall::RegisterRecipe(_) => error("content can only be registered during Init"),
             HostCall::BlockId(name) => match self.registry.by_name(&name) {
                 Some(id) => HostReply::Block(id.0),
                 None => error("no such block"),
@@ -352,6 +366,7 @@ impl Host for ServerHost {
                     age: 0.0,
                     owner: spec.owner,
                     moved: false,
+                    item: None,
                 });
                 HostReply::Entity(id)
             }
@@ -375,11 +390,12 @@ impl Host for ServerHost {
                 position,
                 color,
             } => {
-                self.out.push(ModCommand::Broadcast(ServerMessage::Effect {
-                    kind,
-                    position,
-                    color,
-                }));
+                self.out
+                    .push(ModCommand::Broadcast(Box::new(ServerMessage::Effect {
+                        kind,
+                        position,
+                        color,
+                    })));
                 HostReply::Ok
             }
             HostCall::WorldSpawn => match self.open.as_ref() {
@@ -388,7 +404,10 @@ impl Host for ServerHost {
             },
             HostCall::Sound { name, at } => {
                 self.out
-                    .push(ModCommand::Broadcast(ServerMessage::Sound { name, at }));
+                    .push(ModCommand::Broadcast(Box::new(ServerMessage::Sound {
+                        name,
+                        at,
+                    })));
                 HostReply::Ok
             }
         }
@@ -409,6 +428,10 @@ pub fn load_mods(
             let registry = BlockRegistry::with_builtin_blocks();
             let content = ContentPack {
                 blocks: registry.defs().to_vec(),
+                items: ourcraft_common::item::ItemRegistry::build(&registry, &[])
+                    .defs()
+                    .to_vec(),
+                recipes: ourcraft_common::recipes::builtin_recipes(),
                 ..default()
             };
             let rt = ModRuntime::new().expect("runtime");
@@ -452,11 +475,16 @@ pub fn load_mods(
             game_mode,
         },
     );
+    let items = ourcraft_common::item::ItemRegistry::build(&host.registry, &[]);
+    let mut recipes = ourcraft_common::recipes::builtin_recipes();
+    recipes.extend(host.recipes);
     let content = ContentPack {
         blocks: host.registry.defs().to_vec(),
         textures: host.textures,
         models: host.models,
         tools: host.tools,
+        items: items.defs().to_vec(),
+        recipes,
     };
     (Mods(Mutex::new(runtime)), host.registry, content)
 }
@@ -494,6 +522,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         textures: Vec::new(),
         models: Vec::new(),
         tools: Vec::new(),
+        recipes: Vec::new(),
         world: world.remove_resource::<ServerWorld>(),
         cache: world.remove_resource::<ColumnCache>(),
         open: world.remove_resource::<OpenWorld>(),
@@ -502,6 +531,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         out: Vec::new(),
     };
     let mods = world.remove_resource::<Mods>().expect("mods resource");
+    let mut applied = Vec::new();
     {
         let mut rt = mods.0.lock().unwrap();
         for event in &queue.events {
@@ -519,6 +549,8 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
             if reply == EventReply::Deny || !host.apply_set_block(edit.pos, edit.new) {
                 host.out
                     .push(ModCommand::Revert(edit.client, edit.pos, edit.old));
+            } else {
+                applied.push(edit.clone());
             }
         }
         for (client, name, text) in &queue.chats {
@@ -557,6 +589,10 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
 
     // Give everything back.
     world.insert_resource(mods);
+    world
+        .get_resource_or_insert_with(AppliedEdits::default)
+        .0
+        .extend(applied);
     if let Some(w) = host.world.take() {
         world.insert_resource(w);
     }
@@ -651,7 +687,7 @@ fn carry_out(world: &mut World, commands: Vec<ModCommand>) {
                 }
                 outgoing.push((Some(client), Channel::Reliable, ServerMessage::Tools(tools)));
             }
-            ModCommand::Broadcast(msg) => outgoing.push((None, Channel::Reliable, msg)),
+            ModCommand::Broadcast(msg) => outgoing.push((None, Channel::Reliable, *msg)),
         }
     }
     drop(players);

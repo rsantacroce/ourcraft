@@ -8,7 +8,9 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, IoTaskPool, Task, futures::check_ready};
 use ourcraft_common::block::{BlockId, BlockRegistry};
 use ourcraft_common::chunk::Chunk;
-use ourcraft_common::save::{BlockRemap, WorldMeta, WorldStorage, encode_column};
+use ourcraft_common::container::Container;
+use ourcraft_common::item::ItemRegistry;
+use ourcraft_common::save::{BlockRemap, SavedContainer, WorldMeta, WorldStorage, encode_column};
 use ourcraft_common::world::{ColumnPos, DAY_LENGTH_SECS, VoxelWorld};
 use ourcraft_common::worldgen::WorldGenerator;
 
@@ -69,10 +71,21 @@ pub struct OpenWorld {
     pub generator: Arc<WorldGenerator>,
     /// Where new players appear (block position to stand on).
     pub spawn: IVec3,
-    /// Translation for block ids in old saves (player inventories use it).
+    /// Translation for block ids in old saves.
     pub remap: Option<BlockRemap>,
+    /// Every item (blocks first), for inventories and drops.
+    pub items: Arc<ItemRegistry>,
+    /// Furnaces (and other blocks holding items), by position.
+    pub containers: HashMap<IVec3, Container>,
     /// Shared with the save-on-exit guard.
-    snapshot: Arc<Mutex<WorldMeta>>,
+    snapshot: Arc<Mutex<Snapshot>>,
+}
+
+/// What gets written on save, copied from the live world.
+#[derive(Clone)]
+struct Snapshot {
+    meta: WorldMeta,
+    containers: Vec<SavedContainer>,
 }
 
 /// Columns encoded for sending, so several players near the same place
@@ -130,6 +143,7 @@ fn open_world(
     let (meta, remap) = match existing {
         Some(mut meta) => {
             let registry = registry_ref;
+            upgrade_players(&storage, &meta.block_names);
             let remap = BlockRemap::new(&meta.block_names, registry);
             meta.block_names = registry.iter().map(|(_, d)| d.name.clone()).collect();
             info!("Loaded world '{}' (seed {})", meta.name, meta.seed);
@@ -154,14 +168,32 @@ fn open_world(
     storage.set_remap(remap.clone());
     let generator = Arc::new(WorldGenerator::new(meta.seed));
     let (x, y, z) = generator.find_spawn();
+    let items = Arc::new(ItemRegistry::from_defs(content.items.clone()));
+    let containers = storage
+        .load_containers()
+        .unwrap_or_else(|e| {
+            error!("Can't read furnaces ({e})");
+            Vec::new()
+        })
+        .iter()
+        .map(|c| (IVec3::from_array(c.pos), c.restore(&items)))
+        .collect();
+    let snapshot = Snapshot {
+        meta: meta.clone(),
+        containers: Vec::new(),
+    };
     let open = OpenWorld {
         storage: Arc::new(storage),
-        snapshot: Arc::new(Mutex::new(meta.clone())),
+        snapshot: Arc::new(Mutex::new(snapshot)),
         meta,
         generator,
         spawn: IVec3::new(x, y, z),
         remap,
+        items,
+        containers,
     };
+    // The save guard must never write an empty furnace list over real ones.
+    open.update_snapshot();
     (open, mods, registry, crate::mods::Content(content))
 }
 
@@ -174,9 +206,39 @@ fn random_seed() -> u64 {
     ourcraft_common::worldgen::splitmix64(t)
 }
 
+/// Player files from before milestone 11 hold block ids, which only make
+/// sense with the block names the world was saved with. Convert them all
+/// now, before those names are replaced by the current ones.
+fn upgrade_players(storage: &WorldStorage, saved_block_names: &[String]) {
+    for name in storage.player_names() {
+        match storage.load_player(&name, saved_block_names) {
+            Ok(Some(p)) => {
+                if let Err(e) = storage.save_player(&name, &p) {
+                    error!("Can't upgrade player {name}: {e}");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => error!("Can't read player {name}: {e}"),
+        }
+    }
+}
+
 impl OpenWorld {
     pub fn time_of_day(&self) -> f32 {
         self.meta.time_of_day
+    }
+
+    /// Copy what needs saving for the background saver.
+    fn update_snapshot(&self) {
+        let containers = self
+            .containers
+            .iter()
+            .map(|(pos, c)| SavedContainer::new(pos.to_array(), c, &self.items))
+            .collect();
+        *self.snapshot.lock().unwrap() = Snapshot {
+            meta: self.meta.clone(),
+            containers,
+        };
     }
 }
 
@@ -291,7 +353,7 @@ fn advance_time(time: Res<Time>, mut open: ResMut<OpenWorld>) {
 #[derive(Resource)]
 struct SaveOnDrop {
     storage: Arc<WorldStorage>,
-    snapshot: Arc<Mutex<WorldMeta>>,
+    snapshot: Arc<Mutex<Snapshot>>,
 }
 
 impl Drop for SaveOnDrop {
@@ -300,10 +362,13 @@ impl Drop for SaveOnDrop {
     }
 }
 
-fn save_now(storage: &WorldStorage, meta: &Mutex<WorldMeta>) {
-    let meta = meta.lock().unwrap().clone();
-    if let Err(e) = storage.save_meta(&meta) {
+fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
+    let snapshot = snapshot.lock().unwrap().clone();
+    if let Err(e) = storage.save_meta(&snapshot.meta) {
         error!("Saving world info failed: {e}");
+    }
+    if let Err(e) = storage.save_containers(snapshot.containers) {
+        error!("Saving furnaces failed: {e}");
     }
     match storage.flush() {
         Ok(n) if n > 0 => info!("Saved {n} column(s)"),
@@ -325,7 +390,6 @@ fn autosave(
     mut task: ResMut<SaveTask>,
     mut timer: Local<f32>,
 ) {
-    *open.snapshot.lock().unwrap() = open.meta.clone();
     if let Some(t) = task.0.as_mut()
         && check_ready(t).is_some()
     {
@@ -334,6 +398,7 @@ fn autosave(
     *timer += time.delta_secs();
     if *timer >= AUTOSAVE_SECS && task.0.is_none() {
         *timer = 0.0;
+        open.update_snapshot();
         let (storage, snapshot) = (open.storage.clone(), open.snapshot.clone());
         task.0 = Some(IoTaskPool::get().spawn(async move { save_now(&storage, &snapshot) }));
     }
@@ -341,6 +406,6 @@ fn autosave(
 
 /// Save everything now (on shutdown).
 pub fn save_all(open: &OpenWorld) {
-    *open.snapshot.lock().unwrap() = open.meta.clone();
+    open.update_snapshot();
     save_now(&open.storage, &open.snapshot);
 }

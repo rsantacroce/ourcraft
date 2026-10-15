@@ -217,6 +217,7 @@ fn splat_squad_full_flow() {
     alex.send(&ClientMessage::SetBlock {
         pos: [0, 70, 0],
         block: 1,
+        held: 0,
     });
 
     // --- Chat commands come from the mod.

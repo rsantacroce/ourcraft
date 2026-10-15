@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use bevy::prelude::*;
+use ourcraft_common::item::ItemId;
 use ourcraft_common::protocol::ServerMessage;
 use ourcraft_mod_api::{EffectKind, ModelSpec};
 
@@ -21,7 +22,7 @@ impl Plugin for EntitiesPlugin {
             .init_resource::<EntityMap>()
             .add_systems(Startup, setup_particle_mesh)
             .add_systems(PreUpdate, handle_messages.after(NetReceiveSet))
-            .add_systems(Update, (move_entities, update_particles))
+            .add_systems(Update, (move_entities, bob_items, update_particles))
             .add_systems(
                 PreUpdate,
                 reset_entities.run_if(on_message::<crate::net::SessionEnded>),
@@ -47,6 +48,10 @@ struct NetEntity {
     spin: bool,
     age: f32,
 }
+
+/// The visible part of a dropped item, which bobs up and down.
+#[derive(Component)]
+struct ItemBob;
 
 #[derive(Component)]
 struct Particle {
@@ -74,6 +79,72 @@ fn rand(seed: &mut u32) -> f32 {
     (*seed % 10_000) as f32 / 10_000.0
 }
 
+/// The mesh and material of a dropped item: a little cube with the block's
+/// texture, or a flat picture for other items.
+fn item_look(
+    item: ItemId,
+    items: &ourcraft_common::item::ItemRegistry,
+    blocks: &ourcraft_common::block::BlockRegistry,
+    textures: &crate::render::ModTextures,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    images: &mut Assets<Image>,
+) -> (Handle<Mesh>, Handle<StandardMaterial>) {
+    use bevy::asset::RenderAssetUsages;
+    use bevy::image::ImageSampler;
+    use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+    let image = |pixels: Vec<u8>, size: u32| {
+        let mut img = Image::new(
+            Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            pixels,
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+        img.sampler = ImageSampler::nearest();
+        img
+    };
+    let block_tex = items
+        .get(item)
+        .and_then(|d| d.block())
+        .and_then(|b| blocks.get(b).textures.clone());
+    if let Some(tex) = block_tex {
+        let pixels = textures.pixels(&tex.side);
+        let material = materials.add(StandardMaterial {
+            base_color_texture: Some(images.add(image(pixels, 16))),
+            alpha_mode: AlphaMode::Mask(0.5),
+            unlit: true,
+            ..default()
+        });
+        return (meshes.add(Cuboid::new(0.25, 0.25, 0.25)), material);
+    }
+    let pixels = crate::inventory_ui::item_icon_pixels(items, blocks, textures, item)
+        .unwrap_or_else(|| vec![255; 32 * 32 * 4]);
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(images.add(image(pixels, 32))),
+        alpha_mode: AlphaMode::Mask(0.5),
+        unlit: true,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+    (meshes.add(Rectangle::new(0.4, 0.4)), material)
+}
+
+/// Things that dropped items need to look right.
+#[derive(bevy::ecs::system::SystemParam)]
+struct ItemLooks<'w, 's> {
+    items: Res<'w, crate::items::Items>,
+    blocks: Res<'w, crate::world::Blocks>,
+    textures: Option<Res<'w, crate::render::ModTextures>>,
+    images: ResMut<'w, Assets<Image>>,
+    cache: Local<'s, HashMap<ItemId, (Handle<Mesh>, Handle<StandardMaterial>)>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn handle_messages(
     mut commands: Commands,
@@ -84,6 +155,7 @@ fn handle_messages(
     mut materials: ResMut<Assets<StandardMaterial>>,
     particle_mesh: Res<ParticleMesh>,
     mut entities: Query<(&mut NetEntity, &mut Transform)>,
+    mut looks: ItemLooks,
     mut seed: Local<u32>,
 ) {
     if *seed == 0 {
@@ -95,6 +167,7 @@ fn handle_messages(
                 for (_, e) in map.0.drain() {
                     commands.entity(e).despawn();
                 }
+                looks.cache.clear();
                 models.0 = content
                     .models
                     .iter()
@@ -109,6 +182,53 @@ fn handle_messages(
                 gravity,
             } => {
                 let pos = Vec3::from_array(*position);
+                // A dropped item ("@item:<number>"): drawn from the item list.
+                if let Some(item) = model
+                    .strip_prefix("@item:")
+                    .and_then(|n| n.parse::<u16>().ok())
+                    .map(ItemId)
+                {
+                    let looks = &mut looks;
+                    let textures = looks.textures.as_deref().cloned().unwrap_or_default();
+                    let (mesh, material) = looks
+                        .cache
+                        .entry(item)
+                        .or_insert_with(|| {
+                            item_look(
+                                item,
+                                &looks.items,
+                                &looks.blocks.0,
+                                &textures,
+                                &mut meshes,
+                                &mut materials,
+                                &mut looks.images,
+                            )
+                        })
+                        .clone();
+                    let e = commands
+                        .spawn((
+                            NetEntity {
+                                velocity: Vec3::ZERO,
+                                gravity: None,
+                                target: pos,
+                                spin: true,
+                                age: 0.0,
+                            },
+                            Transform::from_translation(pos),
+                            Visibility::Inherited,
+                        ))
+                        .with_child((
+                            Mesh3d(mesh),
+                            MeshMaterial3d(material),
+                            Transform::default(),
+                            ItemBob,
+                        ))
+                        .id();
+                    if let Some(old) = map.0.insert(*id, e) {
+                        commands.entity(old).despawn();
+                    }
+                    continue;
+                }
                 let spec = models.0.get(model);
                 let e = commands
                     .spawn((
@@ -246,6 +366,13 @@ fn move_entities(time: Res<Time>, mut q: Query<(&mut NetEntity, &mut Transform)>
         if e.spin {
             t.rotation = Quat::from_rotation_y(e.age * 1.5);
         }
+    }
+}
+
+fn bob_items(time: Res<Time>, mut q: Query<&mut Transform, With<ItemBob>>) {
+    let t = time.elapsed_secs();
+    for mut tr in &mut q {
+        tr.translation.y = (t * 2.5).sin() * 0.06 + 0.06;
     }
 }
 
