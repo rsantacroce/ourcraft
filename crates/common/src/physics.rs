@@ -54,6 +54,9 @@ pub struct PlayerInput {
     pub sprint: bool,
     /// Facing direction around the vertical axis, radians.
     pub yaw: f32,
+    /// Hop up one-block steps automatically when walking into them. Used
+    /// with touch controls, where pressing jump while walking is fiddly.
+    pub auto_jump: bool,
 }
 
 /// Everything about a player's movement that carries over between steps.
@@ -220,6 +223,8 @@ pub fn step(
     }
 
     // Move one axis at a time, Y first so landing is resolved before sliding.
+    let was_on_ground = state.on_ground;
+    let mut hit_wall = false;
     state.on_ground = false;
     for axis in [1, 0, 2] {
         let delta = state.velocity[axis] * dt;
@@ -252,9 +257,21 @@ pub fn step(
             if axis == 1 && delta < 0.0 {
                 state.on_ground = true;
             }
+            if axis != 1 {
+                hit_wall = true;
+            }
             state.velocity[axis] = 0.0;
         }
         state.position = next;
+    }
+
+    // Auto-jump: walked into a wall that's only one block high.
+    if input.auto_jump && hit_wall && was_on_ground && !state.flying && wish != Vec3::ZERO {
+        let ahead = state.position + wish.normalize() * 0.4;
+        let step_up = ahead + Vec3::Y * 1.05;
+        if collides(world, reg, ahead) && !collides(world, reg, step_up) {
+            state.velocity.y = JUMP_SPEED;
+        }
     }
 
     // Landing while flying ends flight, like in creative mode.
@@ -407,6 +424,34 @@ mod tests {
         run(&mut s, PlayerInput::default(), &w, 30);
         assert!(s.in_water);
         assert!(s.velocity.y > -2.0, "sinking too fast: {}", s.velocity.y);
+    }
+
+    #[test]
+    fn auto_jump_climbs_single_steps_only() {
+        let mut w = flat_world();
+        // A one-block step at x = 2, and a two-block wall at x = 6.
+        for z in -5..5 {
+            for x in 2..10 {
+                w.set_block(x, 10, z, blocks::STONE);
+            }
+            w.set_block(6, 11, z, blocks::STONE);
+            w.set_block(6, 12, z, blocks::STONE);
+        }
+        let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+        let input = PlayerInput {
+            movement: Vec2::new(0.0, 1.0),
+            yaw: -std::f32::consts::FRAC_PI_2, // face +X
+            auto_jump: true,
+            ..default_input()
+        };
+        run(&mut s, input, &w, 180);
+        // Climbed onto the step (y = 11) but stopped at the tall wall.
+        assert!((s.position.y - 11.0).abs() < 0.01, "y = {}", s.position.y);
+        assert!(
+            s.position.x < 6.0 && s.position.x > 5.0,
+            "x = {}",
+            s.position.x
+        );
     }
 
     #[test]

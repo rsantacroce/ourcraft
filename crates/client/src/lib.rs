@@ -9,10 +9,10 @@ pub mod player;
 pub mod render;
 pub mod settings;
 pub mod sky;
+pub mod touch;
 pub mod world;
 
 use bevy::prelude::*;
-use bevy::window::{PresentMode, WindowResolution};
 
 /// Everything the client adds on top of Bevy's default plugins.
 pub struct ClientPlugin;
@@ -22,6 +22,7 @@ impl Plugin for ClientPlugin {
         app.insert_resource(ClearColor(Color::srgb(0.53, 0.75, 0.96)))
             .add_plugins((
                 input::InputPlugin,
+                touch::TouchPlugin,
                 settings::SettingsPlugin,
                 render::VoxelRenderPlugin,
                 world::WorldPlugin,
@@ -34,18 +35,42 @@ impl Plugin for ClientPlugin {
     }
 }
 
-/// Build and run the game. Shared by the desktop binary and (from M4) the
-/// mobile launchers.
+/// The main window. Desktop gets a normal resizable window; phones and
+/// tablets get the whole screen.
+fn primary_window() -> Window {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        use bevy::window::{ScreenEdge, WindowMode};
+        Window {
+            title: "Ourcraft".into(),
+            resizable: false,
+            mode: WindowMode::BorderlessFullscreen(MonitorSelection::Primary),
+            // iOS: hide the home bar and status bar, and make swipes from
+            // the bottom edge go to the game first.
+            prefers_home_indicator_hidden: true,
+            prefers_status_bar_hidden: true,
+            preferred_screen_edges_deferring_system_gestures: ScreenEdge::Bottom,
+            ..default()
+        }
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        use bevy::window::{PresentMode, WindowResolution};
+        Window {
+            title: "Ourcraft".into(),
+            resolution: WindowResolution::new(1280, 720),
+            present_mode: PresentMode::AutoVsync,
+            ..default()
+        }
+    }
+}
+
+/// Build and run the game. Shared by the desktop binary and the mobile
+/// launchers.
 pub fn run() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Ourcraft".into(),
-                resolution: WindowResolution::new(1280, 720),
-                // Vsync without the input lag of plain Fifo where supported.
-                present_mode: PresentMode::AutoVsync,
-                ..default()
-            }),
+            primary_window: Some(primary_window()),
             ..default()
         }))
         .add_plugins(ClientPlugin)

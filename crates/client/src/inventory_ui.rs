@@ -369,7 +369,11 @@ fn rebuild_inventory_screen(
                         }
                     });
                     panel.spawn((
-                        Text::new("Press E to close"),
+                        Text::new(if cfg!(any(target_os = "ios", target_os = "android")) {
+                            "Tap Bag to close"
+                        } else {
+                            "Press E to close"
+                        }),
                         TextFont::from_font_size(13.0),
                         TextColor(Color::srgb(0.7, 0.7, 0.7)),
                     ));

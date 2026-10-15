@@ -61,6 +61,12 @@ fn spawn_hud(mut commands: Commands) {
                     color: Color::linear_rgba(0.0, 0.0, 0.0, 0.8),
                 },
                 HelpText,
+                // No keyboard on phones and tablets.
+                if cfg!(any(target_os = "ios", target_os = "android")) {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                },
             ));
         });
 }

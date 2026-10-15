@@ -1,0 +1,44 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace 'org.ourcraft.game'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "org.ourcraft.game"
+        minSdk 31
+        targetSdk 36
+        versionCode 1
+        versionName "0.1"
+        ndk {
+            // 64-bit ARM covers practically every Android phone and tablet
+            // from the last several years.
+            abiFilters 'arm64-v8a'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Signed with the debug key so `assembleRelease` gives an
+            // installable APK. Use your own key before publishing anywhere.
+            signingConfig signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        prefab true
+    }
+}
+
+dependencies {
+    // Line up Kotlin library versions pulled in by different AndroidX
+    // libraries (otherwise: "Duplicate class kotlin.collections.jdk8…").
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+    implementation libs.appcompat
+    implementation libs.games.activity
+}

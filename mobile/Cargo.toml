@@ -1,0 +1,28 @@
+[package]
+name = "ourcraft_mobile"
+description = "iOS and Android launcher for Ourcraft."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# `cdylib` is the shared library Android loads; the binary is what the iOS
+# Xcode project bundles into the app.
+[lib]
+name = "ourcraft_mobile"
+crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "ourcraft_mobile"
+path = "src/main.rs"
+
+[dependencies]
+ourcraft_client.workspace = true
+bevy.workspace = true
+
+# Android needs Bevy's GameActivity integration.
+[target.'cfg(target_os = "android")'.dependencies]
+bevy = { workspace = true, features = ["android-game-activity"] }
+
+[lints]
+workspace = true

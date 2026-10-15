@@ -105,6 +105,7 @@ fn spawn_player(mut commands: Commands, generator: Res<TerrainGenerator>) {
 /// Advance the player's physics by one fixed step.
 fn player_physics(
     actions: Res<Actions>,
+    touch: Res<crate::touch::TouchControls>,
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
     mut player: Single<&mut Player>,
@@ -115,6 +116,7 @@ fn player_physics(
         descend: actions.descend,
         sprint: actions.sprint,
         yaw: player.yaw,
+        auto_jump: touch.enabled,
     };
     player.prev_position = player.state.position;
     let player = &mut **player;

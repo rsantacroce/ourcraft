@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/common", "crates/client"]
+members = ["crates/common", "crates/client", "mobile"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 ourcraft_common = { path = "crates/common" }
+ourcraft_client = { path = "crates/client" }
 # Pinned exactly: the networking crates we'll add in M6 target Bevy 0.19.
 bevy = "=0.19.1"
 # Same version Bevy 0.19 uses, so `Vec3` in `common` *is* Bevy's `Vec3`.
@@ -30,3 +31,5 @@ opt-level = 3
 [profile.release]
 codegen-units = 1
 lto = "thin"
+# Drop symbol tables: makes the Android library ~3x smaller.
+strip = true
