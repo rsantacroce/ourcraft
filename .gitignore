@@ -1,1 +1,4 @@
 /target
+
+# graphify knowledge graph (local, regenerated with /graphify --update)
+graphify-out/
