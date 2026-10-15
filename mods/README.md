@@ -17,10 +17,15 @@ own binary when it's built (so phones and tablets get the mods too).
 Dedicated servers also load extra mods from a `mods/` folder next to them
 (`ourcraft-server --mods FOLDER` to change it).
 
+**Full guide:** the [Modding Guide](https://rsantacroce.github.io/ourcraft-site/modding.html)
+has a step-by-step tutorial, recipes and the complete API reference.
+
 ## Mods in this folder
 
 - **paint_blocks**: eight paint colours, a glowing rainbow lamp, and a
   `/rainbow` chat command. The best place to start reading.
+- **snow_fun**: the Modding Guide's tutorial mod: snow bricks, an ice
+  lantern, `/snowman`, and a snowball thrower (`/snowballs`).
 - **team_shooter**: *Splat Squad*, a two-team game mode. Start a world with
   it using `--mode team_shooter`.
 

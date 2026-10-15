@@ -9,7 +9,7 @@ picks up from there.
 | Area | Done |
 |---|---|
 | World | Infinite generated terrain; plains, forest, desert, snowy and mountain biomes; caves; trees; cacti; seas and lakes; beaches; bedrock floor; a seed per world |
-| Blocks | 16 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water), plus 9 from the Paint Blocks mod |
+| Blocks | 16 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water), plus 9 from the Paint Blocks mod and 2 from the Snow Fun tutorial mod |
 | Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative block palette |
 | Game modes | Creative (fly, endless blocks) and survival (collect what you break; stone gives cobblestone, grass gives dirt); Splat Squad team game (mod) |
 | Movement | Walk, sprint, jump, gravity, collision, swimming, flying (double-tap jump), auto-jump on touch screens |

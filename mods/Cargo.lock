@@ -99,6 +99,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "snow_fun"
+version = "0.1.0"
+dependencies = [
+ "ourcraft_mod_api",
+]
+
+[[package]]
 name = "syn"
 version = "3.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

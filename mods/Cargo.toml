@@ -2,7 +2,7 @@
 # WebAssembly. Build them all with `./build.sh` (output in `dist/`).
 [workspace]
 resolver = "3"
-members = ["paint_blocks", "team_shooter"]
+members = ["paint_blocks", "snow_fun", "team_shooter"]
 
 [workspace.package]
 version = "0.1.0"

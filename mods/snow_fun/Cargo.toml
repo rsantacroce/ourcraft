@@ -1,0 +1,12 @@
+[package]
+name = "snow_fun"
+description = "The modding guide's tutorial mod: snow bricks, an ice lantern, /snowman and a snowball thrower."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ourcraft_mod_api = { path = "../../crates/mod_api" }

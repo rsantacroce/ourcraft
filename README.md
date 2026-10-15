@@ -66,7 +66,9 @@ Ctrl+C saves and stops. The server is headless (no window, minimal Bevy).
 ## Mods
 
 Mods are WebAssembly modules that run sandboxed on the server (no files,
-no network). See [mods/README.md](mods/README.md). Build them with
+no network). See the
+[Modding Guide](https://rsantacroce.github.io/ourcraft-site/modding.html) and
+[mods/README.md](mods/README.md). Build them with
 `mods/build.sh`; the game bundles `mods/dist/*.wasm`.
 
 ## How it's built
