@@ -547,6 +547,35 @@ fn handle_messages(
                 if text.is_empty() {
                     continue;
                 }
+                // /tp x y z: creative players can jump anywhere.
+                if let Some(rest) = text.strip_prefix("/tp") {
+                    let to: Vec<f32> = rest
+                        .split_whitespace()
+                        .filter_map(|w| w.parse().ok())
+                        .collect();
+                    let reply = match (p.creative, to.as_slice()) {
+                        (false, _) => "You can use /tp in creative mode (G)".to_owned(),
+                        (true, [x, y, z]) if [x, y, z].iter().all(|v| v.abs() < 1.0e6) => {
+                            let at = Vec3::new(*x, y.clamp(0.0, WORLD_HEIGHT as f32), *z);
+                            if let Ok(mut p) = query.get_mut(entity) {
+                                p.physics.position = at;
+                                p.physics.velocity = Vec3::ZERO;
+                                p.state.position = at.to_array();
+                            }
+                            format!("Whoosh! You're at {x:.0} {y:.0} {z:.0}.")
+                        }
+                        _ => "Try /tp x y z (like /tp 0 80 0)".to_owned(),
+                    };
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Chat {
+                            from: None,
+                            text: reply,
+                        },
+                    );
+                    continue;
+                }
                 // /summon <animal>: creative players can call an animal over.
                 if let Some(what) = text.strip_prefix("/summon") {
                     let what = what.trim();
@@ -688,7 +717,7 @@ fn run_command(
     let mut words = text.split_whitespace();
     match words.next()? {
         "/help" => Some(
-            "Commands: /time day, /time night, /weather rain, /weather clear, /summon sheep (or pig, cow, chicken), /peaceful (mods may add more)"
+            "Commands: /time day, /time night, /weather rain, /weather clear, /summon sheep (or pig, cow, chicken), /tp x y z, /peaceful (mods may add more)"
                 .into(),
         ),
         "/peaceful" => {
