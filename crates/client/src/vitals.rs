@@ -218,6 +218,9 @@ fn receive_vitals(
     mut messages: MessageReader<FromServer>,
     mut vitals: ResMut<Vitals>,
     mut flash: Query<&mut Flash>,
+    items: Res<Items>,
+    mut inventory: ResMut<PlayerInventory>,
+    mut sounds: MessageWriter<crate::audio::PlaySound>,
 ) {
     for FromServer(msg) in messages.read() {
         if let ServerMessage::Vitals { health, food, air } = msg {
@@ -229,6 +232,12 @@ fn receive_vitals(
             if vitals.shown() && new.health < vitals.health {
                 for mut f in &mut flash {
                     f.0 = 0.45;
+                }
+                // A bonk (not hunger or holding your breath too long)
+                // wears armour down.
+                let bonked = new.food > 0.0 && new.air > 0.0;
+                if bonked && inventory.0.wear_armour(&items.0) > 0 {
+                    sounds.write(crate::audio::PlaySound::ui("break"));
                 }
             }
             *vitals = new;

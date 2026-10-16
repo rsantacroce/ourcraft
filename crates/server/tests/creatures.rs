@@ -257,6 +257,40 @@ fn horses_cats_and_honey() {
         assert!(content.mobs.iter().any(|m| m.name == name), "{name}");
     }
 
+    // ---- A name tag: the cat is called Tom now (and the tag is used up).
+    fay.send(&ClientMessage::Inventory {
+        slots: vec![Some(ourcraft_common::protocol::NetStack {
+            item: item("core:name_tag"),
+            count: 1,
+            wear: 0,
+        })],
+        selected: 0,
+    });
+    run_until(&mut [&mut fay], 0.3, |_| false);
+    fay.received.clear();
+    fay.send(&ClientMessage::NameAnimal {
+        id: cat,
+        name: "  Tom|".into(),
+    });
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| spawned(b[0], "@mob:core:cat|Tom")
+            .is_some()),
+        "the cat wasn't named"
+    );
+    assert!(
+        fay.has(|m| matches!(m, ServerMessage::TakeItems(s) if s.item == item("core:name_tag")))
+    );
+
+    // ---- A pat from its friend: Tom sits and stays.
+    let tom = spawned(&fay, "@mob:core:cat|Tom").unwrap();
+    fay.send(&ClientMessage::UseEntity { id: tom, held: 0 });
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| b[0].has(
+            |m| matches!(m, ServerMessage::Chat { text, .. } if text == "Tom sits and stays.")
+        )),
+        "Tom didn't sit"
+    );
+
     stop.0.store(true, Ordering::Relaxed);
     let _ = server.join();
     let _ = std::fs::remove_dir_all(&dir);

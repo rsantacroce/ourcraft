@@ -11,7 +11,7 @@ use ourcraft_common::chunk::Chunk;
 use ourcraft_common::container::Container;
 use ourcraft_common::item::ItemRegistry;
 use ourcraft_common::save::{
-    BlockRemap, SavedAnimal, SavedContainer, WorldMeta, WorldStorage, encode_column,
+    BlockRemap, SavedAnimal, SavedContainer, SavedVehicle, WorldMeta, WorldStorage, encode_column,
 };
 use ourcraft_common::world::{ColumnPos, DAY_LENGTH_SECS, VoxelWorld};
 use ourcraft_common::worldgen::WorldGenerator;
@@ -92,6 +92,10 @@ pub struct OpenWorld {
     /// Animals players look after: loaded with the world, then kept up to
     /// date by the animals module for saving.
     pub animals: Vec<SavedAnimal>,
+    /// Boats and mine carts, the same way (kept up to date by the boats
+    /// and rails modules).
+    pub boats: Vec<SavedVehicle>,
+    pub carts: Vec<SavedVehicle>,
     /// Shared with the save-on-exit guard.
     snapshot: Arc<Mutex<Snapshot>>,
 }
@@ -106,6 +110,7 @@ struct Snapshot {
     beds: Vec<(String, [i32; 3])>,
     rules: Vec<(String, bool)>,
     animals: Vec<SavedAnimal>,
+    vehicles: Vec<SavedVehicle>,
 }
 
 /// Columns encoded for sending, so several players near the same place
@@ -233,7 +238,16 @@ fn open_world(
         beds: Vec::new(),
         rules: Vec::new(),
         animals: Vec::new(),
+        vehicles: Vec::new(),
     };
+    let (carts, boats): (Vec<SavedVehicle>, Vec<SavedVehicle>) = storage
+        .load_vehicles()
+        .unwrap_or_else(|e| {
+            error!("Can't read boats and carts ({e})");
+            Vec::new()
+        })
+        .into_iter()
+        .partition(|v| v.0 == "core:minecart");
     let animals = storage.load_animals().unwrap_or_else(|e| {
         error!("Can't read animals ({e})");
         Vec::new()
@@ -258,6 +272,8 @@ fn open_world(
         beds,
         peaceful,
         animals,
+        boats,
+        carts,
     };
     // The save guard must never write an empty furnace list over real ones.
     open.update_snapshot();
@@ -322,6 +338,7 @@ impl OpenWorld {
                 .collect(),
             rules: vec![("peaceful".into(), self.peaceful)],
             animals: self.animals.clone(),
+            vehicles: self.boats.iter().chain(&self.carts).cloned().collect(),
         };
     }
 }
@@ -468,6 +485,9 @@ fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
     }
     if let Err(e) = storage.save_animals(snapshot.animals) {
         error!("Saving animals failed: {e}");
+    }
+    if let Err(e) = storage.save_vehicles(snapshot.vehicles) {
+        error!("Saving boats and carts failed: {e}");
     }
     match storage.flush() {
         Ok(n) if n > 0 => info!("Saved {n} column(s)"),

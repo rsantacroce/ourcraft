@@ -176,6 +176,27 @@ impl Inventory {
         false
     }
 
+    /// Wear down every piece of armour worn by one (after a bonk).
+    /// Pieces that wear right out are gone; returns how many.
+    pub fn wear_armour(&mut self, items: &ItemRegistry) -> usize {
+        let mut broke = 0;
+        for slot in &mut self.armour {
+            let Some(stack) = slot.as_mut() else {
+                continue;
+            };
+            let durability = items.get(stack.item).map_or(0, |d| d.durability);
+            if durability == 0 {
+                continue;
+            }
+            stack.wear += 1;
+            if stack.wear >= durability {
+                *slot = None;
+                broke += 1;
+            }
+        }
+        broke
+    }
+
     pub fn select(&mut self, slot: usize) {
         self.selected = slot.min(HOTBAR_SLOTS - 1);
     }

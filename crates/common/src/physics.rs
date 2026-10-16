@@ -243,6 +243,14 @@ fn on_ladder(world: &impl BlockSource, reg: &BlockRegistry, feet: Vec3) -> bool 
     })
 }
 
+/// Standing on ice: you slide about.
+fn on_ice(world: &impl BlockSource, reg: &BlockRegistry, feet: Vec3) -> bool {
+    let b = (feet - Vec3::Y * 0.1).floor().as_ivec3();
+    world
+        .get_block(b.x, b.y, b.z)
+        .is_some_and(|id| matches!(reg.get(id).name.as_str(), "core:ice" | "core:packed_ice"))
+}
+
 fn is_liquid(world: &impl BlockSource, reg: &BlockRegistry, p: Vec3) -> bool {
     let b = p.floor().as_ivec3();
     world
@@ -347,7 +355,9 @@ pub fn step(
             WALK_SPEED
         };
         let target = wish * speed;
-        let a = if state.on_ground {
+        let a = if state.on_ground && on_ice(world, reg, state.position) {
+            GROUND_ACCEL * 0.12
+        } else if state.on_ground {
             GROUND_ACCEL
         } else {
             AIR_ACCEL
@@ -515,6 +525,30 @@ mod tests {
         }
         assert!(peak > 1.1 && peak < 1.6, "jump height {peak}");
         assert!(s.on_ground);
+    }
+
+    #[test]
+    fn ice_is_slippery() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        let ice = reg.by_name("core:ice").unwrap();
+        let slide = |top: Option<BlockId>| {
+            let mut w = flat_world();
+            if let Some(top) = top {
+                for x in -32..32 {
+                    for z in -32..32 {
+                        w.set_block(x, 9, z, top);
+                    }
+                }
+            }
+            let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+            run(&mut s, PlayerInput::default(), &w, 2);
+            run(&mut s, east(), &w, 30);
+            let stopped_at = s.position.x;
+            run(&mut s, PlayerInput::default(), &w, 60);
+            s.position.x - stopped_at
+        };
+        let (stone, ice) = (slide(None), slide(Some(ice)));
+        assert!(ice > stone * 3.0, "stone {stone}, ice {ice}");
     }
 
     #[test]

@@ -22,10 +22,52 @@ impl Plugin for BoatsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Boats>().add_systems(
             Update,
-            (use_boats, follow_riders)
+            (remember_boats, use_boats, follow_riders)
                 .chain()
                 .after(crate::players::PlayersSet),
         );
+    }
+}
+
+/// Bring back the boats saved with the world (once), then keep the list
+/// to save up to date.
+fn remember_boats(
+    mut open: ResMut<OpenWorld>,
+    mut entities: ResMut<Entities>,
+    mut boats: ResMut<Boats>,
+    mut loaded: Local<bool>,
+    mut timer: Local<u32>,
+) {
+    if !*loaded {
+        *loaded = true;
+        for (name, at, yaw) in &open.boats {
+            let id = entities.spawn(ServerEntity {
+                model: model(name),
+                position: Vec3::from_array(*at),
+                velocity: Vec3::ZERO,
+                motion: EntityMotion::Fixed,
+                lifetime: 0.0,
+                age: 0.0,
+                owner: None,
+                moved: true,
+                item: None,
+                yaw: *yaw,
+            });
+            boats.0.insert(id, name.clone());
+        }
+        return;
+    }
+    *timer += 1;
+    if (*timer).is_multiple_of(10) {
+        let list = boats
+            .0
+            .iter()
+            .filter_map(|(id, name)| {
+                let e = entities.list.get(id)?;
+                Some((name.clone(), e.position.to_array(), e.yaw))
+            })
+            .collect();
+        open.bypass_change_detection().boats = list;
     }
 }
 

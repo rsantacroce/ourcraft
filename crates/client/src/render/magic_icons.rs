@@ -69,6 +69,32 @@ pub fn icon(name: &str) -> Option<Vec<u8>> {
     }
     let potion = |c: Rgba| sparkle_small(bottle(Some(c)));
     Some(match name {
+        "name_tag" => draw(
+            &[
+                "................",
+                "................",
+                "................",
+                "...........ss...",
+                "..........s..s..",
+                ".........s....s.",
+                "....dddddddd.s..",
+                "...dPPPPPPPPdd..",
+                "..dPPkPPPPPPPd..",
+                "..dPPPPPPPPPPd..",
+                "...dPPPPPPPPd...",
+                "....dddddddd....",
+                "................",
+                "................",
+                "................",
+                "................",
+            ],
+            &[
+                ('P', [238, 226, 196, 255]),
+                ('d', [150, 120, 80, 255]),
+                ('k', [90, 70, 50, 255]),
+                ('s', [236, 236, 230, 255]),
+            ],
+        ),
         "bottle" => bottle(None),
         "hop_potion" => potion([110, 220, 90, 255]),
         "glow_potion" => potion([250, 210, 70, 255]),

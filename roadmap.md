@@ -229,6 +229,27 @@ The "not quite as planned" bits from milestones 11–16, filled in:
 Still left, on purpose: the server trusts players' crafting (as it trusts
 their inventories), and there's no thunder.
 
+### Second gap fixes ✅ done
+
+After milestone 24, every block and item was looked at in a gallery
+(`cargo run -p ourcraft_server --example gallery` builds one round the
+spawn point of a running server), and some of the "not quite as
+planned" bits from milestones 17–24 were filled in:
+
+- **Name tags** (paper and string): use one on an animal, type a name,
+  and it floats over the animal's head. Named animals are yours (saved).
+- **Friends sit when told:** pat your cat or dog with an empty hand and it
+  sits and stays; pat it again and it comes along.
+- **Armour wears out** a little with every bonk.
+- **Ice is slippery.**
+- **Boats and mine carts are saved** with the world (`vehicles.dat`).
+- **`/tp x y z`** in creative.
+- Fixed on the way: pressing Enter to finish a sign also opened chat.
+
+Still left: plants grow in the dark, no dispenser, pistons only push
+sideways, rails don't go up slopes, banners have no patterns, no
+writable book or double chest, potion effects end when you leave.
+
 ### The big item list (milestones 17–24)
 
 Minecraft has well over a thousand items, most of them colour and wood
@@ -259,8 +280,8 @@ bucket gives the bucket back. The creative palette has tabs now
 (Building, Nature, Food, Tools, Items), with pages.
 
 Not quite as planned: plants grow by day and night alike, even in the
-dark (the server doesn't know light levels); no ferns yet, and no
-trampling of farmland.
+dark (the server doesn't know light levels); no ferns yet. No trampling
+of farmland, on purpose (squashed crops are no fun).
 
 What was planned:
 
@@ -329,8 +350,8 @@ on snowy ground in layers, snowballs make snow blocks, and nine ice make
 packed ice.
 
 Not quite as planned: no jungle biome (jungle trees grow in patches of
-forest); boats aren't saved with the world; mossy blocks are made with
-leaves; ice isn't slippery.
+forest); mossy blocks are made with leaves. (Boats are saved with the
+world and ice is slippery since the second gap fixes.)
 
 What was planned:
 
@@ -358,9 +379,9 @@ the time of day, a map shows the land around you, a spyglass zooms in.
 Rope leads animals around; a saddle on a pig lets you ride it (Shift to
 get off). A campfire cooks food you put on it.
 
-Not quite as planned: no name tags and no flint and steel yet; armour
-doesn't wear out; maps show what's loaded around you rather than
-remembering where you've been. Also fixed: the server was announcing the
+Not quite as planned: no flint and steel (on purpose: no fire); maps
+show what's loaded around you rather than remembering where you've been.
+(Name tags and armour wearing out came with the second gap fixes.) Also fixed: the server was announcing the
 weather every tick.
 
 What was planned:
@@ -411,8 +432,8 @@ powered rails with power (and braked by them without), and stop at the
 end of the line.
 
 Not quite as planned: no dispenser; pistons only push sideways; no rails
-up or down slopes; wire looks the same whichever way it joins; carts
-aren't saved with the world.
+up or down slopes; wire looks the same whichever way it joins. (Carts
+are saved with the world since the second gap fixes.)
 
 What was planned:
 
@@ -434,8 +455,8 @@ takes it). Two more gentle monsters: the Puff, a floating cloud, and the
 Rumble, a slow rock. New sounds: neigh, bark, meow, ribbit, buzz, squeak.
 Friends and saddles are saved with the animals.
 
-Not quite as planned: friends don't sit when told to; fish can't be
-caught by hand (use a rod); bees don't pollinate.
+Not quite as planned: fish can't be caught by hand (use a rod); bees
+don't pollinate. (Friends sit when told to since the second gap fixes.)
 
 What was planned:
 

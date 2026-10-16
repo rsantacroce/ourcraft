@@ -414,6 +414,21 @@ pub struct SavedAnimal {
     pub friend: Option<String>,
     /// Wearing a saddle.
     pub saddled: bool,
+    /// What a name tag called it.
+    pub name: Option<String>,
+}
+
+/// An animal as saved by version 3 of `animals.dat` (no names yet).
+#[derive(Deserialize)]
+struct SavedAnimalV3 {
+    kind: String,
+    position: [f32; 3],
+    yaw: f32,
+    baby_for: f32,
+    sheared_for: f32,
+    colour: u8,
+    friend: Option<String>,
+    saddled: bool,
 }
 
 /// An animal as saved by version 2 of `animals.dat` (no friends or
@@ -437,6 +452,10 @@ struct SavedAnimalV1 {
     baby_for: f32,
     sheared_for: f32,
 }
+
+/// A boat or mine cart in the world: the item it came from, where it is
+/// and which way it faces.
+pub type SavedVehicle = (String, [f32; 3], f32);
 
 /// A saved furnace (or other container) and where it is.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -763,6 +782,16 @@ impl WorldStorage {
         self.save_list("frames.dat", frames)
     }
 
+    /// Boats and mine carts left about (`vehicles.dat`): the item each
+    /// came from, where it is and which way it faces.
+    pub fn load_vehicles(&self) -> io::Result<Vec<SavedVehicle>> {
+        self.load_list("vehicles.dat")
+    }
+
+    pub fn save_vehicles(&self, vehicles: Vec<SavedVehicle>) -> io::Result<()> {
+        self.save_list("vehicles.dat", vehicles)
+    }
+
     /// Where players respawn: the bed they last slept in (`beds.dat`).
     pub fn load_beds(&self) -> io::Result<Vec<(String, [i32; 3])>> {
         self.load_list("beds.dat")
@@ -782,10 +811,28 @@ impl WorldStorage {
         let bad = |e: postcard::Error| invalid(e.to_string());
         let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(bad)?;
         match version {
-            3 => {
+            4 => {
                 let (_, list): (u32, Vec<SavedAnimal>) =
                     postcard::from_bytes(&bytes).map_err(bad)?;
                 Ok(list)
+            }
+            3 => {
+                let (_, list): (u32, Vec<SavedAnimalV3>) =
+                    postcard::from_bytes(&bytes).map_err(bad)?;
+                Ok(list
+                    .into_iter()
+                    .map(|a| SavedAnimal {
+                        kind: a.kind,
+                        position: a.position,
+                        yaw: a.yaw,
+                        baby_for: a.baby_for,
+                        sheared_for: a.sheared_for,
+                        colour: a.colour,
+                        friend: a.friend,
+                        saddled: a.saddled,
+                        name: None,
+                    })
+                    .collect())
             }
             2 => {
                 let (_, list): (u32, Vec<SavedAnimalV2>) =
@@ -801,6 +848,7 @@ impl WorldStorage {
                         colour: a.colour,
                         friend: None,
                         saddled: false,
+                        name: None,
                     })
                     .collect())
             }
@@ -818,6 +866,7 @@ impl WorldStorage {
                         colour: 0,
                         friend: None,
                         saddled: false,
+                        name: None,
                     })
                     .collect())
             }
@@ -826,7 +875,7 @@ impl WorldStorage {
     }
 
     pub fn save_animals(&self, animals: Vec<SavedAnimal>) -> io::Result<()> {
-        let bytes = postcard::to_allocvec(&(3u32, animals)).map_err(|e| invalid(e.to_string()))?;
+        let bytes = postcard::to_allocvec(&(4u32, animals)).map_err(|e| invalid(e.to_string()))?;
         write_atomic(&self.dir.join("animals.dat"), &bytes)
     }
 
@@ -1035,6 +1084,7 @@ mod tests {
             colour: 12,
             friend: Some("Kim".into()),
             saddled: true,
+            name: Some("Fluffy".into()),
         }];
         storage.save_animals(animals.clone()).unwrap();
         assert_eq!(storage.load_animals().unwrap(), animals);

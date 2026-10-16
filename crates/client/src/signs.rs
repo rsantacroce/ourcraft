@@ -42,10 +42,33 @@ struct SignTexts {
     shown: HashMap<IVec3, (Entity, Vec<String>, u16)>,
 }
 
-/// The sign being written on.
+/// What's being written: a sign, or a name tag for an animal.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Writing {
+    Sign(IVec3),
+    Name(u64),
+}
+
+impl Writing {
+    fn lines(self) -> usize {
+        match self {
+            Writing::Sign(_) => SIGN_LINES,
+            Writing::Name(_) => 1,
+        }
+    }
+
+    fn line_len(self) -> usize {
+        match self {
+            Writing::Sign(_) => SIGN_LINE_LEN,
+            Writing::Name(_) => ourcraft_common::mobs::PET_NAME_LEN,
+        }
+    }
+}
+
+/// The sign (or name tag) being written on.
 #[derive(Resource, Default)]
 struct SignEditor {
-    pos: Option<IVec3>,
+    pos: Option<Writing>,
     lines: Vec<String>,
     line: usize,
 }
@@ -277,9 +300,10 @@ impl SignEditor {
     /// Returns true when the writing is finished.
     fn press(&mut self, key: SignKey) -> bool {
         let line = self.line;
+        let max_len = self.pos.map_or(SIGN_LINE_LEN, |w| w.line_len());
         match key {
             SignKey::Next => {
-                if line + 1 < SIGN_LINES {
+                if line + 1 < self.lines.len() {
                     self.line += 1;
                 } else {
                     return true;
@@ -292,7 +316,7 @@ impl SignEditor {
                 }
             }
             SignKey::Char(c) => {
-                if self.lines[line].chars().count() < SIGN_LINE_LEN {
+                if self.lines[line].chars().count() < max_len {
                     self.lines[line].push(c);
                 }
             }
@@ -315,18 +339,28 @@ fn edit_signs(
     mut focus: ResMut<UiFocus>,
     screen: Res<OpenScreen>,
     signs: Res<SignTexts>,
+    mobs: Query<&crate::entities::Mob>,
     mut editor: ResMut<SignEditor>,
     conn: Option<ResMut<Connection>>,
 ) {
     let open = match *screen {
-        OpenScreen::Sign(pos) if focus.inventory_open => Some(pos),
+        OpenScreen::Sign(pos) if focus.inventory_open => Some(Writing::Sign(pos)),
+        OpenScreen::NameTag(id) if focus.inventory_open => Some(Writing::Name(id)),
         _ => None,
     };
     if editor.pos != open {
         // Just opened: start from what it says now.
-        if let Some(pos) = open {
-            editor.lines = signs.lines.get(&pos).cloned().unwrap_or_default();
-            editor.lines.resize(SIGN_LINES, String::new());
+        if let Some(w) = open {
+            editor.lines = match w {
+                Writing::Sign(pos) => signs.lines.get(&pos).cloned().unwrap_or_default(),
+                Writing::Name(id) => mobs
+                    .iter()
+                    .find(|m| m.id == id)
+                    .and_then(|m| m.name.clone())
+                    .into_iter()
+                    .collect(),
+            };
+            editor.lines.resize(w.lines(), String::new());
             editor.line = 0;
         }
         editor.pos = open;
@@ -335,7 +369,7 @@ fn edit_signs(
         touches.clear();
         return;
     }
-    let Some(pos) = open else { return };
+    let Some(writing) = open else { return };
     let mut pressed: Vec<SignKey> = Vec::new();
     for e in typed.read().filter(|e| e.state == ButtonState::Pressed) {
         match &e.logical_key {
@@ -377,13 +411,17 @@ fn edit_signs(
     }
     if done {
         if let Some(mut conn) = conn {
-            conn.send(
-                Channel::Reliable,
-                &ClientMessage::SetSign {
+            let msg = match writing {
+                Writing::Sign(pos) => ClientMessage::SetSign {
                     pos: pos.to_array(),
                     lines: editor.lines.clone(),
                 },
-            );
+                Writing::Name(id) => ClientMessage::NameAnimal {
+                    id,
+                    name: editor.lines.concat(),
+                },
+            };
+            conn.send(Channel::Reliable, &msg);
         }
         focus.inventory_open = false;
     }
@@ -400,7 +438,7 @@ fn draw_editor(
     editor: Res<SignEditor>,
     touch: Res<crate::touch::TouchControls>,
     existing: Query<Entity, With<EditorPanel>>,
-    mut shown_for: Local<Option<IVec3>>,
+    mut shown_for: Local<Option<Writing>>,
     mut lines: Query<(&EditorLine, &mut Text, &mut BackgroundColor)>,
 ) {
     if !editor.is_changed() {
@@ -482,11 +520,12 @@ fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
                     BackgroundColor(Color::srgb(0.55, 0.4, 0.24)),
                 ))
                 .with_children(|board| {
-                    board.spawn((
-                        Text::new("Write on the sign"),
-                        TextFont::from_font_size(18.0),
-                    ));
-                    for i in 0..SIGN_LINES {
+                    let title = match editor.pos {
+                        Some(Writing::Name(_)) => "Give your animal a name",
+                        _ => "Write on the sign",
+                    };
+                    board.spawn((Text::new(title), TextFont::from_font_size(18.0)));
+                    for i in 0..editor.lines.len() {
                         let (t, c) = line_look(editor, i);
                         board.spawn((
                             Button,

@@ -82,6 +82,8 @@ pub enum OpenScreen {
     Container(IVec3),
     /// Writing on a sign (see the `signs` module).
     Sign(IVec3),
+    /// Writing a name tag for this animal (an entity id; also `signs`).
+    NameTag(u64),
 }
 
 impl OpenScreen {
@@ -90,7 +92,7 @@ impl OpenScreen {
         match self {
             OpenScreen::Inventory => 2,
             OpenScreen::CraftingTable => 3,
-            OpenScreen::Container(_) | OpenScreen::Sign(_) => 0,
+            OpenScreen::Container(_) | OpenScreen::Sign(_) | OpenScreen::NameTag(_) => 0,
         }
     }
 }
@@ -816,7 +818,7 @@ fn toggle_inventory_screen(
     // closes itself.
     if focus.menu_open
         || focus.chat_open
-        || (focus.inventory_open && matches!(*screen, OpenScreen::Sign(_)))
+        || (focus.inventory_open && matches!(*screen, OpenScreen::Sign(_) | OpenScreen::NameTag(_)))
     {
         return;
     }
@@ -947,7 +949,7 @@ fn rebuild_screen(
     for e in &existing {
         commands.entity(e).despawn();
     }
-    if !focus.inventory_open || matches!(*screen, OpenScreen::Sign(_)) {
+    if !focus.inventory_open || matches!(*screen, OpenScreen::Sign(_) | OpenScreen::NameTag(_)) {
         return;
     }
     let creative = *mode == GameMode::Creative;
@@ -961,6 +963,7 @@ fn rebuild_screen(
             _ => "Furnace",
         },
         OpenScreen::Sign(_) => "Sign",
+        OpenScreen::NameTag(_) => "Name Tag",
     };
     let row = || Node {
         flex_direction: FlexDirection::Row,

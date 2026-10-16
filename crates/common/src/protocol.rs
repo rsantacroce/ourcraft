@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 15;
+pub const PROTOCOL_VERSION: u64 = 16;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -233,6 +233,11 @@ pub enum ClientMessage {
     UseEntity {
         id: u64,
         held: u16,
+    },
+    /// Give an animal a name with the name tag in hand.
+    NameAnimal {
+        id: u64,
+        name: String,
     },
     /// Used a block while holding `held`: open or close a door, sleep in
     /// a bed, eat cake, fill a composter, give a plant bone meal.

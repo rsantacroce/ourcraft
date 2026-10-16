@@ -85,7 +85,11 @@ fn type_chat(
     mut focus: ResMut<UiFocus>,
     mut input: ResMut<ChatInput>,
     conn: Option<ResMut<Connection>>,
+    mut was_busy: Local<bool>,
 ) {
+    // A screen that closed this frame (Enter finishing a sign) doesn't
+    // also open chat.
+    let busy = std::mem::replace(&mut *was_busy, focus.inventory_open || focus.menu_open);
     // Opening and typing both read the same key events, so one key press
     // can never count twice.
     let presses: Vec<Key> = typed
@@ -95,7 +99,7 @@ fn type_chat(
         .collect();
     let mut presses = presses.into_iter();
     if !focus.chat_open {
-        if focus.inventory_open || focus.menu_open {
+        if focus.inventory_open || focus.menu_open || busy {
             return;
         }
         // Enter opens chat; `/` opens it ready for a command.

@@ -217,6 +217,10 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
         ItemDef::material("core:sugar", "Sugar"),
         ItemDef::material("core:paper", "Paper"),
         ItemDef {
+            max_stack: 16,
+            ..ItemDef::material("core:name_tag", "Name Tag")
+        },
+        ItemDef {
             food: 5,
             ..ItemDef::material("core:bread", "Bread")
         },

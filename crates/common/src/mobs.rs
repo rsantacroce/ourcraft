@@ -480,9 +480,47 @@ pub fn mob_model_coloured(name: &str, baby: bool, sheared: bool, colour: u8) -> 
     s
 }
 
+/// Longest name a name tag can give.
+pub const PET_NAME_LEN: usize = 16;
+
+/// A name for an animal, tidied: letters, digits, spaces and a little
+/// punctuation, not too long.
+pub fn clean_pet_name(name: &str) -> String {
+    let kept: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '\'' | '!' | '.'))
+        .collect();
+    let tidy = kept.split_whitespace().collect::<Vec<_>>().join(" ");
+    tidy.chars()
+        .take(PET_NAME_LEN)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
+/// A named animal's model has its name on the end, after a `|`.
+pub fn with_pet_name(model: String, name: Option<&str>) -> String {
+    match name {
+        Some(n) if !n.is_empty() => format!("{model}|{n}"),
+        _ => model,
+    }
+}
+
+/// The name a name tag gave this animal, if any.
+pub fn pet_name(model: &str) -> Option<&str> {
+    model
+        .split_once('|')
+        .map(|(_, n)| n)
+        .filter(|n| !n.is_empty())
+}
+
+fn without_pet_name(model: &str) -> &str {
+    model.split_once('|').map_or(model, |(m, _)| m)
+}
+
 /// Undo [`mob_model`]: (name, baby, sheared).
 pub fn parse_mob_model(model: &str) -> Option<(&str, bool, bool)> {
-    let rest = model.strip_prefix("@mob:")?;
+    let rest = without_pet_name(model).strip_prefix("@mob:")?;
     let mut baby = false;
     let mut sheared = false;
     let mut name = rest;
@@ -506,7 +544,7 @@ pub fn parse_mob_model(model: &str) -> Option<(&str, bool, bool)> {
 
 /// The colour of a dyed sheep's wool from its model (0 = white).
 pub fn mob_colour(model: &str) -> u8 {
-    model
+    without_pet_name(model)
         .split(':')
         .filter_map(|p| p.strip_prefix('c')?.parse::<u8>().ok())
         .next_back()
@@ -530,6 +568,21 @@ mod tests {
         let blue = mob_model_coloured("core:sheep", true, false, 12);
         assert_eq!(parse_mob_model(&blue), Some(("core:sheep", true, false)));
         assert_eq!((mob_colour(&blue), mob_colour("@mob:core:sheep")), (12, 0));
+    }
+
+    #[test]
+    fn pets_keep_their_names() {
+        let m = with_pet_name(
+            mob_model_coloured("core:sheep", true, false, 12),
+            Some("Fluffy"),
+        );
+        assert_eq!(parse_mob_model(&m), Some(("core:sheep", true, false)));
+        assert_eq!((mob_colour(&m), pet_name(&m)), (12, Some("Fluffy")));
+        assert_eq!(pet_name("@mob:core:cat"), None);
+        assert_eq!(
+            clean_pet_name("  Mr   Whiskers|<3 the very great "),
+            "Mr Whiskers3 the"
+        );
     }
 
     #[test]

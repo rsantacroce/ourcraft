@@ -61,6 +61,7 @@ impl Plugin for MobsPlugin {
                 Update,
                 (
                     use_mobs,
+                    name_mobs,
                     hit_mobs,
                     spawn_naturally,
                     think,
@@ -141,6 +142,10 @@ pub struct MobState {
     ridden: bool,
     /// Befriended by this player (by name): follows them about.
     friend: Option<String>,
+    /// What a name tag called it.
+    name: Option<String>,
+    /// A friend told to stay: it sits where it is.
+    sitting: bool,
 }
 
 impl MobState {
@@ -166,15 +171,20 @@ impl MobState {
             saddled: false,
             ridden: false,
             friend: None,
+            name: None,
+            sitting: false,
         }
     }
 
     fn model(&self) -> String {
-        ourcraft_common::mobs::mob_model_coloured(
-            &self.kind,
-            self.baby_for > 0.0,
-            self.sheared_for > 0.0,
-            self.colour,
+        ourcraft_common::mobs::with_pet_name(
+            ourcraft_common::mobs::mob_model_coloured(
+                &self.kind,
+                self.baby_for > 0.0,
+                self.sheared_for > 0.0,
+                self.colour,
+            ),
+            self.name.as_deref(),
         )
     }
 
@@ -270,6 +280,63 @@ fn change_look(entities: &mut Entities, states: &mut MobStates, id: u64) {
         ..old
     });
     states.0.insert(new_id, state);
+}
+
+/// A name tag on an animal: it's called that now (and it's yours, so it
+/// stays). Monsters can't be named.
+fn name_mobs(
+    mut messages: MessageReader<FromClient>,
+    players_map: Res<Players>,
+    players: Query<&ConnectedPlayer>,
+    open: Res<OpenWorld>,
+    mut entities: ResMut<Entities>,
+    mut states: ResMut<MobStates>,
+    mut net: ResMut<Network>,
+) {
+    for FromClient { client, msg } in messages.read() {
+        let ClientMessage::NameAnimal { id, name } = msg else {
+            continue;
+        };
+        let Some(p) = players_map.0.get(client).and_then(|e| players.get(*e).ok()) else {
+            continue;
+        };
+        let Some(tag) = open.items.by_name("core:name_tag") else {
+            continue;
+        };
+        let near = entities
+            .list
+            .get(id)
+            .is_some_and(|e| e.position.distance(p.position()) < USE_REACH + 1.0);
+        let Some(state) = states.0.get_mut(id).filter(|_| near) else {
+            continue;
+        };
+        if def(&open, &state.kind).is_none_or(|d| d.hostile.is_some()) {
+            continue;
+        }
+        let name = ourcraft_common::mobs::clean_pet_name(name);
+        if name.is_empty() || (!p.creative && p.inventory.count(tag) == 0) {
+            continue;
+        }
+        info!(
+            "{} named a {} \"{name}\"",
+            p.name.as_deref().unwrap_or("?"),
+            state.kind
+        );
+        state.name = Some(name);
+        state.natural = false;
+        change_look(&mut entities, &mut states, *id);
+        if !p.creative {
+            net.send(
+                *client,
+                Channel::Reliable,
+                &ServerMessage::TakeItems(NetStack {
+                    item: tag.0,
+                    count: 1,
+                    wear: 0,
+                }),
+            );
+        }
+    }
 }
 
 /// Right-clicking an animal: shear it, feed it, or pet it.
@@ -432,6 +499,25 @@ fn use_mobs(
                 effect = Some(EffectKind::Hearts);
                 sound = Some(kind.sound.as_str());
             }
+        } else if held == ItemId::NONE && state.friend.is_some() && state.friend == p.name {
+            // Its friend's pat: sit and stay (or come along again).
+            state.sitting = !state.sitting;
+            let who = state
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("Your {}", kind.display_name.to_lowercase()));
+            let text = if state.sitting {
+                format!("{who} sits and stays.")
+            } else {
+                format!("{who} comes along again.")
+            };
+            net.send(
+                *client,
+                Channel::Reliable,
+                &ServerMessage::Chat { from: None, text },
+            );
+            effect = Some(EffectKind::Hearts);
+            sound = Some(kind.sound.as_str());
         } else {
             // A pat on the head: a happy hop.
             if state.vy == 0.0 {
@@ -717,6 +803,11 @@ fn think(
         let Some(kind) = def(&open, &s.kind) else {
             continue;
         };
+        // Told to stay.
+        if s.sitting {
+            s.goal = Goal::Idle;
+            continue;
+        }
         // Just got bopped: keep running.
         if s.flee > 0.0 {
             s.flee -= dt;
@@ -1401,6 +1492,7 @@ fn remember_kept(
             state.colour = a.colour % 16;
             state.friend = a.friend.clone();
             state.saddled = a.saddled;
+            state.name = a.name.clone();
             let id = entities.spawn(ServerEntity {
                 model: state.model(),
                 position: Vec3::from_array(a.position),
@@ -1436,6 +1528,7 @@ fn remember_kept(
                 colour: s.colour,
                 friend: s.friend.clone(),
                 saddled: s.saddled,
+                name: s.name.clone(),
             })
         })
         .collect();

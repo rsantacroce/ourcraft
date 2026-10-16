@@ -497,6 +497,7 @@ fn handle_messages(
             | ClientMessage::DropItems(_)
             | ClientMessage::UseEntity { .. }
             | ClientMessage::UseBlock { .. }
+            | ClientMessage::NameAnimal { .. }
             | ClientMessage::SetSign { .. }
             | ClientMessage::Eat { .. }
             | ClientMessage::HitEntity { .. }

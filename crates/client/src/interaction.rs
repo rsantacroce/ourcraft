@@ -206,8 +206,15 @@ fn use_blocks(
         return;
     }
     if let Some((mob, _)) = &target_mob.0 {
-        let Some(mut conn) = conn else { return };
         let held = inventory.held();
+        // A name tag: write the name first (the signs module sends it).
+        let tame = defs.0.get(&mob.kind).is_some_and(|d| d.hostile.is_none());
+        if tame && held.is_some_and(|h| items.name(h) == "core:name_tag") {
+            *screen = OpenScreen::NameTag(mob.id);
+            focus.inventory_open = true;
+            return;
+        }
+        let Some(mut conn) = conn else { return };
         conn.send(
             Channel::Reliable,
             &ClientMessage::UseEntity {

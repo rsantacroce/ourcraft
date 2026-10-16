@@ -34,7 +34,7 @@ impl Plugin for RailsPlugin {
             .init_resource::<RailDirty>()
             .add_systems(
                 Update,
-                (use_carts, join_rails, roll_carts)
+                (remember_carts, use_carts, join_rails, roll_carts)
                     .chain()
                     .after(crate::players::PlayersSet),
             );
@@ -62,6 +62,54 @@ fn dir_vec(d: Dir4) -> Vec3 {
 /// The way along a vector, if it's one of the four.
 fn dir_of(v: Vec3) -> Option<Dir4> {
     Dir4::ALL.into_iter().find(|d| dir_vec(*d).dot(v) > 0.9)
+}
+
+/// Bring back the carts saved with the world (once), then keep the list
+/// to save up to date.
+fn remember_carts(
+    mut open: ResMut<OpenWorld>,
+    mut entities: ResMut<Entities>,
+    mut carts: ResMut<Carts>,
+    mut loaded: Local<bool>,
+    mut timer: Local<u32>,
+) {
+    if !*loaded {
+        *loaded = true;
+        for (_, at, yaw) in &open.carts {
+            let id = entities.spawn(ServerEntity {
+                model: "@cart".into(),
+                position: Vec3::from_array(*at),
+                velocity: Vec3::ZERO,
+                motion: EntityMotion::Fixed,
+                lifetime: 0.0,
+                age: 0.0,
+                owner: None,
+                moved: true,
+                item: None,
+                yaw: *yaw,
+            });
+            carts.0.insert(
+                id,
+                Cart {
+                    dir: Vec3::Z,
+                    speed: 0.0,
+                },
+            );
+        }
+        return;
+    }
+    *timer += 1;
+    if (*timer).is_multiple_of(10) {
+        let list = carts
+            .0
+            .keys()
+            .filter_map(|id| {
+                let e = entities.list.get(id)?;
+                Some(("core:minecart".to_owned(), e.position.to_array(), e.yaw))
+            })
+            .collect();
+        open.bypass_change_detection().carts = list;
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

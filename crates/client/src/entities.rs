@@ -40,6 +40,7 @@ impl Plugin for EntitiesPlugin {
                     seat_rider,
                     cart_seat,
                     light_entities,
+                    pet_nameplates,
                 )
                     .chain()
                     .after(crate::player::PlayerUpdateSet),
@@ -90,11 +91,73 @@ pub struct Mob {
     pub size: [f32; 2],
     pub baby: bool,
     pub sheared: bool,
+    /// What a name tag called it.
+    pub name: Option<String>,
 }
 
 /// A boat.
 #[derive(Component)]
 struct Boat;
+
+/// The floating name over a named animal (a UI node).
+#[derive(Component)]
+struct PetPlate(Entity);
+
+/// Named animals have their name floating over them, like players.
+fn pet_nameplates(
+    mut commands: Commands,
+    camera: Single<(&Camera, &GlobalTransform), With<crate::player::PlayerCamera>>,
+    mobs: Query<(Entity, &Mob, &Transform)>,
+    mut plates: Query<(Entity, &PetPlate, &mut Node, &mut Visibility, &ComputedNode)>,
+    mut made: Local<HashMap<Entity, Entity>>,
+) {
+    for (e, mob, _) in &mobs {
+        if let Some(name) = &mob.name
+            && !made.contains_key(&e)
+        {
+            let plate = commands
+                .spawn((
+                    PetPlate(e),
+                    Text::new(crate::profanity::filter(name)),
+                    TextFont::from_font_size(14.0),
+                    TextColor(Color::WHITE),
+                    TextShadow {
+                        offset: Vec2::splat(1.0),
+                        color: Color::BLACK,
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        padding: UiRect::horizontal(px(3)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.35)),
+                    Visibility::Hidden,
+                    Pickable::IGNORE,
+                ))
+                .id();
+            made.insert(e, plate);
+        }
+    }
+    let (camera, cam) = *camera;
+    for (plate, PetPlate(owner), mut node, mut vis, computed) in &mut plates {
+        let Ok((_, mob, t)) = mobs.get(*owner) else {
+            commands.entity(plate).despawn();
+            made.remove(owner);
+            continue;
+        };
+        let head = t.translation + Vec3::Y * (mob.size[1] + 0.1);
+        let near = head.distance(cam.translation()) < 24.0;
+        match camera.world_to_viewport(cam, head) {
+            Ok(screen) if near => {
+                let size = computed.size() * computed.inverse_scale_factor();
+                node.left = px(screen.x - size.x / 2.0);
+                node.top = px(screen.y - size.y);
+                *vis = Visibility::Inherited;
+            }
+            _ => *vis = Visibility::Hidden,
+        }
+    }
+}
 
 /// The boat we're sitting in stays right under us (the server's word on
 /// where it is comes a little late).
@@ -507,6 +570,7 @@ fn handle_messages(
                                 size: [def.size[0] * scale, def.size[1] * scale],
                                 baby,
                                 sheared,
+                                name: ourcraft_common::mobs::pet_name(model).map(str::to_owned),
                             },
                             Transform::from_translation(pos)
                                 .with_rotation(Quat::from_rotation_y(*yaw))
@@ -567,6 +631,7 @@ fn handle_messages(
                                 size: [1.0, 0.7],
                                 baby: false,
                                 sheared: false,
+                                name: None,
                             },
                             Transform::from_translation(pos)
                                 .with_rotation(Quat::from_rotation_y(*yaw)),
@@ -672,6 +737,7 @@ fn handle_messages(
                                 size: [1.4, 0.5],
                                 baby: false,
                                 sheared: false,
+                                name: None,
                             },
                             Transform::from_translation(pos)
                                 .with_rotation(Quat::from_rotation_y(*yaw)),
