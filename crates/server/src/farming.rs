@@ -228,6 +228,12 @@ fn compost_chance(item: &str) -> Option<u32> {
         | "core:brown_mushroom" => Some(2),
         "core:pumpkin" | "core:melon" | "core:bread" | "core:baked_potato" | "core:cookie"
         | "core:pumpkin_pie" => Some(1),
+        f if ourcraft_common::colours::FLOWERS
+            .iter()
+            .any(|(n, _, _)| *n == f) =>
+        {
+            Some(2)
+        }
         _ => None,
     }
 }

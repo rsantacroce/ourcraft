@@ -342,6 +342,55 @@ pub fn register_fence_gates(reg: &mut BlockRegistry) {
     }
 }
 
+/// A bed family: the foot where you place it, the head beyond. Its
+/// textures are `bed_head`, `bed_foot` and `bed_side` plus `texture_suffix`
+/// (coloured beds use `"_blue"` and so on).
+pub fn register_bed(reg: &mut BlockRegistry, family: &str, display: &str, texture_suffix: &str) {
+    let mut base = None;
+    for upper in [false, true] {
+        for d in Dir4::ALL {
+            let first = base.is_none();
+            let mut name = if first {
+                family.to_owned()
+            } else {
+                format!("{family}_{}", d.name())
+            };
+            if upper {
+                name.push_str("_upper");
+            }
+            let top = if upper { "bed_head" } else { "bed_foot" };
+            let tex = |t: &str| format!("{t}{texture_suffix}");
+            let mut def = BlockDef {
+                render: RenderKind::Cutout,
+                shape: BlockShape::Boxes(facing(&[[0, 0, 0, 16, 9, 16]], d)),
+                hidden: !first,
+                variant: Some(Variant {
+                    kind: VariantKind::Bed,
+                    family: family.to_owned(),
+                    facing: d,
+                    open: false,
+                    upper,
+                }),
+                ..BlockDef::solid(
+                    &name,
+                    display,
+                    T::top_bottom_side(&tex(top), "planks", &tex("bed_side")),
+                )
+                .mined(0.6, None, 0)
+            };
+            if let Some(b) = base {
+                def.drops = if upper {
+                    Drops::Nothing
+                } else {
+                    Drops::Block(b)
+                };
+            }
+            let id = reg.register(def);
+            base.get_or_insert(id);
+        }
+    }
+}
+
 /// Add the shaped blocks (milestones 13 and 14) to the built-in list.
 pub fn register_shaped_blocks(reg: &mut BlockRegistry) {
     let wood = |d: BlockDef| d.mined(2.0, Some(ToolKind::Axe), 0);
@@ -565,18 +614,7 @@ pub fn register_shaped_blocks(reg: &mut BlockRegistry) {
     }
 
     // ---- Bed: foot where you place it, head beyond. ----
-    let bed = |name: &str| {
-        let head = name.ends_with("_upper");
-        let top = if head { "bed_head" } else { "bed_foot" };
-        BlockDef {
-            render: RenderKind::Cutout,
-            ..BlockDef::solid(name, "", T::top_bottom_side(top, "planks", "bed_side"))
-                .mined(0.6, None, 0)
-        }
-    };
-    let mut states = all_dirs(&[[0, 0, 0, 16, 9, 16]], false, false);
-    states.extend(all_dirs(&[[0, 0, 0, 16, 9, 16]], false, true));
-    family(reg, VariantKind::Bed, "core:bed", "Bed", &bed, states, true);
+    register_bed(reg, "core:bed", "Bed", "");
 
     // ---- Chest (holds 27 stacks; see containers). ----
     reg.register(wood(BlockDef {

@@ -408,6 +408,18 @@ pub struct SavedAnimal {
     /// Seconds left as a baby, and until the wool grows back.
     pub baby_for: f32,
     pub sheared_for: f32,
+    /// Wool colour (0 = white).
+    pub colour: u8,
+}
+
+/// An animal as saved by version 1 of `animals.dat` (no colours yet).
+#[derive(Deserialize)]
+struct SavedAnimalV1 {
+    kind: String,
+    position: [f32; 3],
+    yaw: f32,
+    baby_for: f32,
+    sheared_for: f32,
 }
 
 /// A saved furnace (or other container) and where it is.
@@ -737,11 +749,41 @@ impl WorldStorage {
 
     /// Animals players look after (`animals.dat`).
     pub fn load_animals(&self) -> io::Result<Vec<SavedAnimal>> {
-        self.load_list("animals.dat")
+        let path = self.dir.join("animals.dat");
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let bytes = fs::read(path)?;
+        let bad = |e: postcard::Error| invalid(e.to_string());
+        let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(bad)?;
+        match version {
+            2 => {
+                let (_, list): (u32, Vec<SavedAnimal>) =
+                    postcard::from_bytes(&bytes).map_err(bad)?;
+                Ok(list)
+            }
+            1 => {
+                let (_, list): (u32, Vec<SavedAnimalV1>) =
+                    postcard::from_bytes(&bytes).map_err(bad)?;
+                Ok(list
+                    .into_iter()
+                    .map(|a| SavedAnimal {
+                        kind: a.kind,
+                        position: a.position,
+                        yaw: a.yaw,
+                        baby_for: a.baby_for,
+                        sheared_for: a.sheared_for,
+                        colour: 0,
+                    })
+                    .collect())
+            }
+            v => Err(invalid(format!("unknown animals.dat version {v}"))),
+        }
     }
 
     pub fn save_animals(&self, animals: Vec<SavedAnimal>) -> io::Result<()> {
-        self.save_list("animals.dat", animals)
+        let bytes = postcard::to_allocvec(&(2u32, animals)).map_err(|e| invalid(e.to_string()))?;
+        write_atomic(&self.dir.join("animals.dat"), &bytes)
     }
 
     /// World rules such as peaceful (`rules.dat`).
@@ -946,6 +988,7 @@ mod tests {
             yaw: 0.3,
             baby_for: 100.0,
             sheared_for: 0.0,
+            colour: 12,
         }];
         storage.save_animals(animals.clone()).unwrap();
         assert_eq!(storage.load_animals().unwrap(), animals);

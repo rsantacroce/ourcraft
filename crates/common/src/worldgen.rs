@@ -59,6 +59,7 @@ struct Plants {
     melon: BlockId,
     /// Ripe wild crops.
     crops: [BlockId; 4],
+    flowers: Vec<BlockId>,
 }
 
 impl Plants {
@@ -76,6 +77,7 @@ impl Plants {
             mushrooms: [id("core:red_mushroom"), id("core:brown_mushroom")],
             pumpkin: id("core:pumpkin"),
             melon: id("core:melon"),
+            flowers: crate::colours::FLOWERS.iter().map(|f| id(f.0)).collect(),
             crops: [
                 ripe("core:wheat_crop"),
                 ripe("core:carrot_crop"),
@@ -377,6 +379,21 @@ impl WorldGenerator {
 }
 
 impl WorldGenerator {
+    /// Flowery patches (about one area in three).
+    fn meadow(&self, x: i32, z: i32) -> bool {
+        splitmix64(
+            self.seed ^ 0x666c_6f77 ^ ((x >> 3) as u32 as u64) ^ (((z >> 3) as u32 as u64) << 32),
+        )
+        .is_multiple_of(3)
+    }
+
+    /// Which flower grows in a patch.
+    fn flower_kind(&self, x: i32, z: i32) -> usize {
+        (splitmix64(
+            self.seed ^ 0x6b69_6e64 ^ ((x >> 4) as u32 as u64) ^ (((z >> 4) as u32 as u64) << 32),
+        ) >> 8) as usize
+    }
+
     /// Small plants, one block each (so they never cross into the next
     /// column): tall grass, wild crops, pumpkins and melons, sugar cane by
     /// the water, and mushrooms in forests and caves.
@@ -405,6 +422,10 @@ impl WorldGenerator {
                         Biome::Plains if roll < 1_200 => Some(p.tall_grass),
                         Biome::Plains if roll < 1_230 => {
                             Some(p.crops[(r >> 20) as usize % p.crops.len()])
+                        }
+                        // Flowers grow in patches of one kind.
+                        Biome::Plains | Biome::Forest if roll < 1_600 && self.meadow(wx, wz) => {
+                            Some(p.flowers[self.flower_kind(wx, wz) % p.flowers.len()])
                         }
                         Biome::Plains | Biome::Forest if roll >= 9_990 => Some(p.pumpkin),
                         Biome::Forest if roll < 600 => Some(p.tall_grass),

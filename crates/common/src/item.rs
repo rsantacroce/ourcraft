@@ -272,6 +272,13 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
             ));
         }
     }
+    // ---- Milestone 18: a dye in every colour ----
+    for (c, display, _) in crate::colours::COLOURS {
+        items.push(ItemDef::material(
+            &format!("core:{c}_dye"),
+            &format!("{display} Dye"),
+        ));
+    }
     items
 }
 
@@ -298,6 +305,7 @@ fn block_extras(name: &str) -> (f32, Option<&'static str>) {
         "core:gold_ore" => (0.0, Some("core:gold_ingot")),
         "core:clay" => (0.0, Some("core:bricks")),
         "core:composter" => (15.0, None),
+        "core:cactus" => (0.0, Some("core:green_dye")),
         _ => (0.0, None),
     }
 }

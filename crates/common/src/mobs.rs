@@ -252,7 +252,16 @@ pub fn builtin_mobs() -> Vec<MobDef> {
 /// The model name clients recognise as "draw this mob":
 /// `@mob:<name>`, plus `:baby` and/or `:sheared`.
 pub fn mob_model(name: &str, baby: bool, sheared: bool) -> String {
+    mob_model_coloured(name, baby, sheared, 0)
+}
+
+/// Like [`mob_model`], for a sheep dyed `colour` (see `colours::COLOURS`;
+/// 0 is white, the usual).
+pub fn mob_model_coloured(name: &str, baby: bool, sheared: bool, colour: u8) -> String {
     let mut s = format!("@mob:{name}");
+    if colour > 0 {
+        s.push_str(&format!(":c{colour}"));
+    }
     if baby {
         s.push_str(":baby");
     }
@@ -275,11 +284,24 @@ pub fn parse_mob_model(model: &str) -> Option<(&str, bool, bool)> {
         } else if let Some(n) = name.strip_suffix(":sheared") {
             sheared = true;
             name = n;
+        } else if let Some((n, c)) = name.rsplit_once(":c")
+            && c.parse::<u8>().is_ok()
+        {
+            name = n;
         } else {
             break;
         }
     }
     Some((name, baby, sheared))
+}
+
+/// The colour of a dyed sheep's wool from its model (0 = white).
+pub fn mob_colour(model: &str) -> u8 {
+    model
+        .split(':')
+        .filter_map(|p| p.strip_prefix('c')?.parse::<u8>().ok())
+        .next_back()
+        .unwrap_or(0)
 }
 
 /// How big a baby is compared with a grown-up.
@@ -296,6 +318,9 @@ mod tests {
             assert_eq!(parse_mob_model(&m), Some(("core:sheep", baby, sheared)));
         }
         assert_eq!(parse_mob_model("splat:flag_red"), None);
+        let blue = mob_model_coloured("core:sheep", true, false, 12);
+        assert_eq!(parse_mob_model(&blue), Some(("core:sheep", true, false)));
+        assert_eq!((mob_colour(&blue), mob_colour("@mob:core:sheep")), (12, 0));
     }
 
     #[test]

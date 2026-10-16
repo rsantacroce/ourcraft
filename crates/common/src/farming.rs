@@ -25,8 +25,10 @@ pub enum StageKind {
     Stem { fruit: String },
     /// Sugar cane: grows taller (up to three) next to water.
     Cane,
-    /// Tall grass (and later flowers): sits on grass or dirt.
+    /// Tall grass: sits on grass or dirt, and you can build into it.
     Grass,
+    /// A flower: sits on grass or dirt.
+    Flower,
     /// Grows in the dark on any solid block.
     Mushroom,
     /// Each stage is one more slice eaten.
@@ -382,7 +384,7 @@ impl BlockRegistry {
         let named = |b: BlockId, names: &[&str]| names.contains(&self.get(b).name.as_str());
         match s.kind {
             StageKind::Crop | StageKind::Stem { .. } => self.is_farmland(below),
-            StageKind::Grass => {
+            StageKind::Grass | StageKind::Flower => {
                 named(below, &["core:grass", "core:dirt", "core:snow"]) || self.is_farmland(below)
             }
             StageKind::Cane => {

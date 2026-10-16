@@ -495,6 +495,8 @@ impl BlockRegistry {
         crate::shapes::register_fence_gates(&mut reg);
         // ---- Milestone 17: farming ----
         crate::farming::register_farming(&mut reg);
+        // ---- Milestone 18: colours ----
+        crate::colours::register_colours(&mut reg);
         reg
     }
 

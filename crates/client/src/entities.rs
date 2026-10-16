@@ -237,6 +237,7 @@ pub fn shaded_cuboid(size: Vec3) -> Mesh {
 fn mob_look(
     def: &MobDef,
     sheared: bool,
+    colour: u8,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
 ) -> Vec<PartLook> {
@@ -250,6 +251,9 @@ fn mob_look(
                 min += Vec3::splat(0.05);
                 max -= Vec3::splat(0.05);
                 rgba = def.skin;
+            } else if p.wool && colour > 0 {
+                let [r, g, b] = ourcraft_common::colours::COLOURS[colour as usize % 16].2;
+                rgba = [r, g, b, 255];
             }
             let size = (max - min).abs().max(Vec3::splat(0.01));
             let center = (min + max) / 2.0;
@@ -373,7 +377,7 @@ struct ItemLooks<'w, 's> {
     images: ResMut<'w, Assets<Image>>,
     cache: Local<'s, HashMap<ItemId, (Handle<Mesh>, Handle<StandardMaterial>)>>,
     mobs: ResMut<'w, MobDefs>,
-    mob_cache: Local<'s, HashMap<(String, bool), Vec<PartLook>>>,
+    mob_cache: Local<'s, HashMap<(String, bool, u8), Vec<PartLook>>>,
     variants: ResMut<'w, LitVariants>,
 }
 
@@ -438,10 +442,13 @@ fn handle_messages(
                     let Some(def) = looks.mobs.0.get(name).cloned() else {
                         continue;
                     };
+                    let colour = ourcraft_common::mobs::mob_colour(model);
                     let parts = looks
                         .mob_cache
-                        .entry((name.to_owned(), sheared))
-                        .or_insert_with(|| mob_look(&def, sheared, &mut meshes, &mut materials))
+                        .entry((name.to_owned(), sheared, colour))
+                        .or_insert_with(|| {
+                            mob_look(&def, sheared, colour, &mut meshes, &mut materials)
+                        })
                         .clone();
                     let scale = if baby { BABY_SCALE } else { 1.0 };
                     let e = commands

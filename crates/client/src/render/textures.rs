@@ -375,7 +375,7 @@ fn diamond_block(x: usize, y: usize) -> Rgba {
     metal(x, y, rgb(90, 220, 214), 60)
 }
 
-fn wool(x: usize, y: usize) -> Rgba {
+pub(super) fn wool(x: usize, y: usize) -> Rgba {
     // Soft curls: little rings of slightly darker fluff.
     let cx = (x % 4) as f32 - 1.5;
     let cy = ((y + (x / 4) * 2) % 4) as f32 - 1.5;
@@ -588,7 +588,9 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
 
 /// True if `name` is one of the built-in textures.
 pub fn is_builtin(name: &str) -> bool {
-    builtin(name).is_some() || super::farm_textures::pixel(name, 0, 0).is_some()
+    builtin(name).is_some()
+        || super::farm_textures::pixel(name, 0, 0).is_some()
+        || super::colour_textures::pixel(name, 0, 0).is_some()
 }
 
 /// Generate the RGBA pixels (row by row, top row first) for a named texture.
@@ -600,7 +602,9 @@ pub fn generate_texture(name: &str) -> Vec<u8> {
         for x in 0..N {
             let px = match pixel {
                 Some(f) => f(x, y),
-                None => super::farm_textures::pixel(name, x, y).unwrap_or_else(|| missing(x, y)),
+                None => super::farm_textures::pixel(name, x, y)
+                    .or_else(|| super::colour_textures::pixel(name, x, y))
+                    .unwrap_or_else(|| missing(x, y)),
             };
             out.extend_from_slice(&px);
         }

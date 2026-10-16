@@ -64,7 +64,39 @@ fn bowl_of(food: Option<Rgba>) -> Vec<u8> {
     )
 }
 
+/// A little heap of dye powder.
+fn dye(c: Rgba) -> Vec<u8> {
+    draw(
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".......L........",
+            "......LCC.......",
+            ".....LCCCC......",
+            "....LCCCCCC.....",
+            "...LCCCCCCCD....",
+            "..LCCCCCCCCCD...",
+            "..CCCCCCCCCDD...",
+            "...DDDDDDDDD....",
+            "................",
+            "................",
+            "................",
+        ],
+        &[('C', c), ('L', lighter(c, 60)), ('D', darker(c, 50))],
+    )
+}
+
 pub fn icon(name: &str) -> Option<Vec<u8>> {
+    if let Some(colour) = name.strip_suffix("_dye")
+        && let Some(c) = ourcraft_common::colours::COLOURS
+            .iter()
+            .find(|c| c.0 == colour)
+    {
+        return Some(dye([c.2[0], c.2[1], c.2[2], 255]));
+    }
     Some(match name {
         "wheat" => draw(
             &[

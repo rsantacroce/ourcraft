@@ -139,12 +139,6 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             3,
         ),
         shaped(
-            &["WWW", "PPP"],
-            &[('W', "core:wool"), ('P', "core:planks")],
-            "core:bed",
-            1,
-        ),
-        shaped(
             &["PPP", "P P", "PPP"],
             &[('P', "core:planks")],
             "core:chest",
@@ -187,6 +181,64 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             &k,
             &format!("core:{key}_hoe"),
             1,
+        ));
+    }
+    // ---- Milestone 18: dyes and dyed things ----
+    use crate::colours::{COLOURS, FLOWERS, bed_name, wool_name};
+    for (flower, _, dye) in FLOWERS {
+        r.push(shapeless(&[flower], &format!("core:{dye}_dye"), 1));
+    }
+    let dye = |c: &str| format!("core:{c}_dye");
+    for (from, to, n) in [
+        (&["core:bone_meal"][..], "white", 1),
+        (&["core:coal"], "black", 1),
+        (&["core:brown_mushroom"], "brown", 1),
+        (&["core:beetroot"], "red", 1),
+    ] {
+        r.push(shapeless(from, &dye(to), n));
+    }
+    for (a, b, to) in [
+        ("white", "black", "gray"),
+        ("white", "gray", "light_gray"),
+        ("white", "red", "pink"),
+        ("white", "blue", "light_blue"),
+        ("white", "green", "lime"),
+        ("blue", "green", "cyan"),
+        ("red", "blue", "purple"),
+        ("purple", "pink", "magenta"),
+        ("red", "yellow", "orange"),
+    ] {
+        r.push(shapeless(&[&dye(a), &dye(b)], &dye(to), 2));
+    }
+    for (c, _, _) in COLOURS {
+        let d = dye(c);
+        let wool = wool_name(c);
+        if c != "white" {
+            r.push(shapeless(&["core:wool", &d], &wool, 1));
+        }
+        r.push(shaped(
+            &["WWW", "PPP"],
+            &[('W', &wool), ('P', "core:planks")],
+            &bed_name(c),
+            1,
+        ));
+        r.push(shaped(
+            &["WW"],
+            &[('W', &wool)],
+            &format!("core:{c}_carpet"),
+            3,
+        ));
+        r.push(shaped(
+            &["GGG", "GDG", "GGG"],
+            &[('G', "core:glass"), ('D', &d)],
+            &format!("core:{c}_stained_glass"),
+            8,
+        ));
+        r.push(shaped(
+            &["CCC", "CDC", "CCC"],
+            &[('C', "core:clay"), ('D', &d)],
+            &format!("core:{c}_clay_tiles"),
+            8,
         ));
     }
     // ---- Milestone 17: farming and food ----

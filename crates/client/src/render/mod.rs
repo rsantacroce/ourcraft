@@ -13,6 +13,7 @@
 //! **Fog.** Chunks only exist up to the render distance. Fading distant
 //! terrain into the sky colour hides that edge (and chunks popping in).
 
+mod colour_textures;
 mod farm_icons;
 mod farm_textures;
 pub mod item_icons;

@@ -282,7 +282,23 @@ What was planned:
 - A composter that turns plant scraps into bone meal, which makes crops
   grow at once.
 
-### 18. Colours
+### 18. Colours ✅ done
+
+Eight meadow flowers (dandelion, poppy, cornflower, daisy, pink and orange
+tulips, allium, forget-me-not) grow in patches. Sixteen dyes come from
+flowers, coal (black), bone meal (white), brown mushrooms, beetroots and
+cactus (smelted, green), and mix into the rest (red and white make pink,
+blue and green cyan…). Dyed wool in every colour (white wool plus a dye);
+dyeing a sheep turns its wool that colour, and shearing gives coloured
+wool. Most wild sheep are white, some grey, black or brown, and lambs take
+after a parent (saved with kept animals). Beds, carpets, stained glass
+(see-through) and clay tiles in every colour.
+
+Not quite as planned: no stained glass panes yet (panes come with
+milestone 21) and no "candy bricks". White wool and planks now make a
+white bed; the red bed is made from red wool.
+
+What was planned:
 
 - Flowers in the meadows (several kinds, original looks), and dyes from
   them (16 colours), plus a few from other things (ink from coal, white

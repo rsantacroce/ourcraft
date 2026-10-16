@@ -130,6 +130,8 @@ pub struct MobState {
     hop_cd: f32,
     /// Seconds left running away after being hit.
     flee: f32,
+    /// Wool colour (sheep; 0 = white). See `colours::COLOURS`.
+    colour: u8,
 }
 
 impl MobState {
@@ -150,11 +152,17 @@ impl MobState {
             attack_cd: 0.0,
             hop_cd: 0.0,
             flee: 0.0,
+            colour: 0,
         }
     }
 
     fn model(&self) -> String {
-        mob_model(&self.kind, self.baby_for > 0.0, self.sheared_for > 0.0)
+        ourcraft_common::mobs::mob_model_coloured(
+            &self.kind,
+            self.baby_for > 0.0,
+            self.sheared_for > 0.0,
+            self.colour,
+        )
     }
 
     /// Saved with the world: looked after by a player (not wild), and not
@@ -282,10 +290,30 @@ fn use_mobs(
         let held_name = open.items.name(held);
         let mut sound = None;
         let mut effect = None;
-        if held_name == "core:shears" && state.sheared_for <= 0.0 && state.baby_for <= 0.0 {
-            if let Some(wool) = kind
-                .shears_into
+        let dye = ourcraft_common::colours::dye_colour(held_name);
+        if let Some(colour) = dye.filter(|c| kind.shears_into.is_some() && *c != state.colour) {
+            // Dyeing a sheep: its wool (and what grows back) is that colour.
+            state.colour = colour;
+            change_look(&mut entities, &mut states, *id);
+            net.send(
+                *client,
+                Channel::Reliable,
+                &ServerMessage::TakeItems(NetStack {
+                    item: held.0,
+                    count: 1,
+                    wear: 0,
+                }),
+            );
+            sound = Some("pop");
+        } else if held_name == "core:shears" && state.sheared_for <= 0.0 && state.baby_for <= 0.0 {
+            let coloured = (state.colour > 0).then(|| {
+                ourcraft_common::colours::wool_name(
+                    ourcraft_common::colours::COLOURS[state.colour as usize % 16].0,
+                )
+            });
+            if let Some(wool) = coloured
                 .as_deref()
+                .or(kind.shears_into.as_deref())
                 .and_then(|n| open.items.by_name(n))
             {
                 let n = 1 + (rng.next() % 3) as u16;
@@ -427,19 +455,20 @@ fn spawn_naturally(
     }
     *timer = 0.0;
     // Pick up animals mods spawned (they have no state yet).
-    let new: Vec<(u64, String, bool)> = entities
+    let new: Vec<(u64, String, bool, u8)> = entities
         .list
         .iter()
         .filter(|(id, _)| !states.0.contains_key(id))
         .filter_map(|(id, e)| {
             let (name, baby, _) = parse_mob_model(&e.model)?;
-            Some((*id, name.to_owned(), baby))
+            let colour = ourcraft_common::mobs::mob_colour(&e.model);
+            Some((*id, name.to_owned(), baby, colour))
         })
         .collect();
-    for (id, name, baby) in new {
-        states
-            .0
-            .insert(id, MobState::new(&name, false, baby, &mut rng));
+    for (id, name, baby, colour) in new {
+        let mut state = MobState::new(&name, false, baby, &mut rng);
+        state.colour = colour % 16;
+        states.0.insert(id, state);
     }
     if states.0.values().filter(|s| s.natural).count() >= MAX_MOBS {
         return;
@@ -486,9 +515,23 @@ fn spawn_naturally(
             let at = Vec3::new(gx as f32 + 0.5, gy as f32 + 1.0, gz as f32 + 0.5);
             let baby = rng.next().is_multiple_of(5);
             let id = spawn_mob(&mut entities, &kind, at, baby);
-            states
-                .0
-                .insert(id, MobState::new(&kind, true, baby, &mut rng));
+            let mut state = MobState::new(&kind, true, baby, &mut rng);
+            // Most sheep are white; a few are grey, black or brown.
+            let woolly = def(&open, &kind).is_some_and(|d| d.shears_into.is_some());
+            if woolly {
+                state.colour = match rng.next() % 100 {
+                    0..80 => 0,
+                    80..86 => 1,
+                    86..92 => 2,
+                    92..97 => 3,
+                    _ => 4,
+                };
+            }
+            let coloured = state.colour > 0;
+            states.0.insert(id, state);
+            if coloured {
+                change_look(&mut entities, &mut states, id);
+            }
         }
     }
 }
@@ -616,9 +659,15 @@ fn think(
             }
         }
         let id = spawn_mob(&mut entities, &kind, at, true);
-        states
-            .0
-            .insert(id, MobState::new(&kind, false, true, &mut rng));
+        let mut baby = MobState::new(&kind, false, true, &mut rng);
+        // Takes after one of its parents.
+        let pick = if rng.next().is_multiple_of(2) { a } else { b };
+        baby.colour = states.0.get(&pick).map_or(0, |s| s.colour);
+        let coloured = baby.colour > 0;
+        states.0.insert(id, baby);
+        if coloured {
+            change_look(&mut entities, &mut states, id);
+        }
         net.broadcast(
             Channel::Reliable,
             &ServerMessage::Effect {
@@ -1115,6 +1164,7 @@ fn remember_kept(
             let mut state = MobState::new(&a.kind, false, false, &mut rng);
             state.baby_for = a.baby_for.max(0.0);
             state.sheared_for = a.sheared_for.max(0.0);
+            state.colour = a.colour % 16;
             let id = entities.spawn(ServerEntity {
                 model: state.model(),
                 position: Vec3::from_array(a.position),
@@ -1147,6 +1197,7 @@ fn remember_kept(
                 yaw: e.yaw,
                 baby_for: s.baby_for,
                 sheared_for: s.sheared_for,
+                colour: s.colour,
             })
         })
         .collect();

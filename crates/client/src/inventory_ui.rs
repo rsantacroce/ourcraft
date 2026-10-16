@@ -266,6 +266,21 @@ pub fn item_icon_pixels(
                 &textures.pixels(&tex.side),
             ))
         }
+        // Plants (flowers, crops, grass): a flat picture of the plant.
+        ItemKind::Block(b)
+            if crate::render::item_icons::item_icon(def.name.trim_start_matches("core:"))
+                .is_none()
+                && blocks.stage(b).is_some_and(|s| {
+                    !matches!(
+                        s.kind,
+                        ourcraft_common::farming::StageKind::Cake
+                            | ourcraft_common::farming::StageKind::Composter
+                    )
+                }) =>
+        {
+            let tex = blocks.get(b).textures.as_ref()?;
+            Some(upscale(&textures.pixels(&tex.side)))
+        }
         // Other shapes: a 3D picture of the shape, unless there's a flat
         // picture for it (torches, doors, signs).
         ItemKind::Block(b)

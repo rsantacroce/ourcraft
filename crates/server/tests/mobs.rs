@@ -243,6 +243,42 @@ fn animals_appear_walk_and_react() {
         "shearing didn't work"
     );
 
+    // ---- Dyeing a sheep blue: it turns blue, and gives blue wool.
+    ana.received.clear();
+    ana.send(&ClientMessage::Chat {
+        text: "/summon sheep".into(),
+    });
+    assert!(run_until(&mut [&mut ana], 5.0, |b| !sheep(b[0]).is_empty()));
+    let plain = sheep(&ana)[0];
+    run_until(&mut [&mut ana], 2.5, |_| false);
+    ana.send(&ClientMessage::UseEntity {
+        id: plain,
+        held: item("core:blue_dye"),
+    });
+    let blue_id = |b: &Bot| {
+        b.received.iter().find_map(|m| match m {
+            ServerMessage::EntitySpawned { id, model, .. } if model == "@mob:core:sheep:c12" => {
+                Some(*id)
+            }
+            _ => None,
+        })
+    };
+    assert!(
+        run_until(&mut [&mut ana], 3.0, |b| blue_id(b[0]).is_some()),
+        "the sheep didn't turn blue"
+    );
+    ana.send(&ClientMessage::UseEntity {
+        id: blue_id(&ana).unwrap(),
+        held: item("core:shears"),
+    });
+    let blue_wool = format!("@item:{}", item("core:blue_wool"));
+    assert!(
+        run_until(&mut [&mut ana], 3.0, |b| b[0].has(
+            |m| matches!(m, ServerMessage::EntitySpawned { model, .. } if *model == blue_wool)
+        )),
+        "no blue wool"
+    );
+
     // ---- The sheep we looked after are saved, and come back.
     run_until(&mut [&mut ana], 1.0, |_| false);
     stop.0.store(true, Ordering::Relaxed);
