@@ -69,6 +69,7 @@ struct Plants {
     sandstone: BlockId,
     ice: BlockId,
     snow_layer: BlockId,
+    spark_ore: BlockId,
 }
 
 impl Plants {
@@ -98,6 +99,7 @@ impl Plants {
             sandstone: id("core:sandstone"),
             ice: id("core:ice"),
             snow_layer: id("core:snow_layer"),
+            spark_ore: id("core:spark_ore"),
             crops: [
                 ripe("core:wheat_crop"),
                 ripe("core:carrot_crop"),
@@ -312,6 +314,8 @@ impl WorldGenerator {
             blocks::IRON_ORE
         } else if y < 128 && roll < 300 {
             blocks::COAL_ORE
+        } else if y < 20 && roll < 380 {
+            self.plants.spark_ore
         } else {
             return None;
         };

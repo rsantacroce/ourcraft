@@ -103,6 +103,10 @@ pub struct ConnectedPlayer {
     pub boat: Option<u64>,
     /// The animal (entity) they're riding.
     pub riding: Option<u64>,
+    /// The mine cart (entity) they're sitting in.
+    pub cart: Option<u64>,
+    /// Which way they last wanted to go (`x` right, `y` forward).
+    pub last_move: Vec2,
     /// What armour everyone was last told they wear.
     pub armour_sent: Option<[u16; 4]>,
     /// Columns this client has been sent and (as far as we know) still has.
@@ -168,6 +172,8 @@ fn on_connect(
                 needs: crate::needs::Needs::default(),
                 boat: None,
                 riding: None,
+                cart: None,
+                last_move: Vec2::ZERO,
                 armour_sent: None,
                 sent: HashSet::new(),
                 connected_for: 0.0,
@@ -644,6 +650,7 @@ fn simulate_players(
             input.speed = speed;
             input.fly &= can_fly;
             input.boat = p.boat.is_some();
+            p.last_move = Vec2::from_array(input.movement);
             apply_input(&mut p.physics, &input, &world.0, &registry.0);
             p.state.yaw = input.yaw;
             p.state.pitch = input.pitch;

@@ -266,13 +266,16 @@ pub fn item_icon_pixels(
                 &textures.pixels(&tex.side),
             ))
         }
-        // Paintings and banners: a flat picture.
+        // Paintings, banners, rails and the like: a flat picture.
         ItemKind::Block(b)
             if matches!(
                 blocks.variant_kind(b),
                 Some(
                     ourcraft_common::shapes::VariantKind::WallHanging
                         | ourcraft_common::shapes::VariantKind::Banner
+                        | ourcraft_common::shapes::VariantKind::Rail
+                        | ourcraft_common::shapes::VariantKind::PoweredRail
+                        | ourcraft_common::shapes::VariantKind::Wire
                 )
             ) =>
         {
@@ -475,6 +478,7 @@ impl PaletteKind {
                     | "core:spyglass"
                     | "core:rope"
                     | "core:saddle"
+                    | "core:minecart"
             )
         {
             PaletteKind::Tools

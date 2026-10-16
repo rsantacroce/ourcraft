@@ -173,6 +173,76 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             1,
         ));
     }
+    // ---- Milestone 22: circuits and transport ----
+    r.extend([
+        shaped(
+            &["DDD", "DDD", "DDD"],
+            &[('D', "core:spark_dust")],
+            "core:spark_block",
+            1,
+        ),
+        shapeless(&["core:spark_block"], "core:spark_dust", 9),
+        shaped(
+            &["#", "C"],
+            &[('#', "core:stick"), ('C', "core:cobblestone")],
+            "core:lever",
+            1,
+        ),
+        shapeless(&["core:stone"], "core:button", 1),
+        shaped(&["SS"], &[('S', "core:stone")], "core:pressure_plate", 1),
+        shaped(
+            &[" D ", "DLD", " D "],
+            &[('D', "core:spark_dust"), ('L', "core:lamp")],
+            "core:spark_lamp",
+            1,
+        ),
+        shaped(
+            &["DDD", "SSS"],
+            &[('D', "core:spark_dust"), ('S', "core:stone")],
+            "core:repeater",
+            1,
+        ),
+        shaped(
+            &["PPP", "CIC", "CDC"],
+            &[
+                ('P', "#planks"),
+                ('C', "core:cobblestone"),
+                ('I', "core:iron_ingot"),
+                ('D', "core:spark_dust"),
+            ],
+            "core:piston",
+            1,
+        ),
+        shapeless(&["core:piston", "core:clay_ball"], "core:sticky_piston", 1),
+        shaped(
+            &["PPP", "PDP", "PPP"],
+            &[('P', "#planks"), ('D', "core:spark_dust")],
+            "core:note_block",
+            1,
+        ),
+        shaped(
+            &["I I", "I#I", "I I"],
+            &[('I', "core:iron_ingot"), ('#', "core:stick")],
+            "core:rail",
+            16,
+        ),
+        shaped(
+            &["G G", "G#G", "GDG"],
+            &[
+                ('G', "core:gold_ingot"),
+                ('#', "core:stick"),
+                ('D', "core:spark_dust"),
+            ],
+            "core:powered_rail",
+            6,
+        ),
+        shaped(
+            &["I I", "III"],
+            &[('I', "core:iron_ingot")],
+            "core:minecart",
+            1,
+        ),
+    ]);
     // ---- Milestone 21: decoration and storage ----
     r.extend([
         shaped(

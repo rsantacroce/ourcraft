@@ -33,6 +33,8 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Asleep>()
             .init_resource::<Boating>()
             .init_resource::<Riding>()
+            .init_resource::<InCart>()
+            .init_resource::<CartSeat>()
             .add_systems(Startup, spawn_player)
             .add_systems(
                 PreUpdate,
@@ -259,7 +261,7 @@ fn player_physics(
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
     conn: Option<ResMut<Connection>>,
-    boating: Res<Boating>,
+    (boating, seat): (Res<Boating>, Res<CartSeat>),
     mut player: Single<&mut Player>,
 ) {
     if player.frozen {
@@ -281,7 +283,13 @@ fn player_physics(
         boat: boating.0.is_some(),
     };
     player.prev_position = player.state.position;
-    apply_input(&mut player.state, &input, &world.0, &blocks.0);
+    // In a mine cart, the cart carries us (the server moves it).
+    if let Some(seat) = seat.0 {
+        player.state.position = seat + Vec3::Y * 0.3;
+        player.state.velocity = Vec3::ZERO;
+    } else {
+        apply_input(&mut player.state, &input, &world.0, &blocks.0);
+    }
     player.history.push(input, player.state);
     if let Some(mut conn) = conn
         && conn.is_welcomed()
@@ -393,6 +401,14 @@ pub struct Boating(pub Option<u64>);
 #[derive(Resource, Default, Debug)]
 pub struct Riding(pub Option<u64>);
 
+/// Sitting in this mine cart (an entity id).
+#[derive(Resource, Default, Debug)]
+pub struct InCart(pub Option<u64>);
+
+/// Where the cart we're in is (the cart moves us, not our own physics).
+#[derive(Resource, Default, Debug)]
+pub struct CartSeat(pub Option<Vec3>);
+
 /// Asleep in the bed at this block: the view lies down in it.
 #[derive(Resource, Default, Debug)]
 pub struct Asleep(pub Option<IVec3>);
@@ -402,17 +418,20 @@ fn hear_sleeping(
     mut asleep: ResMut<Asleep>,
     mut boating: ResMut<Boating>,
     mut riding: ResMut<Riding>,
+    mut cart: ResMut<InCart>,
 ) {
     for FromServer(msg) in messages.read() {
         match msg {
             ServerMessage::Sleeping { bed } => asleep.0 = bed.map(IVec3::from_array),
             ServerMessage::Boating { boat } => boating.0 = *boat,
             ServerMessage::Riding { mount } => riding.0 = *mount,
+            ServerMessage::InCart { cart: c } => cart.0 = *c,
             // A new world: awake, and on foot.
             ServerMessage::Welcome { .. } => {
                 asleep.0 = None;
                 boating.0 = None;
                 riding.0 = None;
+                cart.0 = None;
             }
             _ => {}
         }
@@ -425,9 +444,14 @@ fn get_up(
     mut asleep: ResMut<Asleep>,
     mut boating: ResMut<Boating>,
     mut riding: ResMut<Riding>,
+    mut cart: ResMut<InCart>,
     conn: Option<ResMut<Connection>>,
 ) {
     let Some(mut conn) = conn else { return };
+    if cart.0.is_some() && actions.descend {
+        cart.0 = None;
+        conn.send(Channel::Reliable, &ClientMessage::LeaveBoat);
+    }
     if riding.0.is_some() && actions.descend {
         riding.0 = None;
         conn.send(Channel::Reliable, &ClientMessage::LeaveBoat);

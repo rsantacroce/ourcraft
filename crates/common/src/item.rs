@@ -275,6 +275,17 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
             ));
         }
     }
+    // ---- Milestone 22: spark dust (it lays wire) and mine carts ----
+    items.push(plants(
+        blocks,
+        "core:spark_dust",
+        "Spark Dust",
+        "core:spark_wire",
+    ));
+    items.push(ItemDef {
+        max_stack: 1,
+        ..ItemDef::material("core:minecart", "Mine Cart")
+    });
     // ---- Milestone 21: books ----
     items.push(ItemDef {
         max_stack: 16,

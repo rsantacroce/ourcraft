@@ -519,6 +519,8 @@ impl BlockRegistry {
         crate::adventure::register_blocks(&mut reg);
         // ---- Milestone 21: decoration and storage ----
         crate::decoration::register_decoration(&mut reg);
+        // ---- Milestone 22: circuits and transport ----
+        crate::circuits::register_circuits(&mut reg);
         reg
     }
 

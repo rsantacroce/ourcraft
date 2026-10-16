@@ -112,6 +112,17 @@ pub enum VariantKind {
     WallBanner,
     /// Hangs on a wall: paintings and item frames.
     WallHanging,
+    // ---- Circuits and rails (see `circuits`); `open` means on. ----
+    Wire,
+    Lever,
+    Button,
+    PressurePlate,
+    SparkLamp,
+    Repeater,
+    Piston,
+    PistonHead,
+    Rail,
+    PoweredRail,
 }
 
 /// Which family a block belongs to and its state in it.
@@ -180,6 +191,23 @@ impl BlockRegistry {
                 }
                 None => None,
             },
+            VariantKind::Repeater | VariantKind::Piston => {
+                single(self.find_variant(fam, looking, false, false)?)
+            }
+            // Rails start along the way you look (the server joins them up).
+            VariantKind::Rail | VariantKind::PoweredRail => {
+                let facing = match looking {
+                    Dir4::North | Dir4::South => Dir4::North,
+                    _ => Dir4::East,
+                };
+                single(self.find_variant(fam, facing, false, false)?)
+            }
+            VariantKind::Wire
+            | VariantKind::Lever
+            | VariantKind::Button
+            | VariantKind::PressurePlate
+            | VariantKind::SparkLamp
+            | VariantKind::PistonHead => single(block),
             VariantKind::Stairs | VariantKind::Trapdoor | VariantKind::FenceGate => {
                 single(self.find_variant(fam, looking, false, false)?)
             }
@@ -259,7 +287,16 @@ impl BlockRegistry {
             [-f[0], 0, -f[2]]
         };
         match v.kind {
-            VariantKind::Torch | VariantKind::Sign | VariantKind::Banner => Some([0, -1, 0]),
+            VariantKind::Torch
+            | VariantKind::Sign
+            | VariantKind::Banner
+            | VariantKind::Wire
+            | VariantKind::Lever
+            | VariantKind::Button
+            | VariantKind::PressurePlate
+            | VariantKind::Repeater
+            | VariantKind::Rail
+            | VariantKind::PoweredRail => Some([0, -1, 0]),
             VariantKind::WallTorch
             | VariantKind::Ladder
             | VariantKind::WallSign

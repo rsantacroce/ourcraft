@@ -3,6 +3,7 @@
 pub mod adventure;
 pub mod block;
 pub mod chunk;
+pub mod circuits;
 pub mod colours;
 pub mod container;
 pub mod decoration;

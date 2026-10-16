@@ -38,6 +38,7 @@ impl Plugin for EntitiesPlugin {
                     bob_items,
                     update_particles,
                     seat_rider,
+                    cart_seat,
                     light_entities,
                 )
                     .chain()
@@ -118,6 +119,20 @@ fn seat_rider(
         t.translation = player.state.position;
         t.rotation = Quat::from_rotation_y(player.yaw + turn);
     }
+}
+
+/// Tell the player's physics where its cart is.
+fn cart_seat(
+    cart: Res<crate::player::InCart>,
+    map: Res<EntityMap>,
+    carts: Query<&Transform, With<NetEntity>>,
+    mut seat: ResMut<crate::player::CartSeat>,
+) {
+    seat.0 = cart
+        .0
+        .and_then(|id| map.0.get(&id))
+        .and_then(|e| carts.get(*e).ok())
+        .map(|t| t.translation);
 }
 
 /// A leg (or anything else) that swings while the animal walks.
@@ -521,6 +536,56 @@ fn handle_messages(
                                         Transform::from_translation(p.at),
                                     ));
                                 }
+                            }
+                        })
+                        .id();
+                    if let Some(old) = map.0.insert(*id, e) {
+                        commands.entity(old).despawn();
+                    }
+                    continue;
+                }
+                // A mine cart: an open box on wheels.
+                if model == "@cart" {
+                    let iron = [150, 152, 160, 255];
+                    let dark = [70, 72, 80, 255];
+                    let boxes: [([f32; 3], [f32; 3], [u8; 4]); 7] = [
+                        ([-0.45, 0.1, -0.6], [0.45, 0.2, 0.6], dark),
+                        ([-0.5, 0.2, -0.65], [-0.42, 0.7, 0.65], iron),
+                        ([0.42, 0.2, -0.65], [0.5, 0.7, 0.65], iron),
+                        ([-0.42, 0.2, -0.65], [0.42, 0.7, -0.57], iron),
+                        ([-0.42, 0.2, 0.57], [0.42, 0.7, 0.65], iron),
+                        ([-0.5, 0.0, -0.45], [0.5, 0.15, -0.3], dark),
+                        ([-0.5, 0.0, 0.3], [0.5, 0.15, 0.45], dark),
+                    ];
+                    let e = commands
+                        .spawn((
+                            new_net(None, Vec3::ZERO, false),
+                            EntityLight::default(),
+                            Mob {
+                                id: *id,
+                                kind: "core:minecart".into(),
+                                size: [1.0, 0.7],
+                                baby: false,
+                                sheared: false,
+                            },
+                            Transform::from_translation(pos)
+                                .with_rotation(Quat::from_rotation_y(*yaw)),
+                            Visibility::Inherited,
+                        ))
+                        .with_children(|parent| {
+                            for (min, max, rgba) in boxes {
+                                let (min, max) = (Vec3::from_array(min), Vec3::from_array(max));
+                                let material = materials.add(StandardMaterial {
+                                    base_color: color(rgba),
+                                    unlit: true,
+                                    ..default()
+                                });
+                                parent.spawn((
+                                    Mesh3d(meshes.add(shaded_cuboid(max - min))),
+                                    Lit(material.clone()),
+                                    MeshMaterial3d(material),
+                                    Transform::from_translation((min + max) / 2.0),
+                                ));
                             }
                         })
                         .id();

@@ -14,6 +14,7 @@
 //! terrain into the sky colour hides that edge (and chunks popping in).
 
 mod adventure_icons;
+mod circuit_textures;
 mod colour_textures;
 mod decoration_textures;
 mod stone_textures;

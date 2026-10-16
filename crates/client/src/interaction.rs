@@ -290,6 +290,21 @@ fn use_blocks(
         );
         return;
     }
+    // A mine cart goes on the rail you point at.
+    if items.name(held) == "core:minecart"
+        && let Some(hit) = target.0
+        && registry.0.is_rail(hit.id)
+        && let Some(mut conn) = conn
+    {
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseBlock {
+                pos: hit.block.to_array(),
+                held: held.0,
+            },
+        );
+        return;
+    }
     // A boat goes on the water (or the ground) you point at.
     if items.name(held).ends_with("_boat")
         && let Some(spot) = source.0.or(target.0)
@@ -334,6 +349,21 @@ fn use_blocks(
             return;
         }
         (_, Some(VariantKind::Sign | VariantKind::WallSign)) => OpenScreen::Sign(hit.block),
+        // Levers, buttons and note blocks: the server does it.
+        (_, Some(VariantKind::Lever | VariantKind::Button)) => {
+            conn.send(
+                Channel::Reliable,
+                &ClientMessage::UseBlock { pos, held: held.0 },
+            );
+            return;
+        }
+        _ if registry.0.get(hit.id).name == "core:note_block" => {
+            conn.send(
+                Channel::Reliable,
+                &ClientMessage::UseBlock { pos, held: held.0 },
+            );
+            return;
+        }
         _ if hit.id == blocks::CRAFTING_TABLE => OpenScreen::CraftingTable,
         // Campfires only take food, pots plants (see above).
         _ if matches!(
@@ -405,7 +435,7 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
     stepped
         || matches!(
             registry.get(id).name.as_str(),
-            "core:campfire" | "core:barrel" | "core:flower_pot"
+            "core:campfire" | "core:barrel" | "core:flower_pot" | "core:note_block"
         )
         || registry
             .get(id)
@@ -417,7 +447,16 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
         || registry.get(id).name == "core:chest"
         || matches!(
             registry.variant_kind(id),
-            Some(K::Door | K::Trapdoor | K::FenceGate | K::Bed | K::Sign | K::WallSign)
+            Some(
+                K::Door
+                    | K::Trapdoor
+                    | K::FenceGate
+                    | K::Bed
+                    | K::Sign
+                    | K::WallSign
+                    | K::Lever
+                    | K::Button
+            )
         )
 }
 

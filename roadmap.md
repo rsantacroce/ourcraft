@@ -395,7 +395,25 @@ What was planned:
 - Barrels, and a bigger double chest.
 - Ladders and scaffolding for building tall things.
 
-### 22. Circuits and transport
+### 22. Circuits and transport ✅ done
+
+Spark, our own power: spark ore deep down (below height 20, iron pickaxe
+or better) gives spark dust, which lays wire. Levers, buttons (they pop
+back up), pressure plates (stood on by players or animals) and spark
+blocks power the wire next to them; power fades a step per block of wire
+(up to 15) and repeaters send it on fresh, one way. Powered wire lights
+spark lamps, opens and closes doors, trapdoors and gates, pushes pistons
+(up to twelve blocks; sticky pistons pull one back) and plays note
+blocks. Rails join up with the rails next to them, straight or round a
+corner; mine carts ride on them, pushed by walking forward, sped up by
+powered rails with power (and braked by them without), and stop at the
+end of the line.
+
+Not quite as planned: no dispenser; pistons only push sideways; no rails
+up or down slopes; wire looks the same whichever way it joins; carts
+aren't saved with the world.
+
+What was planned:
 
 - A power source with an original name and look (a glowing "spark" ore
   and dust), wires, switches (levers), buttons, pressure plates, powered

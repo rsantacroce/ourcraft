@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 13;
+pub const PROTOCOL_VERSION: u64 = 14;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -424,6 +424,10 @@ pub enum ServerMessage {
     /// You're riding this animal (an entity), or not.
     Riding {
         mount: Option<u64>,
+    },
+    /// You're sitting in this mine cart (an entity), or not.
+    InCart {
+        cart: Option<u64>,
     },
     /// What's in the item frame at a block (0 = nothing).
     FrameItem {

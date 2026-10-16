@@ -255,11 +255,19 @@ fn drop_broken_blocks(
     mut entities: ResMut<Entities>,
     mut net: ResMut<Network>,
     mut updates: ResMut<crate::updates::BlockUpdates>,
+    (mut power, mut rails): (
+        ResMut<crate::circuits::PowerDirty>,
+        ResMut<crate::rails::RailDirty>,
+    ),
     mut luck: Local<u32>,
 ) {
     for edit in std::mem::take(&mut applied.0) {
-        // Water may flow into the gap, sand may fall…
+        // Water may flow into the gap, sand may fall, power may change,
+        // rails may join up…
         updates.around(edit.pos, 2);
+        power.0.push(edit.pos);
+        let rail = registry.0.is_rail(edit.new) || registry.0.is_rail(edit.old);
+        rails.0.push((edit.pos, rail));
         if edit.old.is_air() || edit.old == edit.new {
             continue;
         }
@@ -267,6 +275,37 @@ fn drop_broken_blocks(
         let survival_breaker = players
             .iter()
             .any(|p| p.client == edit.client && !p.creative);
+        // A piston and its head go together.
+        if edit.new.is_air()
+            && let Some(v) = registry.0.get(edit.old).variant.clone()
+        {
+            use ourcraft_common::shapes::VariantKind;
+            let f = IVec3::from_array(v.facing.vector());
+            let partner = match v.kind {
+                VariantKind::Piston if v.open => Some(edit.pos + f),
+                VariantKind::PistonHead => Some(edit.pos - f),
+                _ => None,
+            };
+            if let Some(at) = partner
+                && let Some(b) = world.get_block(at.x, at.y, at.z)
+            {
+                let new = match registry.0.variant_kind(b) {
+                    Some(VariantKind::PistonHead) => Some(BlockId::AIR),
+                    Some(VariantKind::Piston) => registry.0.powered(b, false),
+                    _ => None,
+                };
+                if let Some(new) = new {
+                    crate::world::set_block(&mut world, &mut cache, &open, at, new);
+                    net.broadcast(
+                        Channel::Reliable,
+                        &ServerMessage::BlockChanged {
+                            pos: at.to_array(),
+                            block: new.0,
+                        },
+                    );
+                }
+            }
+        }
         // What's in an item frame pops out.
         if let Some(item) = open.frames.remove(&edit.pos) {
             net.broadcast(

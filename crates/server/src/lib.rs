@@ -16,6 +16,7 @@
 pub mod adventure;
 pub mod boats;
 pub mod building;
+pub mod circuits;
 pub mod decoration;
 pub mod entities;
 pub mod farming;
@@ -25,6 +26,7 @@ pub mod needs;
 
 pub mod net;
 pub mod players;
+pub mod rails;
 pub mod survival;
 pub mod updates;
 pub mod weather;
@@ -155,6 +157,8 @@ impl Plugin for ServerPlugin {
             adventure::AdventurePlugin,
             decoration::DecorationPlugin,
         ))
+        // (Bevy takes at most 15 plugins at once.)
+        .add_plugins((circuits::CircuitsPlugin, rails::RailsPlugin))
         .add_systems(Update, check_stop_flag);
     }
 }

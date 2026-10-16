@@ -141,7 +141,15 @@ fn use_boats(
                     p.physics.position.y += 0.6;
                     tell(&mut net, None);
                 }
-                // Off a pig, too.
+                // Out of a mine cart, or off a pig, too.
+                if p.cart.take().is_some() {
+                    p.physics.position.y += 0.6;
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::InCart { cart: None },
+                    );
+                }
                 if p.riding.take().is_some() {
                     p.physics.position.y += 0.4;
                     net.send(
