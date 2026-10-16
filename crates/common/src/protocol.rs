@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 12;
+pub const PROTOCOL_VERSION: u64 = 13;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -253,8 +253,13 @@ pub enum ClientMessage {
     },
     /// Got out of bed (moved while sleeping).
     LeaveBed,
-    /// Got out of a boat.
+    /// Got out of a boat (or off a pig).
     LeaveBoat,
+    /// Used the held item in the air, aiming along `direction` (a bow).
+    UseItem {
+        held: u16,
+        direction: [f32; 3],
+    },
 }
 
 /// Lines on a sign, and characters per line.
@@ -415,6 +420,20 @@ pub enum ServerMessage {
     /// You're sitting in this boat (an entity), or not in one.
     Boating {
         boat: Option<u64>,
+    },
+    /// You're riding this animal (an entity), or not.
+    Riding {
+        mount: Option<u64>,
+    },
+    /// Where you wake up (your bed, or the world's start): the compass
+    /// points there.
+    Home {
+        pos: [i32; 3],
+    },
+    /// What a player wears (item numbers, helmet first; 0 = nothing).
+    Armour {
+        player: u64,
+        pieces: [u16; 4],
     },
 }
 

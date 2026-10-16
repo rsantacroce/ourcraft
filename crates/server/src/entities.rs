@@ -52,6 +52,9 @@ pub struct Entities {
     /// Not yet announced to clients.
     pub spawned: Vec<u64>,
     pub removed: Vec<u64>,
+    /// The game's own projectiles (models starting with `@`, like arrows)
+    /// that hit something this tick: (the entity as it was, what it hit).
+    pub core_hits: Vec<(ServerEntity, Hit)>,
 }
 
 impl Entities {
@@ -171,12 +174,17 @@ fn simulate_entities(
         }
     }
     for (id, hit) in done {
-        let owner = entities.list.get(&id).and_then(|e| e.owner);
+        let Some(e) = entities.list.get(&id).cloned() else {
+            continue;
+        };
         entities.remove(id);
-        if let Some(hit) = hit {
+        let Some(hit) = hit else { continue };
+        if e.model.starts_with('@') {
+            entities.core_hits.push((e, hit));
+        } else {
             queue.events.push(Event::ProjectileHit {
                 entity: id,
-                owner,
+                owner: e.owner,
                 hit,
             });
         }

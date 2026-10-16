@@ -69,6 +69,7 @@ impl Plugin for MobsPlugin {
                     life_events,
                     despawn_far,
                     remember_kept,
+                    carry_riders,
                 )
                     .chain()
                     .after(crate::players::PlayersSet),
@@ -132,6 +133,12 @@ pub struct MobState {
     flee: f32,
     /// Wool colour (sheep; 0 = white). See `colours::COLOURS`.
     colour: u8,
+    /// On a rope, led by this player.
+    leash: Option<u64>,
+    /// Wearing a saddle (pigs), so it can be ridden.
+    saddled: bool,
+    /// Someone's riding it: it goes where they go.
+    ridden: bool,
 }
 
 impl MobState {
@@ -153,6 +160,9 @@ impl MobState {
             hop_cd: 0.0,
             flee: 0.0,
             colour: 0,
+            leash: None,
+            saddled: false,
+            ridden: false,
         }
     }
 
@@ -259,7 +269,7 @@ fn change_look(entities: &mut Entities, states: &mut MobStates, id: u64) {
 fn use_mobs(
     mut messages: MessageReader<FromClient>,
     players_map: Res<Players>,
-    players: Query<&ConnectedPlayer>,
+    mut players: Query<&mut ConnectedPlayer>,
     open: Res<OpenWorld>,
     mut entities: ResMut<Entities>,
     mut states: ResMut<MobStates>,
@@ -270,7 +280,11 @@ fn use_mobs(
         let ClientMessage::UseEntity { id, held } = msg else {
             continue;
         };
-        let Some(p) = players_map.0.get(client).and_then(|e| players.get(*e).ok()) else {
+        let Some(mut p) = players_map
+            .0
+            .get(client)
+            .and_then(|e| players.get_mut(*e).ok())
+        else {
             continue;
         };
         let (Some(e), Some(state)) = (entities.list.get(id), states.0.get_mut(id)) else {
@@ -291,7 +305,52 @@ fn use_mobs(
         let mut sound = None;
         let mut effect = None;
         let dye = ourcraft_common::colours::dye_colour(held_name);
-        if let Some(colour) = dye.filter(|c| kind.shears_into.is_some() && *c != state.colour) {
+        let take_one = |net: &mut Network| {
+            net.send(
+                *client,
+                Channel::Reliable,
+                &ServerMessage::TakeItems(NetStack {
+                    item: held.0,
+                    count: 1,
+                    wear: 0,
+                }),
+            );
+        };
+        if held_name == "core:rope" && kind.hostile.is_none() {
+            // A rope: it follows you (or, if it already does, it's let go).
+            state.leash = match state.leash {
+                Some(c) if c == *client => None,
+                _ => Some(*client),
+            };
+            effect = Some(EffectKind::Hearts);
+            sound = Some(kind.sound.as_str());
+        } else if held_name == "core:saddle" && kind.name == "core:pig" && !state.saddled {
+            state.saddled = true;
+            if !p.creative {
+                take_one(&mut net);
+            }
+            sound = Some("grab");
+        } else if state.saddled
+            && !kind.likes(held_name)
+            && p.riding.is_none()
+            && p.boat.is_none()
+            && state.baby_for <= 0.0
+        {
+            // Hop on.
+            p.riding = Some(*id);
+            p.physics.position = at;
+            p.physics.velocity = Vec3::ZERO;
+            p.state.position = at.to_array();
+            state.ridden = true;
+            net.send(
+                *client,
+                Channel::Reliable,
+                &ServerMessage::Riding { mount: Some(*id) },
+            );
+            sound = Some(kind.sound.as_str());
+        } else if let Some(colour) =
+            dye.filter(|c| kind.shears_into.is_some() && *c != state.colour)
+        {
             // Dyeing a sheep: its wool (and what grows back) is that colour.
             state.colour = colour;
             change_look(&mut entities, &mut states, *id);
@@ -549,6 +608,11 @@ fn think(
     mut rng: ResMut<Rng>,
 ) {
     let dt = time.delta_secs();
+    let leaders: HashMap<u64, Vec3> = players
+        .iter()
+        .filter(|p| p.name.is_some())
+        .map(|p| (p.client, p.position()))
+        .collect();
     // Who's holding what.
     let holders: Vec<(Vec3, String)> = players
         .iter()
@@ -623,6 +687,20 @@ fn think(
                     s.goal = Goal::Towards(*at);
                     continue;
                 }
+            }
+        }
+        // On a rope: follow whoever holds it (let go if they're far away).
+        if let Some(leader) = s.leash {
+            match leaders.get(&leader) {
+                Some(at) if at.distance(me) < 16.0 => {
+                    s.goal = if at.distance(me) > 2.5 {
+                        Goal::Towards(*at)
+                    } else {
+                        Goal::Idle
+                    };
+                    continue;
+                }
+                _ => s.leash = None,
             }
         }
         // Someone nearby holding my favourite food: follow them.
@@ -712,8 +790,8 @@ fn walk(
         let Some(kind) = def(&open, &s.kind) else {
             continue;
         };
-        // Don't move in unloaded places.
-        if block(e.position).is_none() {
+        // Don't move in unloaded places, or when someone's riding it.
+        if block(e.position).is_none() || s.ridden {
             continue;
         }
         let before = (e.position, e.yaw);
@@ -935,7 +1013,11 @@ fn monsters(
                 e.position.cmpge(body.min - Vec3::Y).all() && e.position.cmple(body.max).all();
             if close {
                 s.attack_cd = 1.2;
-                p.needs.hurt(h.damage);
+                // Armour softens the bonk.
+                let points = p.inventory.armour_points(&open.items) as f32;
+                let soften =
+                    (1.0 - points * ourcraft_common::adventure::PROTECTION_PER_POINT).max(0.2);
+                p.needs.hurt(h.damage * soften);
                 net.broadcast(
                     Channel::Reliable,
                     &ServerMessage::Sound {
@@ -1110,6 +1192,12 @@ fn life_events(
                     .any(|p| p.position().distance(e.position) < NEAR)
                 {
                     eggs.push((e.position, item));
+                    // …and now and then a feather.
+                    if let Some(feather) = open.items.by_name("core:feather")
+                        && rng.next().is_multiple_of(2)
+                    {
+                        eggs.push((e.position, feather));
+                    }
                 }
             }
         }
@@ -1203,6 +1291,37 @@ fn remember_kept(
         .collect();
     list.extend(missing.iter().cloned());
     open.bypass_change_detection().animals = list;
+}
+
+/// Ridden animals go where their riders go.
+fn carry_riders(
+    mut players: Query<&mut ConnectedPlayer>,
+    mut entities: ResMut<Entities>,
+    mut states: ResMut<MobStates>,
+    mut net: ResMut<Network>,
+) {
+    for s in states.0.values_mut() {
+        s.ridden = false;
+    }
+    for mut p in &mut players {
+        let Some(id) = p.riding else { continue };
+        let (Some(e), Some(s)) = (entities.list.get_mut(&id), states.0.get_mut(&id)) else {
+            p.riding = None;
+            net.send(
+                p.client,
+                Channel::Reliable,
+                &ServerMessage::Riding { mount: None },
+            );
+            continue;
+        };
+        s.ridden = true;
+        let (at, yaw) = (p.physics.position, p.state.yaw + std::f32::consts::PI);
+        if e.position != at || e.yaw != yaw {
+            e.position = at;
+            e.yaw = yaw;
+            e.moved = true;
+        }
+    }
 }
 
 /// Animals that appeared on their own go away when nobody is near.

@@ -173,6 +173,95 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             1,
         ));
     }
+    // ---- Milestone 20: tools and adventure ----
+    r.extend([
+        shaped(
+            &["  #", " #S", "# S"],
+            &[('#', "core:stick"), ('S', "core:string")],
+            "core:fishing_rod",
+            1,
+        ),
+        shaped(
+            &[" #S", "# S", " #S"],
+            &[('#', "core:stick"), ('S', "core:string")],
+            "core:bow",
+            1,
+        ),
+        shaped(
+            &["F", "#", "E"],
+            &[
+                ('F', "core:flint"),
+                ('#', "core:stick"),
+                ('E', "core:feather"),
+            ],
+            "core:arrow",
+            4,
+        ),
+        shapeless(&["#wool"], "core:string", 4),
+        shaped(
+            &[" R ", "RWR", " R "],
+            &[('R', "core:red_wool"), ('W', "core:wool")],
+            "core:target",
+            1,
+        ),
+        shaped(
+            &[" I ", "ICI", " I "],
+            &[('I', "core:iron_ingot"), ('C', "core:coal")],
+            "core:compass",
+            1,
+        ),
+        shaped(
+            &[" G ", "GCG", " G "],
+            &[('G', "core:gold_ingot"), ('C', "core:coal")],
+            "core:clock",
+            1,
+        ),
+        shaped(
+            &["PPP", "PCP", "PPP"],
+            &[('P', "core:paper"), ('C', "core:compass")],
+            "core:map",
+            1,
+        ),
+        shaped(
+            &["G", "I", "I"],
+            &[('G', "core:glass"), ('I', "core:iron_ingot")],
+            "core:spyglass",
+            1,
+        ),
+        shaped(
+            &["SS ", "SS ", "  S"],
+            &[('S', "core:string")],
+            "core:rope",
+            2,
+        ),
+        shaped(
+            &["WWW", "S S", "I I"],
+            &[
+                ('W', "#wool"),
+                ('S', "core:string"),
+                ('I', "core:iron_ingot"),
+            ],
+            "core:saddle",
+            1,
+        ),
+        shaped(
+            &[" # ", "#C#", "LLL"],
+            &[('#', "core:stick"), ('C', "core:coal"), ('L', "#logs")],
+            "core:campfire",
+            1,
+        ),
+    ]);
+    for (key, _, material, _, _) in crate::adventure::ARMOUR_MATERIALS {
+        let k = [('X', material)];
+        for (pattern, piece) in [
+            (&["XXX", "X X"][..], "helmet"),
+            (&["X X", "XXX", "XXX"][..], "chestplate"),
+            (&["XXX", "X X", "X X"][..], "leggings"),
+            (&["X X", "X X"][..], "boots"),
+        ] {
+            r.push(shaped(pattern, &k, &format!("core:{key}_{piece}"), 1));
+        }
+    }
     // ---- Milestone 19: stone kinds, ice and snow ----
     let two_by_two = |from: &str, to: &str| shaped(&["XX", "XX"], &[('X', from)], to, 4);
     r.extend([

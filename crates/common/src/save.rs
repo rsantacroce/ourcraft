@@ -366,7 +366,7 @@ struct PlayerSaveV2 {
 impl PlayerSave {
     pub fn inventory(&self, items: &ItemRegistry) -> Inventory {
         let mut inv = Inventory::default();
-        for (slot, saved) in inv.slots.iter_mut().zip(&self.inventory) {
+        for (slot, saved) in inv.every_slot_mut().zip(&self.inventory) {
             // Items that no longer exist (a removed mod) are dropped.
             *slot = saved.as_ref().and_then(|s| {
                 Some(ItemStack {
@@ -382,8 +382,7 @@ impl PlayerSave {
 
     pub fn store_inventory(&mut self, inv: &Inventory, items: &ItemRegistry) {
         self.inventory = inv
-            .slots
-            .iter()
+            .every_slot()
             .map(|s| {
                 s.map(|s| SavedStack {
                     item: items.name(s.item).to_owned(),
@@ -392,7 +391,8 @@ impl PlayerSave {
                 })
             })
             .collect();
-        self.inventory.resize(INVENTORY_SLOTS, None);
+        self.inventory
+            .resize(INVENTORY_SLOTS + crate::inventory::ARMOUR_SLOTS, None);
         self.selected = inv.selected;
     }
 }

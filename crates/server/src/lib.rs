@@ -13,6 +13,7 @@
 //!   the network. Same code, same rules; and the same world can later be
 //!   opened up to friends.
 
+pub mod adventure;
 pub mod boats;
 pub mod building;
 pub mod entities;
@@ -150,6 +151,7 @@ impl Plugin for ServerPlugin {
             weather::WeatherPlugin,
             farming::FarmingPlugin,
             boats::BoatsPlugin,
+            adventure::AdventurePlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

@@ -101,6 +101,10 @@ pub struct ConnectedPlayer {
     pub needs: crate::needs::Needs,
     /// The boat (entity) they're sitting in.
     pub boat: Option<u64>,
+    /// The animal (entity) they're riding.
+    pub riding: Option<u64>,
+    /// What armour everyone was last told they wear.
+    pub armour_sent: Option<[u16; 4]>,
     /// Columns this client has been sent and (as far as we know) still has.
     pub sent: HashSet<ColumnPos>,
     pub connected_for: f32,
@@ -163,6 +167,8 @@ fn on_connect(
                 sleeping: false,
                 needs: crate::needs::Needs::default(),
                 boat: None,
+                riding: None,
+                armour_sent: None,
                 sent: HashSet::new(),
                 connected_for: 0.0,
                 rules: ourcraft_mod_api::PlayerRules::default(),
@@ -322,8 +328,7 @@ fn handle_messages(
                 let inventory = saved.as_ref().map(|_| {
                     let slots = p
                         .inventory
-                        .slots
-                        .iter()
+                        .every_slot()
                         .map(|s| s.map(Into::into))
                         .collect();
                     (slots, p.inventory.selected as u8)
@@ -346,6 +351,15 @@ fn handle_messages(
                         inventory,
                         content: content.0.clone(),
                         players: others,
+                    },
+                );
+                // Where their compass points.
+                let home = open.beds.get(&name).copied().unwrap_or(open.spawn);
+                net.send(
+                    *client,
+                    Channel::Reliable,
+                    &ServerMessage::Home {
+                        pos: home.to_array(),
                     },
                 );
                 let info = PlayerInfo {
@@ -475,7 +489,8 @@ fn handle_messages(
             | ClientMessage::Eat { .. }
             | ClientMessage::HitEntity { .. }
             | ClientMessage::LeaveBed
-            | ClientMessage::LeaveBoat => {}
+            | ClientMessage::LeaveBoat
+            | ClientMessage::UseItem { .. } => {}
             ClientMessage::SetBlock { pos, block, held } => {
                 let pos = IVec3::from_array(*pos);
                 let block = BlockId(*block);
@@ -581,7 +596,7 @@ fn handle_messages(
 /// stacks, oversized stacks) removed.
 fn inventory_from_net(slots: &[NetSlot], selected: u8, items: &ItemRegistry) -> Inventory {
     let mut inv = Inventory::default();
-    for (slot, net) in inv.slots.iter_mut().zip(slots.iter().take(INVENTORY_SLOTS)) {
+    for (i, (slot, net)) in inv.every_slot_mut().zip(slots.iter()).enumerate() {
         *slot = net
             .map(ItemStack::from)
             .filter(|s| s.count > 0 && (s.item.0 as usize) < items.len() && s.item.0 != 0)
@@ -589,6 +604,19 @@ fn inventory_from_net(slots: &[NetSlot], selected: u8, items: &ItemRegistry) -> 
                 count: s.count.min(items.max_stack(s.item)),
                 ..s
             });
+        // Only armour goes in an armour slot (and only the right piece).
+        if i >= INVENTORY_SLOTS {
+            let fits = slot.is_some_and(|s| {
+                matches!(
+                    items.get(s.item).map(|d| d.kind),
+                    Some(ourcraft_common::item::ItemKind::Armour { slot, .. })
+                        if slot as usize == i - INVENTORY_SLOTS
+                )
+            });
+            if !fits {
+                *slot = None;
+            }
+        }
     }
     inv.select(selected as usize);
     inv

@@ -4,6 +4,9 @@ use crate::item::{ItemId, ItemRegistry};
 
 pub const HOTBAR_SLOTS: usize = 9;
 pub const INVENTORY_SLOTS: usize = 36;
+/// Armour slots (helmet, chestplate, leggings, boots), kept after the
+/// others when the inventory is saved or sent.
+pub const ARMOUR_SLOTS: usize = 4;
 pub const MAX_STACK: u16 = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +35,8 @@ impl ItemStack {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Inventory {
     pub slots: [Option<ItemStack>; INVENTORY_SLOTS],
+    /// What's worn: helmet, chestplate, leggings, boots.
+    pub armour: [Option<ItemStack>; ARMOUR_SLOTS],
     /// Selected hotbar slot, `0..HOTBAR_SLOTS`.
     pub selected: usize,
 }
@@ -40,12 +45,34 @@ impl Default for Inventory {
     fn default() -> Self {
         Self {
             slots: [None; INVENTORY_SLOTS],
+            armour: [None; ARMOUR_SLOTS],
             selected: 0,
         }
     }
 }
 
 impl Inventory {
+    /// Every slot, armour last (the order they're saved and sent in).
+    pub fn every_slot(&self) -> impl Iterator<Item = &Option<ItemStack>> {
+        self.slots.iter().chain(self.armour.iter())
+    }
+
+    pub fn every_slot_mut(&mut self) -> impl Iterator<Item = &mut Option<ItemStack>> {
+        self.slots.iter_mut().chain(self.armour.iter_mut())
+    }
+
+    /// Protection from the armour worn (see `adventure`).
+    pub fn armour_points(&self, items: &ItemRegistry) -> u32 {
+        self.armour
+            .iter()
+            .flatten()
+            .filter_map(|s| match items.get(s.item)?.kind {
+                crate::item::ItemKind::Armour { points, .. } => Some(points as u32),
+                _ => None,
+            })
+            .sum()
+    }
+
     pub fn selected_stack(&self) -> Option<ItemStack> {
         self.slots[self.selected]
     }

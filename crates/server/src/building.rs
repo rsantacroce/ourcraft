@@ -144,6 +144,13 @@ fn use_blocks(
             // Beds: this is where you'll wake up; at night, sleep.
             Some(VariantKind::Bed) => {
                 open.beds.insert(name, pos);
+                net.send(
+                    *client,
+                    Channel::Reliable,
+                    &ServerMessage::Home {
+                        pos: pos.to_array(),
+                    },
+                );
                 let text = if is_night(open.time_of_day()) {
                     p.sleeping = true;
                     net.send(

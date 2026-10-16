@@ -4,6 +4,7 @@ pub mod atmosphere;
 pub mod audio;
 pub mod chat;
 pub mod entities;
+pub mod gadgets;
 pub mod gamemode;
 
 pub mod hud;
@@ -64,6 +65,7 @@ impl Plugin for ClientPlugin {
                 signs::SignsPlugin,
                 vitals::VitalsPlugin,
                 atmosphere::AtmospherePlugin,
+                gadgets::GadgetsPlugin,
             ));
     }
 }

@@ -141,6 +141,15 @@ fn use_boats(
                     p.physics.position.y += 0.6;
                     tell(&mut net, None);
                 }
+                // Off a pig, too.
+                if p.riding.take().is_some() {
+                    p.physics.position.y += 0.4;
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Riding { mount: None },
+                    );
+                }
             }
             // ---- Picking a boat up (an empty one). ----
             ClientMessage::HitEntity { id, .. } => {

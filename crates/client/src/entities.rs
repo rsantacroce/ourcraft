@@ -99,17 +99,24 @@ struct Boat;
 /// where it is comes a little late).
 fn seat_rider(
     boating: Res<crate::player::Boating>,
+    riding: Res<crate::player::Riding>,
     map: Res<EntityMap>,
     player: Single<&crate::player::Player>,
-    mut boats: Query<&mut Transform, With<Boat>>,
+    mut seats: Query<&mut Transform, Or<(With<Boat>, With<Mob>)>>,
 ) {
-    let Some(e) = boating.0.and_then(|id| map.0.get(&id)) else {
-        return;
-    };
-    if let Ok(mut t) = boats.get_mut(*e) {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    // A boat points the way you face (its long side across); an animal
+    // faces forwards.
+    let seat = boating
+        .0
+        .map(|id| (id, FRAC_PI_2))
+        .or(riding.0.map(|id| (id, PI)));
+    let Some((id, turn)) = seat else { return };
+    if let Some(e) = map.0.get(&id)
+        && let Ok(mut t) = seats.get_mut(*e)
+    {
         t.translation = player.state.position;
-        // The boat points the way you face (its long side across).
-        t.rotation = Quat::from_rotation_y(player.yaw + std::f32::consts::FRAC_PI_2);
+        t.rotation = Quat::from_rotation_y(player.yaw + turn);
     }
 }
 
@@ -514,6 +521,62 @@ fn handle_messages(
                                         Transform::from_translation(p.at),
                                     ));
                                 }
+                            }
+                        })
+                        .id();
+                    if let Some(old) = map.0.insert(*id, e) {
+                        commands.entity(old).despawn();
+                    }
+                    continue;
+                }
+                // An arrow, or a fishing bobber.
+                if model == "@arrow" || model == "@bobber" {
+                    let parts: Vec<([f32; 3], [f32; 3], [u8; 4])> = if model == "@arrow" {
+                        vec![
+                            (
+                                [-0.03, -0.03, -0.35],
+                                [0.03, 0.03, 0.25],
+                                [150, 104, 58, 255],
+                            ),
+                            (
+                                [-0.05, -0.05, 0.25],
+                                [0.05, 0.05, 0.35],
+                                [120, 120, 126, 255],
+                            ),
+                            (
+                                [-0.08, -0.01, -0.4],
+                                [0.08, 0.01, -0.28],
+                                [240, 240, 240, 255],
+                            ),
+                        ]
+                    } else {
+                        vec![
+                            ([-0.1, 0.0, -0.1], [0.1, 0.1, 0.1], [240, 240, 240, 255]),
+                            ([-0.1, 0.1, -0.1], [0.1, 0.2, 0.1], [220, 40, 40, 255]),
+                        ]
+                    };
+                    let e = commands
+                        .spawn((
+                            new_net(*gravity, Vec3::from_array(*velocity), false),
+                            EntityLight::default(),
+                            Transform::from_translation(pos)
+                                .with_rotation(Quat::from_rotation_y(*yaw)),
+                            Visibility::Inherited,
+                        ))
+                        .with_children(|parent| {
+                            for (min, max, rgba) in parts {
+                                let (min, max) = (Vec3::from_array(min), Vec3::from_array(max));
+                                let material = materials.add(StandardMaterial {
+                                    base_color: color(rgba),
+                                    unlit: true,
+                                    ..default()
+                                });
+                                parent.spawn((
+                                    Mesh3d(meshes.add(shaded_cuboid(max - min))),
+                                    Lit(material.clone()),
+                                    MeshMaterial3d(material),
+                                    Transform::from_translation((min + max) / 2.0),
+                                ));
                             }
                         })
                         .id();

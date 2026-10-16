@@ -343,7 +343,26 @@ What was planned:
   (and polished), deep slate further down, walls for the stone kinds,
   ice, packed ice, snow layers, obsidian (from water on still lava).
 
-### 20. Tools and adventure
+### 20. Tools and adventure ✅ done
+
+Fishing rods (cast into water, a fish bites after a few seconds and is
+caught straight away; now and then string, a feather or even a saddle),
+fish and cooked fish. A bow and arrows (flint from gravel, feathers from
+chickens, string from wool) for targets: hit one and there's confetti and
+a cheer, and survival archers get their arrows back. Armour in wool,
+iron, gold and diamond, worn in four slots next to the crafting grid,
+softens monsters' bonks (up to four fifths) and shows on your avatar for
+everyone else. A compass points to your bed (or the start), a clock tells
+the time of day, a map shows the land around you, a spyglass zooms in.
+Rope leads animals around; a saddle on a pig lets you ride it (Shift to
+get off). A campfire cooks food you put on it.
+
+Not quite as planned: no name tags and no flint and steel yet; armour
+doesn't wear out; maps show what's loaded around you rather than
+remembering where you've been. Also fixed: the server was announcing the
+weather every tick.
+
+What was planned:
 
 - Fishing rod and fish (and cooked fish).
 - Bow and arrows for targets: a target block that rings when hit. (Kept

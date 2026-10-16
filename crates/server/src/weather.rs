@@ -53,6 +53,7 @@ fn update_weather(
     mut net: ResMut<Network>,
     mut announce: Local<f32>,
     mut luck: Local<u32>,
+    mut told: Local<Option<bool>>,
 ) {
     let dt = time.delta_secs();
     *luck = luck.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
@@ -69,8 +70,11 @@ fn update_weather(
         }
     }
     *announce -= dt;
-    if weather.is_changed() || *announce <= 0.0 {
+    // (Counting down marks the weather as changed every tick, so compare
+    // with what we last said instead.)
+    if *told != Some(weather.raining) || *announce <= 0.0 {
         *announce = ANNOUNCE_EVERY;
+        *told = Some(weather.raining);
         net.broadcast(
             Channel::Reliable,
             &ServerMessage::Weather {

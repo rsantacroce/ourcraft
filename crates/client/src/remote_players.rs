@@ -32,6 +32,7 @@ impl Plugin for RemotePlayersPlugin {
                 Update,
                 (
                     apply_appearances,
+                    apply_armour,
                     interpolate,
                     animate_limbs,
                     update_nameplates,
@@ -49,6 +50,8 @@ pub struct RemotePlayers {
     pub entities: HashMap<PlayerId, Entity>,
     /// Shirt colour and name tag prefix set by the game mode.
     pub appearances: HashMap<PlayerId, (Option<[u8; 4]>, Option<String>)>,
+    /// What each player wears (item numbers, helmet first; 0 = nothing).
+    pub armour: HashMap<PlayerId, [u16; 4]>,
 }
 
 impl RemotePlayers {
@@ -73,6 +76,26 @@ pub struct RemotePlayer {
 #[derive(Component)]
 struct AvatarHead;
 
+/// A piece of armour on an avatar (0 helmet … 3 boots), shown when worn.
+#[derive(Component)]
+struct ArmourPiece(usize);
+
+/// The colour of armour made of a material, from the item's name.
+fn armour_colour(item: &str) -> Color {
+    let material = item
+        .trim_start_matches("core:")
+        .split('_')
+        .next()
+        .unwrap_or("");
+    match material {
+        "wool" => Color::srgb(0.92, 0.9, 0.84),
+        "iron" => Color::srgb(0.82, 0.83, 0.86),
+        "gold" => Color::srgb(0.95, 0.78, 0.25),
+        "diamond" => Color::srgb(0.35, 0.86, 0.86),
+        _ => Color::srgb(0.6, 0.6, 0.6),
+    }
+}
+
 /// The part of an avatar the game mode can recolour.
 #[derive(Component)]
 struct Shirt;
@@ -93,6 +116,10 @@ struct AvatarMeshes {
     body: Handle<Mesh>,
     limb: Handle<Mesh>,
     eye: Handle<Mesh>,
+    helmet: Handle<Mesh>,
+    chestplate: Handle<Mesh>,
+    legging: Handle<Mesh>,
+    boot: Handle<Mesh>,
 }
 
 fn create_avatar_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>) {
@@ -101,6 +128,10 @@ fn create_avatar_meshes(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>
         body: meshes.add(Cuboid::new(0.5, 0.7, 0.28)),
         limb: meshes.add(Cuboid::new(0.22, 0.7, 0.22)),
         eye: meshes.add(Cuboid::new(0.09, 0.09, 0.02)),
+        helmet: meshes.add(Cuboid::new(0.56, 0.3, 0.56)),
+        chestplate: meshes.add(Cuboid::new(0.56, 0.6, 0.34)),
+        legging: meshes.add(Cuboid::new(0.26, 0.45, 0.26)),
+        boot: meshes.add(Cuboid::new(0.26, 0.2, 0.28)),
     });
 }
 
@@ -135,6 +166,26 @@ fn spawn_avatar(
     let pants2 = part(Color::srgb(0.22, 0.3, 0.55));
     let eye = part(Color::srgb(0.1, 0.1, 0.15));
     let eye2 = part(Color::srgb(0.1, 0.1, 0.15));
+    // Armour, hidden until worn: (slot, mesh, where).
+    let mut armour = |slot: usize, mesh: &Handle<Mesh>, at: Vec3| {
+        (
+            ArmourPiece(slot),
+            Mesh3d(mesh.clone()),
+            part(Color::WHITE),
+            Transform::from_translation(at),
+            Visibility::Hidden,
+        )
+    };
+    let helmet = armour(0, &meshes.helmet, Vec3::new(0.0, 0.42, 0.0));
+    let chestplate = armour(1, &meshes.chestplate, Vec3::new(0.0, 1.1, 0.0));
+    let legs = [
+        armour(2, &meshes.legging, Vec3::new(0.0, -0.2, 0.0)),
+        armour(2, &meshes.legging, Vec3::new(0.0, -0.2, 0.0)),
+    ];
+    let boots = [
+        armour(3, &meshes.boot, Vec3::new(0.0, -0.6, -0.01)),
+        armour(3, &meshes.boot, Vec3::new(0.0, -0.6, -0.01)),
+    ];
 
     let nameplate = commands
         .spawn((
@@ -176,6 +227,7 @@ fn spawn_avatar(
                 Shirt,
                 Transform::from_xyz(0.0, 1.05, 0.0),
             ));
+            root.spawn(chestplate);
             root.spawn((
                 AvatarHead,
                 Transform::from_xyz(0.0, 1.4, 0.0),
@@ -187,6 +239,7 @@ fn spawn_avatar(
                     skin,
                     Transform::from_xyz(0.0, 0.25, 0.0),
                 ));
+                head.spawn(helmet);
                 head.spawn((
                     Mesh3d(meshes.eye.clone()),
                     eye,
@@ -205,17 +258,25 @@ fn spawn_avatar(
                 (Vec3::new(-0.12, 0.7, 0.0), pants, -1.0),
                 (Vec3::new(0.12, 0.7, 0.0), pants2, 1.0),
             ];
-            for (pivot, material, sign) in limbs {
-                root.spawn((
+            let [leg_a, leg_b] = legs;
+            let [boot_a, boot_b] = boots;
+            let mut worn = [None, None, Some((leg_a, boot_a)), Some((leg_b, boot_b))];
+            for (i, (pivot, material, sign)) in limbs.into_iter().enumerate() {
+                let mut limb = root.spawn((
                     Limb { sign },
                     Transform::from_translation(pivot),
                     Visibility::Inherited,
-                ))
-                .with_child((
+                ));
+                limb.with_child((
                     Mesh3d(meshes.limb.clone()),
                     material,
                     Transform::from_xyz(0.0, -0.33, 0.0),
                 ));
+                // Leggings and boots go on the legs.
+                if let Some((leg, boot)) = worn[i].take() {
+                    limb.with_child(leg);
+                    limb.with_child(boot);
+                }
             }
         })
         .id()
@@ -249,6 +310,9 @@ fn handle_player_messages(
             ServerMessage::Appearance { player, color, tag } => {
                 players.appearances.insert(*player, (*color, tag.clone()));
             }
+            ServerMessage::Armour { player, pieces } => {
+                players.armour.insert(*player, *pieces);
+            }
             ServerMessage::PlayerLeft(id) => {
                 players.appearances.remove(id);
                 if let Some(e) = players.entities.remove(id) {
@@ -278,6 +342,36 @@ fn handle_player_messages(
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Show the armour each player wears.
+fn apply_armour(
+    players: Res<RemotePlayers>,
+    items: Res<crate::items::Items>,
+    avatars: Query<(&RemotePlayer, Entity)>,
+    children: Query<&Children>,
+    mut pieces: Query<(&ArmourPiece, &mut Visibility, &mut AvatarColor)>,
+) {
+    if !players.is_changed() {
+        return;
+    }
+    for (p, root) in &avatars {
+        let worn = players.armour.get(&p.id).copied().unwrap_or_default();
+        for e in children.iter_descendants(root) {
+            let Ok((piece, mut vis, mut colour)) = pieces.get_mut(e) else {
+                continue;
+            };
+            let item = worn[piece.0];
+            *vis = if item == 0 {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            };
+            if item != 0 {
+                colour.0 = armour_colour(items.name(ourcraft_common::item::ItemId(item)));
+            }
         }
     }
 }

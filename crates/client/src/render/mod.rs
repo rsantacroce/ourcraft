@@ -13,6 +13,7 @@
 //! **Fog.** Chunks only exist up to the render distance. Fading distant
 //! terrain into the sky colour hides that edge (and chunks popping in).
 
+mod adventure_icons;
 mod colour_textures;
 mod stone_textures;
 mod wood_textures;

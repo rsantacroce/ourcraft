@@ -111,6 +111,45 @@ pub fn pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
             c[3] = 170;
             c
         }
+        // ---- Milestone 20 ----
+        "target" => {
+            let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt() as usize;
+            if d % 4 < 2 {
+                rgb(220, 50, 50)
+            } else {
+                rgb(244, 240, 230)
+            }
+        }
+        "campfire_side" => {
+            // Glowing logs at the bottom, flames above.
+            if y >= 12 {
+                let c = speckle(rgb(96, 70, 40), x, y, 115, 12.0);
+                if one_in(x, y, 116, 4) {
+                    rgb(255, 150, 40)
+                } else {
+                    c
+                }
+            } else {
+                let flame = (hash(x, 0, 117) % 8) as usize + 2;
+                if 12 - y <= flame && (3..13).contains(&x) {
+                    if y > 8 {
+                        rgb(255, 120, 30)
+                    } else {
+                        rgb(255, 210, 80)
+                    }
+                } else {
+                    [0, 0, 0, 0]
+                }
+            }
+        }
+        "campfire_top" => {
+            let c = speckle(rgb(255, 150, 40), x, y, 118, 30.0);
+            if (x + y).is_multiple_of(3) {
+                rgb(255, 220, 90)
+            } else {
+                c
+            }
+        }
         "packed_ice" => {
             let c = speckle(rgb(140, 184, 236), x, y, 114, 8.0);
             if (x + y * 2).is_multiple_of(7) {

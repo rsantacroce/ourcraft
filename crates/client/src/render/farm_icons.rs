@@ -526,6 +526,6 @@ pub fn icon(name: &str) -> Option<Vec<u8>> {
                 ],
             )
         }
-        _ => return None,
+        _ => return super::adventure_icons::icon(name),
     })
 }

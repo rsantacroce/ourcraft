@@ -376,6 +376,8 @@ enum SlotButton {
     Container(usize),
     /// An item in the creative palette.
     Palette(ItemId),
+    /// An armour slot (0 helmet … 3 boots).
+    Armour(usize),
     /// A tab of the creative palette.
     Tab(PaletteKind),
     /// The next (+1) or previous (-1) page of the palette tab.
@@ -449,6 +451,18 @@ impl PaletteKind {
         } else if def.tool().is_some()
             || TOOLS.contains(&def.name.as_str())
             || def.name.ends_with("_boat")
+            || matches!(def.kind, ItemKind::Armour { .. })
+            || matches!(
+                def.name.as_str(),
+                "core:fishing_rod"
+                    | "core:bow"
+                    | "core:compass"
+                    | "core:clock"
+                    | "core:map"
+                    | "core:spyglass"
+                    | "core:rope"
+                    | "core:saddle"
+            )
         {
             PaletteKind::Tools
         } else if plant
@@ -1043,6 +1057,30 @@ fn rebuild_screen(
                                 ..default()
                             })
                             .with_children(|craft| {
+                                // What you wear (in your own inventory).
+                                if *screen == OpenScreen::Inventory {
+                                    craft
+                                        .spawn(Node {
+                                            flex_direction: FlexDirection::Column,
+                                            row_gap: px(4),
+                                            margin: UiRect::right(px(24)),
+                                            ..default()
+                                        })
+                                        .with_children(|a| {
+                                            for i in 0..ourcraft_common::inventory::ARMOUR_SLOTS {
+                                                let b = Some(SlotButton::Armour(i));
+                                                spawn_slot(
+                                                    a,
+                                                    inventory.armour[i],
+                                                    false,
+                                                    false,
+                                                    &icons,
+                                                    &items,
+                                                    b,
+                                                );
+                                            }
+                                        });
+                                }
                                 craft
                                     .spawn(Node {
                                         display: Display::Grid,
@@ -1283,6 +1321,18 @@ fn slot_clicks(
             let (slot, held) = click_slot(&items, inventory.slots[i], cursor.stack, secondary);
             inventory.slots[i] = slot;
             cursor.stack = held;
+        }
+        SlotButton::Armour(i) => {
+            // Only the right piece of armour goes in.
+            let fits = cursor.stack.is_none_or(|s| {
+                matches!(
+                    items.get(s.item).map(|d| d.kind),
+                    Some(ItemKind::Armour { slot, .. }) if slot as usize == i
+                )
+            });
+            if fits {
+                std::mem::swap(&mut inventory.armour[i], &mut cursor.stack);
+            }
         }
         SlotButton::Craft(i) => {
             let (slot, held) = click_slot(&items, grid.0[i], cursor.stack, secondary);

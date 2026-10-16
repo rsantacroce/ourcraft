@@ -410,7 +410,11 @@ impl BlockRegistry {
             ..BlockDef::solid("core:bedrock", "Bedrock", T::all("bedrock"))
         });
         reg.register(
-            BlockDef::solid("core:gravel", "Gravel", T::all("gravel")).mined(0.6, Some(Shovel), 0),
+            BlockDef {
+                bonus_drop: vec![("core:flint".into(), 8)],
+                ..BlockDef::solid("core:gravel", "Gravel", T::all("gravel"))
+            }
+            .mined(0.6, Some(Shovel), 0),
         );
         reg.register(
             BlockDef::solid("core:cobblestone", "Cobblestone", T::all("cobblestone")).mined(
@@ -508,6 +512,8 @@ impl BlockRegistry {
         // ---- Milestone 19: trees and stone ----
         crate::woods::register_woods(&mut reg);
         crate::stones::register_stones(&mut reg);
+        // ---- Milestone 20: tools and adventure ----
+        crate::adventure::register_blocks(&mut reg);
         reg
     }
 

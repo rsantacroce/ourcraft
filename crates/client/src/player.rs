@@ -32,6 +32,7 @@ impl Plugin for PlayerPlugin {
             .init_resource::<GameMode>()
             .init_resource::<Asleep>()
             .init_resource::<Boating>()
+            .init_resource::<Riding>()
             .add_systems(Startup, spawn_player)
             .add_systems(
                 PreUpdate,
@@ -204,7 +205,7 @@ fn handle_welcome(
             };
         }
         if let Some((slots, selected)) = saved {
-            for (slot, saved) in inventory.slots.iter_mut().zip(slots) {
+            for (slot, saved) in inventory.every_slot_mut().zip(slots) {
                 *slot = saved.map(ItemStack::from);
             }
             inventory.select(*selected as usize);
@@ -242,7 +243,7 @@ fn send_inventory(
         *timer = 0.0;
         *pending = false;
         let msg = ClientMessage::Inventory {
-            slots: inventory.slots.iter().map(|s| s.map(Into::into)).collect(),
+            slots: inventory.every_slot().map(|s| s.map(Into::into)).collect(),
             selected: inventory.selected as u8,
         };
         conn.send(Channel::Reliable, &msg);
@@ -388,6 +389,10 @@ fn toggle_game_mode(
 #[derive(Resource, Default, Debug)]
 pub struct Boating(pub Option<u64>);
 
+/// Riding this animal (an entity id).
+#[derive(Resource, Default, Debug)]
+pub struct Riding(pub Option<u64>);
+
 /// Asleep in the bed at this block: the view lies down in it.
 #[derive(Resource, Default, Debug)]
 pub struct Asleep(pub Option<IVec3>);
@@ -396,15 +401,18 @@ fn hear_sleeping(
     mut messages: MessageReader<FromServer>,
     mut asleep: ResMut<Asleep>,
     mut boating: ResMut<Boating>,
+    mut riding: ResMut<Riding>,
 ) {
     for FromServer(msg) in messages.read() {
         match msg {
             ServerMessage::Sleeping { bed } => asleep.0 = bed.map(IVec3::from_array),
             ServerMessage::Boating { boat } => boating.0 = *boat,
+            ServerMessage::Riding { mount } => riding.0 = *mount,
             // A new world: awake, and on foot.
             ServerMessage::Welcome { .. } => {
                 asleep.0 = None;
                 boating.0 = None;
+                riding.0 = None;
             }
             _ => {}
         }
@@ -416,9 +424,14 @@ fn get_up(
     actions: Res<Actions>,
     mut asleep: ResMut<Asleep>,
     mut boating: ResMut<Boating>,
+    mut riding: ResMut<Riding>,
     conn: Option<ResMut<Connection>>,
 ) {
     let Some(mut conn) = conn else { return };
+    if riding.0.is_some() && actions.descend {
+        riding.0 = None;
+        conn.send(Channel::Reliable, &ClientMessage::LeaveBoat);
+    }
     if asleep.0.is_some() && (actions.movement != Vec2::ZERO || actions.jump) {
         asleep.0 = None;
         conn.send(Channel::Reliable, &ClientMessage::LeaveBed);

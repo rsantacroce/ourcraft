@@ -37,6 +37,9 @@ pub enum ItemKind {
     Material,
     /// Breaks blocks faster. Tiers: 1 wood, 2 stone, 3 iron, 4 diamond.
     Tool { kind: ToolKind, tier: u8 },
+    /// Worn in an armour slot (0 helmet … 3 boots); `points` of
+    /// protection.
+    Armour { slot: u8, points: u8 },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -62,7 +65,7 @@ pub struct ItemDef {
 }
 
 impl ItemDef {
-    fn material(name: &str, display: &str) -> Self {
+    pub(crate) fn material(name: &str, display: &str) -> Self {
         Self {
             name: name.into(),
             display_name: display.into(),
@@ -272,6 +275,8 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
             ));
         }
     }
+    // ---- Milestone 20: tools and adventure ----
+    items.extend(crate::adventure::items());
     // ---- Milestone 19: snowballs and a boat of every wood ----
     items.push(ItemDef {
         max_stack: 16,

@@ -195,7 +195,7 @@ fn use_blocks(
     mut screen: ResMut<OpenScreen>,
     mut container: ResMut<crate::inventory_ui::ContainerView>,
     registry: Res<Blocks>,
-    conn: Option<ResMut<crate::net::Connection>>,
+    (conn, player): (Option<ResMut<crate::net::Connection>>, Single<&Player>),
     mut held_before: Local<bool>,
 ) {
     // Only on a fresh press, so holding "place" doesn't reopen the screen.
@@ -237,6 +237,59 @@ fn use_blocks(
         return;
     }
     let held = inventory.held().unwrap_or(ItemId::NONE);
+    let survival = *mode == GameMode::Survival;
+    // A bow shoots an arrow (in survival, if you have one).
+    if items.name(held) == "core:bow" {
+        let Some(mut conn) = conn else { return };
+        let arrow = items.by_name("core:arrow");
+        let has_arrow = arrow.is_some_and(|a| inventory.count(a) > 0);
+        if survival && !has_arrow {
+            return;
+        }
+        if survival && let Some(a) = arrow {
+            take_one(&mut inventory, a);
+            inventory.wear_selected(&items);
+        }
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseItem {
+                held: held.0,
+                direction: player.look_direction().to_array(),
+            },
+        );
+        return;
+    }
+    // A fishing rod casts into the water you point at (or reels in).
+    if items.name(held) == "core:fishing_rod" {
+        let Some(mut conn) = conn else { return };
+        let spot = source.0.or(target.0).map_or(IVec3::ZERO, |h| h.block);
+        if survival {
+            inventory.wear_selected(&items);
+        }
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseBlock {
+                pos: spot.to_array(),
+                held: held.0,
+            },
+        );
+        return;
+    }
+    // Food goes on a campfire to cook.
+    if let Some(hit) = target.0
+        && registry.0.get(hit.id).name == "core:campfire"
+        && ourcraft_common::adventure::campfire_result(&items, items.name(held)).is_some()
+        && let Some(mut conn) = conn
+    {
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseBlock {
+                pos: hit.block.to_array(),
+                held: held.0,
+            },
+        );
+        return;
+    }
     // A boat goes on the water (or the ground) you point at.
     if items.name(held).ends_with("_boat")
         && let Some(spot) = source.0.or(target.0)
@@ -282,6 +335,8 @@ fn use_blocks(
         }
         (_, Some(VariantKind::Sign | VariantKind::WallSign)) => OpenScreen::Sign(hit.block),
         _ if hit.id == blocks::CRAFTING_TABLE => OpenScreen::CraftingTable,
+        // Campfires only take food (see above).
+        _ if registry.0.get(hit.id).name == "core:campfire" => return,
         _ => {
             // Furnaces and chests live on the server.
             container.0 = None;
@@ -291,6 +346,21 @@ fn use_blocks(
     };
     *screen = opened;
     focus.inventory_open = true;
+}
+
+/// Use up one of an item, from wherever it is in the inventory.
+fn take_one(inventory: &mut PlayerInventory, item: ItemId) {
+    if let Some(slot) = inventory
+        .slots
+        .iter_mut()
+        .find(|s| s.is_some_and(|s| s.item == item))
+    {
+        let s = slot.as_mut().expect("found");
+        s.count -= 1;
+        if s.count == 0 {
+            *slot = None;
+        }
+    }
 }
 
 /// Using a block that changes right where it is: eating cake, filling a
@@ -317,6 +387,7 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
         .stage(id)
         .is_some_and(|s| matches!(s.kind, StageKind::Cake | StageKind::Composter));
     stepped
+        || registry.get(id).name == "core:campfire"
         || id == blocks::CRAFTING_TABLE
         || id == blocks::FURNACE
         || registry.get(id).name == "core:chest"
