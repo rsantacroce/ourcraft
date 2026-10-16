@@ -46,6 +46,25 @@ pub struct MobDef {
     pub sound: String,
     /// Monsters: they come out at night, chase players and bonk them.
     pub hostile: Option<Hostile>,
+    /// Lives in water (fish): swims about, and flops on land.
+    pub swims: bool,
+    /// Flies (bees, the Puff): no gravity, keeps a little above the ground.
+    pub flies: bool,
+    /// Can be saddled and ridden; this much faster than walking.
+    pub ride_speed: Option<f32>,
+    /// Feed it its favourite food and it becomes your friend and follows
+    /// you about (cats, dogs).
+    pub befriends: bool,
+    /// Gets about by hopping (rabbits, frogs; monsters say so in
+    /// [`Hostile`]).
+    pub hops: bool,
+}
+
+impl MobDef {
+    /// Hops rather than walks?
+    pub fn hopper(&self) -> bool {
+        self.hops || self.hostile.is_some_and(|h| h.hops)
+    }
 }
 
 impl MobDef {
@@ -117,6 +136,11 @@ pub fn builtin_mobs() -> Vec<MobDef> {
         lays: None,
         sound: sound.into(),
         hostile: None,
+        swims: false,
+        flies: false,
+        ride_speed: None,
+        befriends: false,
+        hops: false,
     };
 
     let wool = [242, 242, 236, 255];
@@ -246,7 +270,192 @@ pub fn builtin_mobs() -> Vec<MobDef> {
         part([0.12, 0.5, 0.42], [0.2, 0.6, 0.44], [20, 20, 30, 255]),
     ];
 
-    vec![sheep, pig, cow, chicken, grumble, bouncer]
+    let mut mobs = vec![sheep, pig, cow, chicken, grumble, bouncer];
+    mobs.extend(more_creatures(&base));
+    mobs
+}
+
+/// Milestone 23's creatures: horses and donkeys to ride, rabbits, foxes,
+/// cats and dogs to befriend, fish, frogs, bees, and two more gentle
+/// monsters.
+fn more_creatures(base: &dyn Fn(&str, &str, [f32; 2], f32, &str) -> MobDef) -> Vec<MobDef> {
+    let black = [25, 25, 30, 255];
+    let white = [245, 245, 240, 255];
+
+    let brown = [140, 92, 52, 255];
+    let mane = [70, 44, 24, 255];
+    let mut horse = base("core:horse", "Horse", [1.0, 1.85], 2.2, "neigh");
+    horse.food = Some("core:wheat".into());
+    horse.ride_speed = Some(2.0);
+    horse.parts = vec![
+        part([-0.32, 0.8, -0.65], [0.32, 1.25, 0.55], brown),
+        part([-0.18, 1.1, 0.45], [0.18, 1.75, 0.75], brown),
+        part([-0.14, 1.45, 0.7], [0.14, 1.65, 1.0], brown),
+        part([-0.05, 1.2, 0.44], [0.05, 1.8, 0.62], mane),
+        part([-0.06, 0.6, -0.75], [0.06, 1.1, -0.62], mane),
+    ];
+    horse.parts.extend(eyes(0.09, 1.55, 1.0, 0.06));
+    horse.parts.extend(four_legs(0.22, 0.45, 0.16, 0.8, brown));
+
+    let grey = [140, 130, 120, 255];
+    let mut donkey = base("core:donkey", "Donkey", [0.9, 1.8], 1.7, "neigh");
+    donkey.food = Some("core:wheat".into());
+    donkey.ride_speed = Some(1.6);
+    donkey.parts = vec![
+        part([-0.3, 0.65, -0.55], [0.3, 1.05, 0.45], grey),
+        part([-0.16, 0.95, 0.38], [0.16, 1.45, 0.62], grey),
+        part([-0.13, 1.2, 0.58], [0.13, 1.38, 0.85], [200, 190, 180, 255]),
+        // Long ears.
+        part([-0.13, 1.45, 0.42], [-0.06, 1.75, 0.5], grey),
+        part([0.06, 1.45, 0.42], [0.13, 1.75, 0.5], grey),
+    ];
+    donkey.parts.extend(eyes(0.08, 1.3, 0.85, 0.05));
+    donkey.parts.extend(four_legs(0.2, 0.38, 0.14, 0.65, grey));
+
+    let fluff = [210, 190, 160, 255];
+    let mut rabbit = base("core:rabbit", "Rabbit", [0.4, 0.65], 1.8, "squeak");
+    rabbit.food = Some("core:carrot".into());
+    rabbit.spawns_on = Some("core:sand".into());
+    rabbit.hops = true;
+    rabbit.parts = vec![
+        part([-0.14, 0.0, -0.18], [0.14, 0.3, 0.12], fluff),
+        part([-0.1, 0.22, 0.08], [0.1, 0.42, 0.26], fluff),
+        part([-0.08, 0.42, 0.12], [-0.03, 0.62, 0.17], fluff),
+        part([0.03, 0.42, 0.12], [0.08, 0.62, 0.17], fluff),
+        part([-0.05, 0.1, -0.24], [0.05, 0.2, -0.18], white),
+    ];
+    rabbit.parts.extend(eyes(0.05, 0.34, 0.26, 0.03));
+
+    let orange = [222, 110, 40, 255];
+    let mut fox = base("core:fox", "Fox", [0.6, 0.7], 1.9, "squeak");
+    fox.food = Some("core:apple".into());
+    fox.spawns_on = Some("core:snow".into());
+    fox.parts = vec![
+        part([-0.18, 0.25, -0.35], [0.18, 0.5, 0.3], orange),
+        part([-0.15, 0.3, 0.25], [0.15, 0.55, 0.5], orange),
+        part([-0.06, 0.32, 0.5], [0.06, 0.42, 0.62], white),
+        part([-0.14, 0.55, 0.32], [-0.06, 0.66, 0.38], orange),
+        part([0.06, 0.55, 0.32], [0.14, 0.66, 0.38], orange),
+        // A fluffy tail with a white tip.
+        part([-0.08, 0.3, -0.7], [0.08, 0.44, -0.35], orange),
+        part([-0.08, 0.3, -0.8], [0.08, 0.44, -0.7], white),
+    ];
+    fox.parts.extend(eyes(0.08, 0.45, 0.5, 0.04));
+    fox.parts.extend(four_legs(0.1, 0.22, 0.08, 0.25, black));
+
+    let ginger = [230, 150, 70, 255];
+    let mut cat = base("core:cat", "Cat", [0.5, 0.7], 1.6, "meow");
+    cat.food = Some("core:fish".into());
+    cat.befriends = true;
+    cat.parts = vec![
+        part([-0.15, 0.25, -0.3], [0.15, 0.45, 0.25], ginger),
+        part([-0.14, 0.3, 0.22], [0.14, 0.55, 0.45], ginger),
+        part([-0.13, 0.55, 0.3], [-0.06, 0.64, 0.36], ginger),
+        part([0.06, 0.55, 0.3], [0.13, 0.64, 0.36], ginger),
+        part([-0.04, 0.35, -0.6], [0.04, 0.6, -0.3], ginger),
+    ];
+    cat.parts.extend(eyes(0.07, 0.45, 0.45, 0.04));
+    cat.parts.extend(four_legs(0.09, 0.2, 0.07, 0.25, ginger));
+
+    let tan = [200, 160, 110, 255];
+    let mut dog = base("core:dog", "Dog", [0.6, 0.8], 2.0, "bark");
+    dog.food = Some("core:cooked_fish".into());
+    dog.befriends = true;
+    dog.parts = vec![
+        part([-0.18, 0.35, -0.4], [0.18, 0.65, 0.3], tan),
+        part([-0.16, 0.45, 0.25], [0.16, 0.8, 0.55], tan),
+        part([-0.08, 0.5, 0.55], [0.08, 0.62, 0.68], [80, 60, 40, 255]),
+        // Floppy ears and a waggy tail.
+        part([-0.2, 0.55, 0.32], [-0.15, 0.75, 0.42], [150, 110, 70, 255]),
+        part([0.15, 0.55, 0.32], [0.2, 0.75, 0.42], [150, 110, 70, 255]),
+        part([-0.04, 0.55, -0.6], [0.04, 0.65, -0.38], tan),
+    ];
+    dog.parts.extend(eyes(0.08, 0.66, 0.55, 0.04));
+    dog.parts.extend(four_legs(0.12, 0.25, 0.1, 0.35, tan));
+
+    let fish_blue = [90, 150, 210, 255];
+    let mut fish = base("core:fish", "Fish", [0.4, 0.3], 1.4, "squeak");
+    fish.spawns_on = Some("core:water".into());
+    fish.food = None;
+    fish.swims = true;
+    fish.parts = vec![
+        part([-0.06, 0.0, -0.2], [0.06, 0.25, 0.2], fish_blue),
+        part(
+            [-0.02, 0.08, -0.32],
+            [0.02, 0.22, -0.2],
+            [240, 160, 60, 255],
+        ),
+    ];
+    fish.parts.extend(eyes(0.04, 0.16, 0.2, 0.03));
+
+    let green = [90, 160, 70, 255];
+    let mut frog = base("core:frog", "Frog", [0.4, 0.35], 1.2, "ribbit");
+    frog.spawns_on = Some("core:clay".into());
+    frog.food = Some("core:wheat_seeds".into());
+    frog.hops = true;
+    frog.parts = vec![
+        part([-0.16, 0.05, -0.15], [0.16, 0.22, 0.16], green),
+        part([-0.14, 0.15, 0.08], [-0.05, 0.28, 0.16], green),
+        part([0.05, 0.15, 0.08], [0.14, 0.28, 0.16], green),
+        part([-0.2, 0.0, -0.15], [-0.12, 0.06, 0.05], [70, 130, 60, 255]),
+        part([0.12, 0.0, -0.15], [0.2, 0.06, 0.05], [70, 130, 60, 255]),
+    ];
+    frog.parts.extend(eyes(0.1, 0.2, 0.16, 0.03));
+
+    let yellow = [246, 200, 50, 255];
+    let mut bee = base("core:bee", "Bee", [0.4, 0.4], 1.6, "buzz");
+    bee.spawns_on = None;
+    bee.food = None;
+    bee.flies = true;
+    bee.parts = vec![
+        part([-0.12, 0.0, -0.15], [0.12, 0.3, 0.15], yellow),
+        part([-0.125, 0.1, -0.05], [0.125, 0.3, 0.0], black),
+        part([-0.125, 0.1, 0.07], [0.125, 0.3, 0.1], black),
+        part(
+            [-0.2, 0.28, -0.05],
+            [-0.02, 0.3, 0.08],
+            [230, 240, 255, 255],
+        ),
+        part([0.02, 0.28, -0.05], [0.2, 0.3, 0.08], [230, 240, 255, 255]),
+    ];
+    bee.parts.extend(eyes(0.05, 0.2, 0.15, 0.03));
+
+    // ---- Two more gentle monsters. ----
+    let mut puff = base("core:puff", "Puff", [0.7, 0.8], 1.0, "boing");
+    puff.spawns_on = None;
+    puff.food = None;
+    puff.flies = true;
+    puff.hostile = Some(Hostile {
+        damage: 1.0,
+        health: 4.0,
+        hops: false,
+    });
+    let cloud = [236, 236, 250, 255];
+    puff.parts = vec![
+        part([-0.35, 0.0, -0.35], [0.35, 0.6, 0.35], cloud),
+        part([-0.25, 0.5, -0.25], [0.25, 0.75, 0.25], cloud),
+        part([-0.2, 0.3, 0.35], [-0.08, 0.45, 0.37], black),
+        part([0.08, 0.3, 0.35], [0.2, 0.45, 0.37], black),
+    ];
+    let mut rumble = base("core:rumble", "Rumble", [0.9, 1.0], 0.8, "grumble");
+    rumble.spawns_on = None;
+    rumble.food = None;
+    rumble.hostile = Some(Hostile {
+        damage: 2.0,
+        health: 12.0,
+        hops: false,
+    });
+    let rock = [120, 116, 110, 255];
+    rumble.parts = vec![
+        part([-0.45, 0.2, -0.4], [0.45, 0.95, 0.4], rock),
+        part([-0.3, 0.6, 0.4], [-0.1, 0.75, 0.42], [250, 200, 80, 255]),
+        part([0.1, 0.6, 0.4], [0.3, 0.75, 0.42], [250, 200, 80, 255]),
+        leg([-0.35, 0.0, -0.15], [-0.1, 0.25, 0.15], rock, 1.0),
+        leg([0.1, 0.0, -0.15], [0.35, 0.25, 0.15], rock, -1.0),
+    ];
+    vec![
+        horse, donkey, rabbit, fox, cat, dog, fish, frog, bee, puff, rumble,
+    ]
 }
 
 /// The model name clients recognise as "draw this mob":
@@ -334,9 +543,9 @@ mod tests {
                 "{} is taller than its box",
                 m.name
             );
-            let jelly = m.hostile.is_some_and(|h| h.hops);
+            let legless = m.hopper() || m.swims || m.flies;
             assert!(
-                jelly || m.parts.iter().any(|p| p.leg != 0.0),
+                legless || m.parts.iter().any(|p| p.leg != 0.0),
                 "{} has no legs",
                 m.name
             );

@@ -70,6 +70,7 @@ struct Plants {
     ice: BlockId,
     snow_layer: BlockId,
     spark_ore: BlockId,
+    beehive: BlockId,
 }
 
 impl Plants {
@@ -100,6 +101,7 @@ impl Plants {
             ice: id("core:ice"),
             snow_layer: id("core:snow_layer"),
             spark_ore: id("core:spark_ore"),
+            beehive: id("core:beehive"),
             crops: [
                 ripe("core:wheat_crop"),
                 ripe("core:carrot_crop"),
@@ -441,6 +443,11 @@ impl WorldGenerator {
                         crate::woods::Part::Leaves => (leaves, false),
                     };
                     put(wx + o[0], base + o[1], wz + o[2], block, replace);
+                }
+                // Now and then a bee hive hangs on an oak or birch trunk.
+                let hive_tree = matches!(wood, crate::woods::Wood::Oak | crate::woods::Wood::Birch);
+                if hive_tree && (r >> 40).is_multiple_of(10) {
+                    put(wx + 1, base + 2, wz, self.plants.beehive, false);
                 }
                 // The ground under a tree is dirt, not grass.
                 put(wx, height, wz, blocks::DIRT, true);

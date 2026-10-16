@@ -421,7 +421,22 @@ What was planned:
   (normal and sticky), a dispenser, a note block.
 - Mine carts, rails, powered rails.
 
-### 23. More creatures
+### 23. More creatures ✅ done
+
+Horses and donkeys (saddle them and ride, twice and one and a half times
+walking speed), rabbits that hop about the deserts, foxes in the snow,
+cats and dogs that become your friends when you feed them (fish and
+cooked fish) and follow you about, catching up if you get far ahead, fish
+that swim in lakes and the sea, frogs that hop, and bees that fly about
+the bee hives found on oak and birch trees. Hives fill with honey (a bowl
+takes it). Two more gentle monsters: the Puff, a floating cloud, and the
+Rumble, a slow rock. New sounds: neigh, bark, meow, ribbit, buzz, squeak.
+Friends and saddles are saved with the animals.
+
+Not quite as planned: friends don't sit when told to; fish can't be
+caught by hand (use a rod); bees don't pollinate.
+
+What was planned:
 
 - Animals: horses and donkeys (rideable), rabbits, foxes, cats and dogs
   you can befriend, fish in the water, frogs, bees with hives and honey.

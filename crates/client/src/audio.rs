@@ -173,6 +173,44 @@ fn generate(name: &str) -> Vec<f32> {
             let f = 95.0 + 12.0 * (TAU * 7.0 * t).sin();
             voice(f * t, 9) * 0.5 * soft(t, 0.6)
         }),
+        // ---- Milestone 23: more animals ----
+        // Neigh: a high whinny that wobbles down.
+        "neigh" => synth(0.7, |t| {
+            let f = 520.0 - 300.0 * t + 60.0 * (TAU * 22.0 * t).sin();
+            voice(f * t, 6) * 0.4 * soft(t, 0.7)
+        }),
+        // Woof: two short barks.
+        "bark" => synth(0.4, |t| {
+            let local = if t < 0.16 { t } else { t - 0.22 };
+            let on = (0.0..0.16).contains(&local);
+            let f = 300.0 - 400.0 * local;
+            if on {
+                (voice(f * t, 6) * 0.5 + noise.next() * 0.1) * soft(local, 0.16)
+            } else {
+                0.0
+            }
+        }),
+        // Meow: rising then falling.
+        "meow" => synth(0.5, |t| {
+            let f = 600.0 + 300.0 * (std::f32::consts::PI * t / 0.5).sin();
+            voice(f * t, 4) * 0.4 * soft(t, 0.5)
+        }),
+        // Ribbit: two croaks.
+        "ribbit" => synth(0.35, |t| {
+            let local = t % 0.17;
+            let f = 180.0 + 80.0 * (TAU * 40.0 * t).sin();
+            voice(f * t, 8) * 0.45 * env(local, 14.0)
+        }),
+        // Buzz: a little hum.
+        "buzz" => synth(0.5, |t| {
+            let f = 220.0 + 8.0 * (TAU * 9.0 * t).sin();
+            (TAU * f * t).sin().signum() * 0.18 * soft(t, 0.5)
+        }),
+        // Squeak: a tiny high peep (rabbits, foxes, fish).
+        "squeak" => synth(0.15, |t| {
+            let f = 1300.0 + 1500.0 * t;
+            (TAU * f * t).sin() * 0.35 * env(t, 18.0)
+        }),
         // Boing: a springy rising wobble.
         "boing" => synth(0.35, |t| {
             let f = 180.0 + 500.0 * t + 40.0 * (TAU * 25.0 * t).sin();
@@ -384,7 +422,7 @@ pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     out
 }
 
-pub const SOUND_NAMES: [&str; 27] = [
+pub const SOUND_NAMES: [&str; 33] = [
     "place",
     "break",
     "pop",
@@ -400,6 +438,12 @@ pub const SOUND_NAMES: [&str; 27] = [
     "bonk",
     "grumble",
     "boing",
+    "neigh",
+    "bark",
+    "meow",
+    "ribbit",
+    "buzz",
+    "squeak",
     "step_grass",
     "step_stone",
     "step_wood",

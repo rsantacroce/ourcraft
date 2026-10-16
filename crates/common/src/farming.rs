@@ -33,6 +33,8 @@ pub enum StageKind {
     Sapling { wood: String },
     /// A thin layer on the ground (snow): you can build straight into it.
     Layer,
+    /// A bee hive: fills up with honey (stage 1 is full).
+    Hive,
     /// Grows in the dark on any solid block.
     Mushroom,
     /// Each stage is one more slice eaten.
@@ -350,6 +352,7 @@ impl BlockRegistry {
                     | StageKind::Stem { .. }
                     | StageKind::Cane
                     | StageKind::Sapling { .. }
+                    | StageKind::Hive
             )
         })
     }
@@ -371,7 +374,7 @@ impl BlockRegistry {
     /// Plants and cakes stand on the block below and go when it does.
     pub fn sits_on_ground(&self, b: BlockId) -> bool {
         self.stage(b)
-            .is_some_and(|s| !matches!(s.kind, StageKind::Composter))
+            .is_some_and(|s| !matches!(s.kind, StageKind::Composter | StageKind::Hive))
     }
 
     /// Something you can place a block straight into (tall grass), like
@@ -412,7 +415,7 @@ impl BlockRegistry {
             }
             StageKind::Mushroom | StageKind::Layer => self.is_opaque(below),
             StageKind::Cake => self.is_solid(below),
-            StageKind::Composter => true,
+            StageKind::Composter | StageKind::Hive => true,
         }
     }
 }

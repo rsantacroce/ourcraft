@@ -261,7 +261,7 @@ fn player_physics(
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
     conn: Option<ResMut<Connection>>,
-    (boating, seat): (Res<Boating>, Res<CartSeat>),
+    (boating, seat, riding): (Res<Boating>, Res<CartSeat>, Res<Riding>),
     mut player: Single<&mut Player>,
 ) {
     if player.frozen {
@@ -279,7 +279,11 @@ fn player_physics(
         fly: player.state.flying,
         yaw: player.yaw,
         pitch: player.pitch,
-        speed: rules.0.speed,
+        speed: if riding.0.is_some() {
+            rules.0.speed * riding.1
+        } else {
+            rules.0.speed
+        },
         boat: boating.0.is_some(),
     };
     player.prev_position = player.state.position;
@@ -397,9 +401,9 @@ fn toggle_game_mode(
 #[derive(Resource, Default, Debug)]
 pub struct Boating(pub Option<u64>);
 
-/// Riding this animal (an entity id).
+/// Riding this animal (an entity id), and how much faster than walking.
 #[derive(Resource, Default, Debug)]
-pub struct Riding(pub Option<u64>);
+pub struct Riding(pub Option<u64>, pub f32);
 
 /// Sitting in this mine cart (an entity id).
 #[derive(Resource, Default, Debug)]
@@ -424,7 +428,10 @@ fn hear_sleeping(
         match msg {
             ServerMessage::Sleeping { bed } => asleep.0 = bed.map(IVec3::from_array),
             ServerMessage::Boating { boat } => boating.0 = *boat,
-            ServerMessage::Riding { mount } => riding.0 = *mount,
+            ServerMessage::Riding { mount, speed } => {
+                riding.0 = *mount;
+                riding.1 = *speed;
+            }
             ServerMessage::InCart { cart: c } => cart.0 = *c,
             // A new world: awake, and on foot.
             ServerMessage::Welcome { .. } => {

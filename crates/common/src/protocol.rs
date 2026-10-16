@@ -421,9 +421,11 @@ pub enum ServerMessage {
     Boating {
         boat: Option<u64>,
     },
-    /// You're riding this animal (an entity), or not.
+    /// You're riding this animal (an entity), or not; it goes `speed`
+    /// times as fast as walking.
     Riding {
         mount: Option<u64>,
+        speed: f32,
     },
     /// You're sitting in this mine cart (an entity), or not.
     InCart {

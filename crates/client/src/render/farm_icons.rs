@@ -466,6 +466,7 @@ pub fn icon(name: &str) -> Option<Vec<u8>> {
         "bowl" => bowl_of(None),
         "beetroot_soup" => bowl_of(Some([170, 30, 60, 255])),
         "mushroom_stew" => bowl_of(Some([200, 150, 100, 255])),
+        "honey_bowl" => bowl_of(Some([240, 170, 40, 255])),
         "bone_meal" => draw(
             &[
                 "................",

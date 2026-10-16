@@ -421,7 +421,11 @@ pub fn used_in_place(
         .variant
         .as_ref()
         .is_some_and(|v| v.family == "core:item_frame");
-    stepped || feeds || potting || frame
+    let honey = held == "core:bowl"
+        && registry
+            .stage(id)
+            .is_some_and(|s| s.kind == StageKind::Hive && s.stage == s.max);
+    stepped || feeds || potting || frame || honey
 }
 
 /// Blocks that do something when you use them (instead of having a block

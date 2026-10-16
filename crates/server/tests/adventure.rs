@@ -317,13 +317,15 @@ fn fishing_arrows_campfires_armour_and_riding() {
     fay.send(&ClientMessage::UseEntity { id, held: 0 });
     assert!(
         run_until(&mut [&mut fay], 2.0, |b| b[0].has(
-            |m| matches!(m, ServerMessage::Riding { mount: Some(m) } if *m == id)
+            |m| matches!(m, ServerMessage::Riding { mount: Some(m), .. } if *m == id)
         )),
         "couldn't ride the pig"
     );
     fay.send(&ClientMessage::LeaveBoat);
-    assert!(run_until(&mut [&mut fay], 2.0, |b| b[0]
-        .has(|m| matches!(m, ServerMessage::Riding { mount: None }))));
+    assert!(run_until(&mut [&mut fay], 2.0, |b| b[0].has(|m| matches!(
+        m,
+        ServerMessage::Riding { mount: None, .. }
+    ))));
 
     stop.0.store(true, Ordering::Relaxed);
     let _ = server.join();

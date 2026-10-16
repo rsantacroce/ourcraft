@@ -275,6 +275,14 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
             ));
         }
     }
+    // ---- Milestone 23: honey ----
+    items.push(ItemDef {
+        food: 6,
+        heals: 2,
+        max_stack: 1,
+        leaves: Some("core:bowl".into()),
+        ..ItemDef::material("core:honey_bowl", "Bowl of Honey")
+    });
     // ---- Milestone 22: spark dust (it lays wire) and mine carts ----
     items.push(plants(
         blocks,

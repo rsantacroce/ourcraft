@@ -139,6 +139,8 @@ pub struct MobState {
     saddled: bool,
     /// Someone's riding it: it goes where they go.
     ridden: bool,
+    /// Befriended by this player (by name): follows them about.
+    friend: Option<String>,
 }
 
 impl MobState {
@@ -163,6 +165,7 @@ impl MobState {
             leash: None,
             saddled: false,
             ridden: false,
+            friend: None,
         }
     }
 
@@ -242,6 +245,11 @@ pub fn mob_from_spec(
         lays: None,
         sound: spec.sound.clone(),
         hostile: None,
+        swims: false,
+        flies: false,
+        ride_speed: None,
+        befriends: false,
+        hops: false,
     }
 }
 
@@ -316,7 +324,15 @@ fn use_mobs(
                 }),
             );
         };
-        if held_name == "core:rope" && kind.hostile.is_none() {
+        if kind.befriends && state.friend.is_none() && kind.likes(held_name) {
+            // Fed its favourite food: a friend for life.
+            state.friend = p.name.clone();
+            if !p.creative {
+                take_one(&mut net);
+            }
+            effect = Some(EffectKind::Hearts);
+            sound = Some(kind.sound.as_str());
+        } else if held_name == "core:rope" && kind.hostile.is_none() {
             // A rope: it follows you (or, if it already does, it's let go).
             state.leash = match state.leash {
                 Some(c) if c == *client => None,
@@ -324,7 +340,10 @@ fn use_mobs(
             };
             effect = Some(EffectKind::Hearts);
             sound = Some(kind.sound.as_str());
-        } else if held_name == "core:saddle" && kind.name == "core:pig" && !state.saddled {
+        } else if held_name == "core:saddle"
+            && (kind.name == "core:pig" || kind.ride_speed.is_some())
+            && !state.saddled
+        {
             state.saddled = true;
             if !p.creative {
                 take_one(&mut net);
@@ -338,6 +357,7 @@ fn use_mobs(
         {
             // Hop on.
             p.riding = Some(*id);
+            p.ride_speed = kind.ride_speed.unwrap_or(1.0);
             p.physics.position = at;
             p.physics.velocity = Vec3::ZERO;
             p.state.position = at.to_array();
@@ -345,7 +365,10 @@ fn use_mobs(
             net.send(
                 *client,
                 Channel::Reliable,
-                &ServerMessage::Riding { mount: Some(*id) },
+                &ServerMessage::Riding {
+                    mount: Some(*id),
+                    speed: p.ride_speed,
+                },
             );
             sound = Some(kind.sound.as_str());
         } else if let Some(colour) =
@@ -507,12 +530,40 @@ fn spawn_naturally(
     mut states: ResMut<MobStates>,
     mut rng: ResMut<Rng>,
     mut timer: Local<f32>,
+    hives: Res<crate::farming::Hives>,
 ) {
     *timer += time.delta_secs();
     if *timer < 2.0 {
         return;
     }
     *timer = 0.0;
+    // Bees buzz about their hives (a couple each).
+    for hive in &hives.0 {
+        let at = hive.as_vec3() + Vec3::splat(0.5);
+        let bees = states
+            .0
+            .iter()
+            .filter(|(_, s)| s.kind == "core:bee")
+            .filter_map(|(id, _)| entities.list.get(id))
+            .filter(|e| e.position.distance(at) < 8.0)
+            .count();
+        let side = [IVec3::X, IVec3::NEG_X, IVec3::Z, IVec3::NEG_Z][rng.next() as usize % 4];
+        let out = *hive + side;
+        let free = world
+            .get_block(out.x, out.y, out.z)
+            .is_some_and(|b| b.is_air());
+        if bees < 2 && free && rng.next().is_multiple_of(4) {
+            let id = spawn_mob(
+                &mut entities,
+                "core:bee",
+                out.as_vec3() + Vec3::splat(0.5),
+                false,
+            );
+            states
+                .0
+                .insert(id, MobState::new("core:bee", true, false, &mut rng));
+        }
+    }
     // Pick up animals mods spawned (they have no state yet).
     let new: Vec<(u64, String, bool, u8)> = entities
         .list
@@ -551,11 +602,19 @@ fn spawn_naturally(
         let Some((y, top)) = ground(&world, &registry, x, z) else {
             continue;
         };
-        let top_name = &registry.0.get(top).name;
+        // Under water, the "ground" for fish is the water.
+        let wet = world
+            .get_block(x, y + 1, z)
+            .is_some_and(|b| registry.0.is_liquid(b));
+        let top_name = if wet {
+            "core:water"
+        } else {
+            registry.0.get(top).name.as_str()
+        };
         let kinds: Vec<&MobDef> = open
             .mobs
             .iter()
-            .filter(|m| m.spawns_on.as_deref() == Some(top_name.as_str()))
+            .filter(|m| m.spawns_on.as_deref() == Some(top_name))
             .collect();
         if kinds.is_empty() {
             continue;
@@ -612,6 +671,10 @@ fn think(
         .iter()
         .filter(|p| p.name.is_some())
         .map(|p| (p.client, p.position()))
+        .collect();
+    let friends: HashMap<String, Vec3> = players
+        .iter()
+        .filter_map(|p| Some((p.name.clone()?, p.position())))
         .collect();
     // Who's holding what.
     let holders: Vec<(Vec3, String)> = players
@@ -687,6 +750,25 @@ fn think(
                     s.goal = Goal::Towards(*at);
                     continue;
                 }
+            }
+        }
+        // A friend follows its player about (and catches up if left far
+        // behind).
+        if let Some(name) = &s.friend
+            && let Some(at) = friends.get(name)
+        {
+            let d = at.distance(me);
+            if d > 24.0 {
+                if let Some(e) = entities.list.get_mut(id) {
+                    e.position = *at + Vec3::new(1.0, 0.5, 1.0);
+                    e.moved = true;
+                }
+                s.goal = Goal::Idle;
+                continue;
+            }
+            if d > 3.0 {
+                s.goal = Goal::Towards(*at);
+                continue;
             }
         }
         // On a rope: follow whoever holds it (let go if they're far away).
@@ -797,6 +879,70 @@ fn walk(
         let before = (e.position, e.yaw);
         let half = kind.size[0] / 2.0;
 
+        // Fish swim and bees fly: no walking for them.
+        if kind.swims || kind.flies {
+            let target_yaw = match s.goal {
+                Goal::Idle => None,
+                Goal::Wander(yaw) => Some(yaw),
+                Goal::Towards(at) => {
+                    let d = at - e.position;
+                    Some(d.x.atan2(d.z))
+                }
+            };
+            let wet = |p: Vec3| liquid(p + Vec3::Y * 0.15);
+            if kind.swims && !wet(e.position) {
+                // A fish out of water falls (and flops about).
+                s.vy -= GRAVITY * dt;
+                let next = e.position + Vec3::Y * s.vy * dt;
+                if solid(next) {
+                    s.vy = 0.0;
+                } else {
+                    e.position = next;
+                }
+            } else {
+                // Up and down: fish drift about; fliers keep a little
+                // above the ground.
+                let vy = if kind.flies {
+                    let floor = (1..10)
+                        .find(|d| solid(e.position - Vec3::Y * *d as f32))
+                        .unwrap_or(10) as f32;
+                    ((3.0 - floor) * 1.5).clamp(-2.0, 2.0)
+                } else {
+                    s.vy.clamp(-0.6, 0.6)
+                };
+                let up = e.position + Vec3::Y * vy * dt;
+                let ok =
+                    !solid(up) && !solid(up + Vec3::Y * kind.size[1]) && (kind.flies || wet(up));
+                if ok {
+                    e.position = up;
+                } else if kind.swims {
+                    s.vy = -s.vy;
+                }
+                if let Some(yaw) = target_yaw {
+                    e.yaw = turn_towards(e.yaw, yaw, 4.0 * dt);
+                    let dir = Vec3::new(e.yaw.sin(), 0.0, e.yaw.cos());
+                    let next = e.position + dir * kind.speed * dt;
+                    let probe = next + dir * half;
+                    let blocked = solid(probe)
+                        || solid(probe + Vec3::Y * kind.size[1] * 0.9)
+                        || (kind.swims && !wet(probe));
+                    if blocked {
+                        s.goal = Goal::Wander(e.yaw + std::f32::consts::PI + rng.range(-1.0, 1.0));
+                        s.timer = rng.range(1.0, 3.0);
+                        if kind.swims {
+                            s.vy = rng.range(-0.6, 0.6);
+                        }
+                    } else {
+                        e.position.x = next.x;
+                        e.position.z = next.z;
+                    }
+                }
+            }
+            if (e.position, e.yaw) != before {
+                e.moved = true;
+            }
+            continue;
+        }
         // Falling, floating and hopping.
         let on_ground = solid(e.position - Vec3::Y * 0.05);
         if liquid(e.position + Vec3::Y * 0.3) {
@@ -828,7 +974,7 @@ fn walk(
             }
         };
         // Bouncy monsters move only in hops.
-        let hops = kind.hostile.is_some_and(|h| h.hops);
+        let hops = kind.hopper();
         if hops && on_ground && s.vy == 0.0 {
             s.hop_cd -= dt;
             if target_yaw.is_some() && s.hop_cd <= 0.0 {
@@ -1253,6 +1399,8 @@ fn remember_kept(
             state.baby_for = a.baby_for.max(0.0);
             state.sheared_for = a.sheared_for.max(0.0);
             state.colour = a.colour % 16;
+            state.friend = a.friend.clone();
+            state.saddled = a.saddled;
             let id = entities.spawn(ServerEntity {
                 model: state.model(),
                 position: Vec3::from_array(a.position),
@@ -1286,6 +1434,8 @@ fn remember_kept(
                 baby_for: s.baby_for,
                 sheared_for: s.sheared_for,
                 colour: s.colour,
+                friend: s.friend.clone(),
+                saddled: s.saddled,
             })
         })
         .collect();
@@ -1310,7 +1460,10 @@ fn carry_riders(
             net.send(
                 p.client,
                 Channel::Reliable,
-                &ServerMessage::Riding { mount: None },
+                &ServerMessage::Riding {
+                    mount: None,
+                    speed: 1.0,
+                },
             );
             continue;
         };

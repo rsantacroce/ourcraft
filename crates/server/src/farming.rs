@@ -31,12 +31,16 @@ pub struct FarmingPlugin;
 
 impl Plugin for FarmingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<Hives>().add_systems(
             Update,
             (use_farm_blocks, grow).after(crate::players::PlayersSet),
         );
     }
 }
+
+/// Where the bee hives near players are (bees come out of them).
+#[derive(Resource, Default)]
+pub struct Hives(pub Vec<IVec3>);
 
 /// A tiny random number generator.
 fn next(seed: &mut u32) -> u32 {
@@ -141,6 +145,7 @@ fn grow(
     mut net: ResMut<Network>,
     mut timer: Local<f32>,
     mut seed: Local<u32>,
+    mut hives: ResMut<Hives>,
 ) {
     *timer += time.delta_secs();
     if *timer < GROW_EVERY {
@@ -148,6 +153,7 @@ fn grow(
     }
     *timer = 0.0;
     let reg = &registry.0;
+    hives.0.clear();
     // Columns near anyone.
     let mut columns: Vec<ColumnPos> = Vec::new();
     for p in players.iter().filter(|p| p.name.is_some()) {
@@ -233,6 +239,15 @@ fn grow(
                     && let Some(at) = fruit_spot(&world, &registry, p, fruit, roll)
                 {
                     change(&mut world, &mut cache, &open, &mut net, at, fruit);
+                }
+            }
+            StageKind::Hive => {
+                hives.0.push(p);
+                if stage.stage < stage.max
+                    && chance(&mut seed, 40)
+                    && let Some(full) = reg.advanced(b, 1)
+                {
+                    change(&mut world, &mut cache, &open, &mut net, p, full);
                 }
             }
             StageKind::Sapling { wood } => {
@@ -405,6 +420,29 @@ fn use_farm_blocks(
         }
         let Some(stage) = stage else { continue };
         match stage.kind {
+            // ---- A full hive: honey in a bowl. ----
+            StageKind::Hive => {
+                if stage.stage >= stage.max
+                    && held_name == "core:bowl"
+                    && let (Some(empty), Some(honey)) = (
+                        reg.at_stage(&stage.family, 0),
+                        open.items.by_name("core:honey_bowl"),
+                    )
+                {
+                    change(&mut world, &mut cache, &open, &mut net, pos, empty);
+                    take(&mut net, client);
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::GiveItems(NetStack {
+                            item: honey.0,
+                            count: 1,
+                            wear: 0,
+                        }),
+                    );
+                    sound(&mut net, "buzz");
+                }
+            }
             // ---- Cake: a slice each time (if you're hungry). ----
             StageKind::Cake => {
                 let hungry = p.needs.food < crate::needs::MAX_FOOD;

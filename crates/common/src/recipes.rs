@@ -173,6 +173,13 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             1,
         ));
     }
+    // ---- Milestone 23: a bee hive ----
+    r.push(shaped(
+        &["PPP", "H H", "PPP"],
+        &[('P', "#planks"), ('H', "core:honey_bowl")],
+        "core:beehive",
+        1,
+    ));
     // ---- Milestone 22: circuits and transport ----
     r.extend([
         shaped(

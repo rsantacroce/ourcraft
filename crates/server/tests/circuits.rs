@@ -190,7 +190,11 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
         "the lamp didn't light"
     );
     assert!(
-        run_until(&mut [&mut fay], 3.0, |b| changed_to(b[0], at(6, y, 1), block("core:cobblestone"))),
+        run_until(&mut [&mut fay], 3.0, |b| changed_to(
+            b[0],
+            at(6, y, 1),
+            block("core:cobblestone")
+        )),
         "the piston didn't push"
     );
     // ---- And off again.
@@ -200,7 +204,11 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
         held: 0,
     });
     assert!(
-        run_until(&mut [&mut fay], 3.0, |b| changed_to(b[0], at(5, y, 0), lamp)),
+        run_until(&mut [&mut fay], 3.0, |b| changed_to(
+            b[0],
+            at(5, y, 0),
+            lamp
+        )),
         "the lamp didn't go out"
     );
 
@@ -212,11 +220,19 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
     run_until(&mut [&mut fay], 1.0, |_| false);
     // (3, 3) has rails to the west and north: a corner.
     let corner = registry
-        .rail_joining("core:rail", ourcraft_common::shapes::Dir4::West, ourcraft_common::shapes::Dir4::North)
+        .rail_joining(
+            "core:rail",
+            ourcraft_common::shapes::Dir4::West,
+            ourcraft_common::shapes::Dir4::North,
+        )
         .unwrap()
         .0;
     assert!(
-        run_until(&mut [&mut fay], 2.0, |b| changed_to(b[0], at(3, y, 3), corner)),
+        run_until(&mut [&mut fay], 2.0, |b| changed_to(
+            b[0],
+            at(3, y, 3),
+            corner
+        )),
         "the rails didn't join"
     );
 
@@ -233,7 +249,11 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
     set(&mut fay, at(2, y - 1, -1), block("core:spark_block"), 0);
     run_until(&mut [&mut fay], 0.3, |_| false);
     let powered = registry
-        .placement(BlockId(block("core:powered_rail")), [0, 1, 0], [1.0, 0.0, 0.0])
+        .placement(
+            BlockId(block("core:powered_rail")),
+            [0, 1, 0],
+            [1.0, 0.0, 0.0],
+        )
         .unwrap()
         .block;
     set(&mut fay, at(2, y, -1), powered.0, 0);
@@ -256,7 +276,10 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
             _ => None,
         })
     };
-    assert!(run_until(&mut [&mut fay], 2.0, |b| cart(b[0]).is_some()), "no cart");
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| cart(b[0]).is_some()),
+        "no cart"
+    );
     let id = cart(&fay).unwrap();
     fay.send(&ClientMessage::UseEntity { id, held: 0 });
     assert!(

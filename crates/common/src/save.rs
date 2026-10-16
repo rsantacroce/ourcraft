@@ -410,6 +410,22 @@ pub struct SavedAnimal {
     pub sheared_for: f32,
     /// Wool colour (0 = white).
     pub colour: u8,
+    /// Whose friend it is (cats, dogs), by player name.
+    pub friend: Option<String>,
+    /// Wearing a saddle.
+    pub saddled: bool,
+}
+
+/// An animal as saved by version 2 of `animals.dat` (no friends or
+/// saddles yet).
+#[derive(Deserialize)]
+struct SavedAnimalV2 {
+    kind: String,
+    position: [f32; 3],
+    yaw: f32,
+    baby_for: f32,
+    sheared_for: f32,
+    colour: u8,
 }
 
 /// An animal as saved by version 1 of `animals.dat` (no colours yet).
@@ -766,10 +782,27 @@ impl WorldStorage {
         let bad = |e: postcard::Error| invalid(e.to_string());
         let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(bad)?;
         match version {
-            2 => {
+            3 => {
                 let (_, list): (u32, Vec<SavedAnimal>) =
                     postcard::from_bytes(&bytes).map_err(bad)?;
                 Ok(list)
+            }
+            2 => {
+                let (_, list): (u32, Vec<SavedAnimalV2>) =
+                    postcard::from_bytes(&bytes).map_err(bad)?;
+                Ok(list
+                    .into_iter()
+                    .map(|a| SavedAnimal {
+                        kind: a.kind,
+                        position: a.position,
+                        yaw: a.yaw,
+                        baby_for: a.baby_for,
+                        sheared_for: a.sheared_for,
+                        colour: a.colour,
+                        friend: None,
+                        saddled: false,
+                    })
+                    .collect())
             }
             1 => {
                 let (_, list): (u32, Vec<SavedAnimalV1>) =
@@ -783,6 +816,8 @@ impl WorldStorage {
                         baby_for: a.baby_for,
                         sheared_for: a.sheared_for,
                         colour: 0,
+                        friend: None,
+                        saddled: false,
                     })
                     .collect())
             }
@@ -791,7 +826,7 @@ impl WorldStorage {
     }
 
     pub fn save_animals(&self, animals: Vec<SavedAnimal>) -> io::Result<()> {
-        let bytes = postcard::to_allocvec(&(2u32, animals)).map_err(|e| invalid(e.to_string()))?;
+        let bytes = postcard::to_allocvec(&(3u32, animals)).map_err(|e| invalid(e.to_string()))?;
         write_atomic(&self.dir.join("animals.dat"), &bytes)
     }
 
@@ -998,6 +1033,8 @@ mod tests {
             baby_for: 100.0,
             sheared_for: 0.0,
             colour: 12,
+            friend: Some("Kim".into()),
+            saddled: true,
         }];
         storage.save_animals(animals.clone()).unwrap();
         assert_eq!(storage.load_animals().unwrap(), animals);

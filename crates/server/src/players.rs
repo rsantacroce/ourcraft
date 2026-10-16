@@ -101,8 +101,10 @@ pub struct ConnectedPlayer {
     pub needs: crate::needs::Needs,
     /// The boat (entity) they're sitting in.
     pub boat: Option<u64>,
-    /// The animal (entity) they're riding.
+    /// The animal (entity) they're riding, and how much faster than
+    /// walking it goes.
     pub riding: Option<u64>,
+    pub ride_speed: f32,
     /// The mine cart (entity) they're sitting in.
     pub cart: Option<u64>,
     /// Which way they last wanted to go (`x` right, `y` forward).
@@ -172,6 +174,7 @@ fn on_connect(
                 needs: crate::needs::Needs::default(),
                 boat: None,
                 riding: None,
+                ride_speed: 1.0,
                 cart: None,
                 last_move: Vec2::ZERO,
                 armour_sent: None,
@@ -647,7 +650,11 @@ fn simulate_players(
         let (speed, can_fly) = (p.rules.speed, p.rules.can_fly);
         for mut input in p.inputs.take(MAX_INPUTS_PER_TICK) {
             // The game mode's rules win over whatever the client assumed.
-            input.speed = speed;
+            input.speed = if p.riding.is_some() {
+                speed * p.ride_speed
+            } else {
+                speed
+            };
             input.fly &= can_fly;
             input.boat = p.boat.is_some();
             p.last_move = Vec2::from_array(input.movement);

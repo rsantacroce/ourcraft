@@ -125,6 +125,27 @@ pub fn pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
                 }
             }
         }
+        "beehive_top" => {
+            let ring = ((x as f32 - 7.5).abs().max((y as f32 - 7.5).abs()) as usize).is_multiple_of(3);
+            let c = speckle(rgb(222, 180, 90), x, y, 132, 8.0);
+            if ring { shift(c, -30.0) } else { c }
+        }
+        "beehive_front" | "beehive_front_full" => {
+            let hole = (6..10).contains(&x) && (8..11).contains(&y);
+            let full = name.ends_with("_full");
+            if hole {
+                if full {
+                    rgb(250, 190, 40)
+                } else {
+                    rgb(40, 30, 20)
+                }
+            } else if full && one_in(x, y, 133, 7) {
+                rgb(250, 190, 40) // honey oozing
+            } else {
+                let c = speckle(rgb(214, 170, 84), x, y, 134, 8.0);
+                if y.is_multiple_of(4) { shift(c, -25.0) } else { c }
+            }
+        }
         "scaffolding" => {
             let frame = x <= 1 || x >= 14 || y <= 1 || y >= 14;
             let cross = x == y || x + y == 15;

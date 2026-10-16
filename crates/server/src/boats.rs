@@ -155,7 +155,10 @@ fn use_boats(
                     net.send(
                         *client,
                         Channel::Reliable,
-                        &ServerMessage::Riding { mount: None },
+                        &ServerMessage::Riding {
+                            mount: None,
+                            speed: 1.0,
+                        },
                     );
                 }
             }

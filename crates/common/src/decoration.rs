@@ -222,6 +222,30 @@ pub fn register_decoration(reg: &mut BlockRegistry) {
         solid: false,
         ..cutout("core:scaffolding", "Scaffolding", T::all("scaffolding")).mined(0.0, None, 0)
     });
+    // ---- Bee hives (milestone 23): empty, and full of honey. ----
+    for (stage, tex) in [(0, "beehive_front"), (1, "beehive_front_full")] {
+        let name = if stage == 0 {
+            "core:beehive".to_owned()
+        } else {
+            "core:beehive_full".to_owned()
+        };
+        reg.register(BlockDef {
+            hidden: stage > 0,
+            drops: Drops::Item("core:beehive".into(), 1),
+            stage: Some(crate::farming::Stage {
+                family: "core:beehive".into(),
+                stage,
+                max: 1,
+                kind: crate::farming::StageKind::Hive,
+            }),
+            ..BlockDef::solid(
+                &name,
+                "Bee Hive",
+                T::top_bottom_side("beehive_top", "beehive_top", tex),
+            )
+            .mined(0.6, Some(ToolKind::Axe), 0)
+        });
+    }
 }
 
 #[cfg(test)]
