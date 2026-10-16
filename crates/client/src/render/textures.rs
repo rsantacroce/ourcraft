@@ -586,30 +586,30 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
     })
 }
 
+/// One pixel of a named texture, if it's one of ours.
+pub(super) fn texture_pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
+    if let Some(f) = builtin(name) {
+        return Some(f(x, y));
+    }
+    super::farm_textures::pixel(name, x, y)
+        .or_else(|| super::colour_textures::pixel(name, x, y))
+        .or_else(|| super::wood_textures::pixel(name, x, y))
+        .or_else(|| super::stone_textures::pixel(name, x, y))
+        .or_else(|| super::decoration_textures::pixel(name, x, y))
+}
+
 /// True if `name` is one of the built-in textures.
 pub fn is_builtin(name: &str) -> bool {
-    builtin(name).is_some()
-        || super::farm_textures::pixel(name, 0, 0).is_some()
-        || super::colour_textures::pixel(name, 0, 0).is_some()
-        || super::wood_textures::pixel(name, 0, 0).is_some()
-        || super::stone_textures::pixel(name, 0, 0).is_some()
+    texture_pixel(name, 0, 0).is_some()
 }
 
 /// Generate the RGBA pixels (row by row, top row first) for a named texture.
 /// Unknown names get the magenta "missing" texture.
 pub fn generate_texture(name: &str) -> Vec<u8> {
-    let pixel = builtin(name);
     let mut out = Vec::with_capacity(N * N * 4);
     for y in 0..N {
         for x in 0..N {
-            let px = match pixel {
-                Some(f) => f(x, y),
-                None => super::farm_textures::pixel(name, x, y)
-                    .or_else(|| super::colour_textures::pixel(name, x, y))
-                    .or_else(|| super::wood_textures::pixel(name, x, y))
-                    .or_else(|| super::stone_textures::pixel(name, x, y))
-                    .unwrap_or_else(|| missing(x, y)),
-            };
+            let px = texture_pixel(name, x, y).unwrap_or_else(|| missing(x, y));
             out.extend_from_slice(&px);
         }
     }

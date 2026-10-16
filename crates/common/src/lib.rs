@@ -5,6 +5,7 @@ pub mod block;
 pub mod chunk;
 pub mod colours;
 pub mod container;
+pub mod decoration;
 pub mod farming;
 pub mod fluids;
 pub mod inventory;

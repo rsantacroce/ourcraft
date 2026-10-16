@@ -425,6 +425,11 @@ pub enum ServerMessage {
     Riding {
         mount: Option<u64>,
     },
+    /// What's in the item frame at a block (0 = nothing).
+    FrameItem {
+        pos: [i32; 3],
+        item: u16,
+    },
     /// Where you wake up (your bed, or the world's start): the compass
     /// points there.
     Home {

@@ -385,6 +385,32 @@ pub fn icon(name: &str) -> Option<Vec<u8>> {
                 ('d', [140, 90, 40, 255]),
             ],
         ),
+        "book" => draw(
+            &[
+                "................",
+                "................",
+                "...dddddddddd...",
+                "...dRRRRRRRRWd..",
+                "...dRRRRRRRRWd..",
+                "...dRRGGGGRRWd..",
+                "...dRRRRRRRRWd..",
+                "...dRRRRRRRRWd..",
+                "...dRRRRRRRRWd..",
+                "...dRRRRRRRRWd..",
+                "...dRRRRRRRRWd..",
+                "...dRRRRRRRRWd..",
+                "...ddddddddddd..",
+                "................",
+                "................",
+                "................",
+            ],
+            &[
+                ('R', [150, 50, 50, 255]),
+                ('G', [240, 200, 60, 255]),
+                ('W', [246, 242, 228, 255]),
+                ('d', [70, 24, 24, 255]),
+            ],
+        ),
         "snowball" => draw(
             &[
                 "................",

@@ -177,6 +177,8 @@ pub enum BlockShape {
     /// A thick post that joins walls, fences and solid blocks with low
     /// walls.
     Wall,
+    /// A thin sheet (glass panes, iron bars) that joins its neighbours.
+    Pane,
 }
 
 impl BlockShape {
@@ -186,6 +188,7 @@ impl BlockShape {
             BlockShape::Cube => vec![([0.0; 3], [1.0; 3])],
             BlockShape::Fence => BlockShape::Boxes(vec![[6, 0, 6, 10, 16, 10]]).boxes(),
             BlockShape::Wall => BlockShape::Boxes(vec![[4, 0, 4, 12, 16, 12]]).boxes(),
+            BlockShape::Pane => BlockShape::Boxes(vec![[7, 0, 7, 9, 16, 9]]).boxes(),
             BlockShape::Boxes(b) => b
                 .iter()
                 .map(|b| {
@@ -514,6 +517,8 @@ impl BlockRegistry {
         crate::stones::register_stones(&mut reg);
         // ---- Milestone 20: tools and adventure ----
         crate::adventure::register_blocks(&mut reg);
+        // ---- Milestone 21: decoration and storage ----
+        crate::decoration::register_decoration(&mut reg);
         reg
     }
 

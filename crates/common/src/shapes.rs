@@ -106,6 +106,12 @@ pub enum VariantKind {
     WallSign,
     Bed,
     FenceGate,
+    /// A standing banner (its wall version is `WallBanner`, the "upper"
+    /// state, like signs).
+    Banner,
+    WallBanner,
+    /// Hangs on a wall: paintings and item frames.
+    WallHanging,
 }
 
 /// Which family a block belongs to and its state in it.
@@ -184,8 +190,14 @@ impl BlockRegistry {
             VariantKind::Ladder => {
                 single(self.find_variant(fam, Dir4::from_normal(normal)?, false, false)?)
             }
-            VariantKind::Sign | VariantKind::WallSign => match Dir4::from_normal(normal) {
-                Some(d) => single(self.find_variant("core:sign", d, false, true)?),
+            VariantKind::WallHanging => {
+                single(self.find_variant(fam, Dir4::from_normal(normal)?, false, false)?)
+            }
+            VariantKind::Sign
+            | VariantKind::WallSign
+            | VariantKind::Banner
+            | VariantKind::WallBanner => match Dir4::from_normal(normal) {
+                Some(d) => single(self.find_variant(fam, d, false, true)?),
                 // A standing sign's writing faces whoever put it there.
                 None if normal == [0, 1, 0] => {
                     single(self.find_variant(fam, looking.opposite(), false, false)?)
@@ -247,8 +259,12 @@ impl BlockRegistry {
             [-f[0], 0, -f[2]]
         };
         match v.kind {
-            VariantKind::Torch | VariantKind::Sign => Some([0, -1, 0]),
-            VariantKind::WallTorch | VariantKind::Ladder | VariantKind::WallSign => Some(back()),
+            VariantKind::Torch | VariantKind::Sign | VariantKind::Banner => Some([0, -1, 0]),
+            VariantKind::WallTorch
+            | VariantKind::Ladder
+            | VariantKind::WallSign
+            | VariantKind::WallBanner
+            | VariantKind::WallHanging => Some(back()),
             _ => None,
         }
     }
@@ -260,6 +276,7 @@ impl BlockRegistry {
     /// Can you climb it (ladders)?
     pub fn is_climbable(&self, block: BlockId) -> bool {
         self.variant_kind(block) == Some(VariantKind::Ladder)
+            || self.get(block).name == "core:scaffolding"
     }
 
     /// The boxes a block is made of right here, in block units. Fences reach
@@ -272,10 +289,14 @@ impl BlockRegistry {
     ) -> Vec<([f32; 3], [f32; 3])> {
         let shape = self.shape(block);
         let wall = *shape == BlockShape::Wall;
-        if *shape != BlockShape::Fence && !wall {
+        let pane = *shape == BlockShape::Pane;
+        if *shape != BlockShape::Fence && !wall && !pane {
             return shape.boxes();
         }
         let joins = |n: BlockId| {
+            if pane {
+                return *self.shape(n) == BlockShape::Pane || self.is_opaque(n);
+            }
             let gate = self.variant_kind(n) == Some(VariantKind::FenceGate);
             matches!(self.shape(n), BlockShape::Fence | BlockShape::Wall)
                 || gate
@@ -283,6 +304,8 @@ impl BlockRegistry {
         };
         let mut boxes: Vec<ShapeBox> = if wall {
             vec![[4, 0, 4, 12, 16, 12]]
+        } else if pane {
+            vec![[7, 0, 7, 9, 16, 9]]
         } else {
             vec![[6, 0, 6, 10, 16, 10]]
         };
@@ -290,7 +313,10 @@ impl BlockRegistry {
             if !joins(neighbour(d.vector())) {
                 continue;
             }
-            if wall {
+            if pane {
+                // A thin sheet out to the neighbour.
+                boxes.extend(facing(&[[7, 0, 0, 9, 16, 7]], d));
+            } else if wall {
                 // A low wall towards the neighbour.
                 boxes.extend(facing(&[[5, 0, 0, 11, 14, 4]], d));
             } else {
@@ -303,11 +329,11 @@ impl BlockRegistry {
 }
 
 /// One state of a family: (facing, open, upper, boxes).
-type State = (Dir4, bool, bool, Vec<ShapeBox>);
+pub(crate) type State = (Dir4, bool, bool, Vec<ShapeBox>);
 
 /// Register a family of blocks; the first state is the base (the one in
 /// the inventory, which every other state drops).
-fn register_family(
+pub(crate) fn register_family(
     reg: &mut BlockRegistry,
     kind: VariantKind,
     base: &str,
@@ -354,7 +380,7 @@ fn register_family(
 }
 
 /// The same boxes facing each of the four ways.
-fn all_dirs(boxes: &[ShapeBox], open: bool, upper: bool) -> Vec<State> {
+pub(crate) fn all_dirs(boxes: &[ShapeBox], open: bool, upper: bool) -> Vec<State> {
     Dir4::ALL
         .into_iter()
         .map(|d| (d, open, upper, facing(boxes, d)))

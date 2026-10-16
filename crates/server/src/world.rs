@@ -83,6 +83,8 @@ pub struct OpenWorld {
     pub mobs: Arc<Vec<ourcraft_common::mobs::MobDef>>,
     /// What signs say, by position.
     pub signs: HashMap<IVec3, Vec<String>>,
+    /// What's in item frames, by position.
+    pub frames: HashMap<IVec3, ourcraft_common::item::ItemId>,
     /// Where each player last slept (their respawn point).
     pub beds: HashMap<String, IVec3>,
     /// No monsters and no hunger.
@@ -100,6 +102,7 @@ struct Snapshot {
     meta: WorldMeta,
     containers: Vec<SavedContainer>,
     signs: Vec<([i32; 3], Vec<String>)>,
+    frames: Vec<([i32; 3], String)>,
     beds: Vec<(String, [i32; 3])>,
     rules: Vec<(String, bool)>,
     animals: Vec<SavedAnimal>,
@@ -204,6 +207,15 @@ fn open_world(
         .into_iter()
         .map(|(p, l)| (IVec3::from_array(p), l))
         .collect();
+    let frames = storage
+        .load_frames()
+        .unwrap_or_else(|e| {
+            error!("Can't read item frames ({e})");
+            Vec::new()
+        })
+        .into_iter()
+        .filter_map(|(p, item)| Some((IVec3::from_array(p), items.by_name(&item)?)))
+        .collect();
     let beds = storage
         .load_beds()
         .unwrap_or_else(|e| {
@@ -217,6 +229,7 @@ fn open_world(
         meta: meta.clone(),
         containers: Vec::new(),
         signs: Vec::new(),
+        frames: Vec::new(),
         beds: Vec::new(),
         rules: Vec::new(),
         animals: Vec::new(),
@@ -241,6 +254,7 @@ fn open_world(
         containers,
         mobs: Arc::new(content.mobs.clone()),
         signs,
+        frames,
         beds,
         peaceful,
         animals,
@@ -295,6 +309,11 @@ impl OpenWorld {
                 .signs
                 .iter()
                 .map(|(p, l)| (p.to_array(), l.clone()))
+                .collect(),
+            frames: self
+                .frames
+                .iter()
+                .map(|(p, i)| (p.to_array(), self.items.name(*i).to_owned()))
                 .collect(),
             beds: self
                 .beds
@@ -437,6 +456,9 @@ fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
     }
     if let Err(e) = storage.save_signs(snapshot.signs) {
         error!("Saving signs failed: {e}");
+    }
+    if let Err(e) = storage.save_frames(snapshot.frames) {
+        error!("Saving item frames failed: {e}");
     }
     if let Err(e) = storage.save_beds(snapshot.beds) {
         error!("Saving beds failed: {e}");

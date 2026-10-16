@@ -15,6 +15,7 @@
 
 mod adventure_icons;
 mod colour_textures;
+mod decoration_textures;
 mod stone_textures;
 mod wood_textures;
 pub use wood_textures::wood_colour;

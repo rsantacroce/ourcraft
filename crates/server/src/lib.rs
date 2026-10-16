@@ -16,6 +16,7 @@
 pub mod adventure;
 pub mod boats;
 pub mod building;
+pub mod decoration;
 pub mod entities;
 pub mod farming;
 pub mod mobs;
@@ -152,6 +153,7 @@ impl Plugin for ServerPlugin {
             farming::FarmingPlugin,
             boats::BoatsPlugin,
             adventure::AdventurePlugin,
+            decoration::DecorationPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

@@ -738,6 +738,15 @@ impl WorldStorage {
         self.save_list("signs.dat", signs)
     }
 
+    /// What's in item frames, by item name (`frames.dat`).
+    pub fn load_frames(&self) -> io::Result<Vec<([i32; 3], String)>> {
+        self.load_list("frames.dat")
+    }
+
+    pub fn save_frames(&self, frames: Vec<([i32; 3], String)>) -> io::Result<()> {
+        self.save_list("frames.dat", frames)
+    }
+
     /// Where players respawn: the bed they last slept in (`beds.dat`).
     pub fn load_beds(&self) -> io::Result<Vec<(String, [i32; 3])>> {
         self.load_list("beds.dat")

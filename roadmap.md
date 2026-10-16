@@ -373,7 +373,21 @@ What was planned:
 - Rope (lead animals around), name tags, a saddle to ride pigs.
 - Flint and steel for a campfire; a campfire that cooks food.
 
-### 21. Decoration and storage
+### 21. Decoration and storage ✅ done
+
+Flower pots (plant a flower, sapling or mushroom in one), eight paintings
+of our own (sunset, mountain, sea, flower, cat, house, rainbow, starry
+night; the wool colour in the recipe picks which), item frames that show
+whatever you put in them (saved with the world), banners in every
+colour, standing or on walls, lanterns, candles and chains, glass panes
+(plain and stained) and iron bars that join up like fences, bookshelves,
+books and a lectern, barrels that hold things like chests, and scaffolding
+to climb.
+
+Not quite as planned: banners are plain colours (no patterns yet); there's
+no writable book and no double chest.
+
+What was planned:
 
 - Flower pots, paintings (our own pictures), item frames, banners with
   patterns, carpets, lanterns, candles, glass panes, iron bars, chains.

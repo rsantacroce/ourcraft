@@ -266,6 +266,19 @@ pub fn item_icon_pixels(
                 &textures.pixels(&tex.side),
             ))
         }
+        // Paintings and banners: a flat picture.
+        ItemKind::Block(b)
+            if matches!(
+                blocks.variant_kind(b),
+                Some(
+                    ourcraft_common::shapes::VariantKind::WallHanging
+                        | ourcraft_common::shapes::VariantKind::Banner
+                )
+            ) =>
+        {
+            let tex = blocks.get(b).textures.as_ref()?;
+            Some(upscale(&textures.pixels(&tex.side)))
+        }
         // Plants (flowers, crops, grass): a flat picture of the plant.
         ItemKind::Block(b)
             if crate::render::item_icons::item_icon(def.name.trim_start_matches("core:"))

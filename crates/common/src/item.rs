@@ -275,6 +275,11 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
             ));
         }
     }
+    // ---- Milestone 21: books ----
+    items.push(ItemDef {
+        max_stack: 16,
+        ..ItemDef::material("core:book", "Book")
+    });
     // ---- Milestone 20: tools and adventure ----
     items.extend(crate::adventure::items());
     // ---- Milestone 19: snowballs and a boat of every wood ----

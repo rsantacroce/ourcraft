@@ -844,6 +844,21 @@ fn stream_columns(
                     },
                 );
             }
+            // And what's in its item frames.
+            for (pos, item) in open
+                .frames
+                .iter()
+                .filter(|(pos, _)| ColumnPos::from_block(pos.x, pos.z) == col)
+            {
+                net.send(
+                    p.client,
+                    Channel::Reliable,
+                    &ServerMessage::FrameItem {
+                        pos: pos.to_array(),
+                        item: item.0,
+                    },
+                );
+            }
         }
     }
 }

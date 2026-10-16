@@ -106,7 +106,10 @@ fn container_kind(
 ) -> Option<ContainerKind> {
     if block == blocks::FURNACE {
         Some(ContainerKind::Furnace)
-    } else if registry.get(block).name == "core:chest" {
+    } else if matches!(
+        registry.get(block).name.as_str(),
+        "core:chest" | "core:barrel"
+    ) {
         Some(ContainerKind::Chest)
     } else {
         None
@@ -264,6 +267,17 @@ fn drop_broken_blocks(
         let survival_breaker = players
             .iter()
             .any(|p| p.client == edit.client && !p.creative);
+        // What's in an item frame pops out.
+        if let Some(item) = open.frames.remove(&edit.pos) {
+            net.broadcast(
+                Channel::Reliable,
+                &ServerMessage::FrameItem {
+                    pos: edit.pos.to_array(),
+                    item: 0,
+                },
+            );
+            spawn_item(&mut entities, center, ItemStack::new(item, 1));
+        }
         // A sign's words go with it.
         if open.signs.remove(&edit.pos).is_some() {
             net.broadcast(

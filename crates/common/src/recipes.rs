@@ -173,6 +173,103 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             1,
         ));
     }
+    // ---- Milestone 21: decoration and storage ----
+    r.extend([
+        shaped(
+            &["B B", " B "],
+            &[('B', "core:brick")],
+            "core:flower_pot",
+            1,
+        ),
+        shaped(
+            &["###", "#P#", "###"],
+            &[('#', "core:stick"), ('P', "core:paper")],
+            "core:item_frame",
+            1,
+        ),
+        shaped(
+            &["I", "T", "I"],
+            &[('I', "core:iron_ingot"), ('T', "core:torch")],
+            "core:lantern",
+            1,
+        ),
+        shaped(
+            &["S", "C"],
+            &[('S', "core:string"), ('C', "core:clay_ball")],
+            "core:candle",
+            1,
+        ),
+        shaped(
+            &["I", "I", "I"],
+            &[('I', "core:iron_ingot")],
+            "core:chain",
+            3,
+        ),
+        shaped(
+            &["GGG", "GGG"],
+            &[('G', "core:glass")],
+            "core:glass_pane",
+            16,
+        ),
+        shaped(
+            &["III", "III"],
+            &[('I', "core:iron_ingot")],
+            "core:iron_bars",
+            16,
+        ),
+        shapeless(
+            &["core:paper", "core:paper", "core:paper", "core:string"],
+            "core:book",
+            1,
+        ),
+        shaped(
+            &["PPP", "BBB", "PPP"],
+            &[('P', "#planks"), ('B', "core:book")],
+            "core:bookshelf",
+            1,
+        ),
+        shaped(
+            &["PPP", " B ", " P "],
+            &[('P', "#planks"), ('B', "core:book")],
+            "core:lectern",
+            1,
+        ),
+        shaped(
+            &["PSP", "P P", "PSP"],
+            &[('P', "#planks"), ('S', "core:planks_slab")],
+            "core:barrel",
+            1,
+        ),
+        shaped(
+            &["S#S", "S S", "S S"],
+            &[('S', "core:stick"), ('#', "core:string")],
+            "core:scaffolding",
+            6,
+        ),
+    ]);
+    for (key, _, wool) in crate::decoration::PAINTINGS {
+        let wool = crate::colours::wool_name(wool);
+        r.push(shaped(
+            &["###", "#W#", "###"],
+            &[('#', "core:stick"), ('W', &wool)],
+            &format!("core:painting_{key}"),
+            1,
+        ));
+    }
+    for (c, _, _) in crate::colours::COLOURS {
+        r.push(shaped(
+            &["WWW", "WWW", " # "],
+            &[('W', &crate::colours::wool_name(c)), ('#', "core:stick")],
+            &format!("core:{c}_banner"),
+            1,
+        ));
+        r.push(shaped(
+            &["GGG", "GGG"],
+            &[('G', &format!("core:{c}_stained_glass"))],
+            &format!("core:{c}_stained_glass_pane"),
+            16,
+        ));
+    }
     // ---- Milestone 20: tools and adventure ----
     r.extend([
         shaped(

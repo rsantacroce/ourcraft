@@ -335,8 +335,14 @@ fn use_blocks(
         }
         (_, Some(VariantKind::Sign | VariantKind::WallSign)) => OpenScreen::Sign(hit.block),
         _ if hit.id == blocks::CRAFTING_TABLE => OpenScreen::CraftingTable,
-        // Campfires only take food (see above).
-        _ if registry.0.get(hit.id).name == "core:campfire" => return,
+        // Campfires only take food, pots plants (see above).
+        _ if matches!(
+            registry.0.get(hit.id).name.as_str(),
+            "core:campfire" | "core:flower_pot"
+        ) =>
+        {
+            return;
+        }
         _ => {
             // Furnaces and chests live on the server.
             container.0 = None;
@@ -375,7 +381,17 @@ pub fn used_in_place(
         .stage(id)
         .is_some_and(|s| matches!(s.kind, StageKind::Cake | StageKind::Composter));
     let feeds = held == "core:bone_meal" && (registry.grows(id) || id == blocks::GRASS);
-    stepped || feeds
+    let name = registry.get(id).name.as_str();
+    let potting = name == "core:flower_pot"
+        && ourcraft_common::decoration::pottable()
+            .iter()
+            .any(|p| p == held);
+    let frame = registry
+        .get(id)
+        .variant
+        .as_ref()
+        .is_some_and(|v| v.family == "core:item_frame");
+    stepped || feeds || potting || frame
 }
 
 /// Blocks that do something when you use them (instead of having a block
@@ -387,7 +403,15 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
         .stage(id)
         .is_some_and(|s| matches!(s.kind, StageKind::Cake | StageKind::Composter));
     stepped
-        || registry.get(id).name == "core:campfire"
+        || matches!(
+            registry.get(id).name.as_str(),
+            "core:campfire" | "core:barrel" | "core:flower_pot"
+        )
+        || registry
+            .get(id)
+            .variant
+            .as_ref()
+            .is_some_and(|v| v.family == "core:item_frame")
         || id == blocks::CRAFTING_TABLE
         || id == blocks::FURNACE
         || registry.get(id).name == "core:chest"
