@@ -104,6 +104,10 @@ pub struct ChunkStreaming {
     meshing: HashMap<ChunkPos, Task<ChunkMeshes>>,
     entities: HashMap<ChunkPos, ChunkEntities>,
     dirty: HashSet<ChunkPos>,
+    /// When columns arrived. The server only sends a column once, so one
+    /// that arrives just before we hear we've moved (a teleport) mustn't be
+    /// thrown away as "far" before the move catches up.
+    arrived: HashMap<ColumnPos, std::time::Instant>,
     /// Column the viewer was in last frame.
     pub center: ColumnPos,
 }
@@ -257,6 +261,7 @@ fn handle_world_messages(
                     Some((chunks, heights))
                 });
                 streaming.decoding.insert(pos, task);
+                streaming.arrived.insert(pos, std::time::Instant::now());
             }
             ServerMessage::BlockChanged { pos, block } => {
                 let pos = IVec3::from_array(*pos);
@@ -331,9 +336,13 @@ fn unload_far_columns(
     // Keep one more ring than we load so walking back and forth over a
     // border doesn't reload the same columns over and over.
     let keep = settings.render_distance + 2;
+    streaming
+        .arrived
+        .retain(|_, t| t.elapsed().as_secs_f32() < FRESH_SECS);
+    let fresh = |s: &ChunkStreaming, p: &ColumnPos| s.arrived.contains_key(p);
     let far: Vec<ColumnPos> = world
         .columns()
-        .filter(|p| p.chebyshev_distance(center) > keep)
+        .filter(|p| p.chebyshev_distance(center) > keep && !fresh(&streaming, p))
         .collect();
     for pos in far {
         world.remove_column(pos);
@@ -348,10 +357,19 @@ fn unload_far_columns(
         }
     }
     // Also drop decodes for columns that are now out of range.
-    streaming
+    let stale: Vec<ColumnPos> = streaming
         .decoding
-        .retain(|p, _| p.chebyshev_distance(center) <= keep);
+        .keys()
+        .filter(|p| p.chebyshev_distance(center) > keep && !fresh(&streaming, p))
+        .copied()
+        .collect();
+    for p in stale {
+        streaming.decoding.remove(&p);
+    }
 }
+
+/// How long a column that just arrived is kept, however far it seems.
+const FRESH_SECS: f32 = 3.0;
 
 /// True if all 8 columns around `pos` are loaded.
 fn neighbours_loaded(world: &VoxelWorld, pos: ColumnPos) -> bool {

@@ -26,6 +26,8 @@ use crate::world::{Blocks, ChunkStreaming, ClientWorld};
 const MAP_SIZE: u32 = 96;
 const NORMAL_FOV: f32 = 70.0;
 const ZOOM_FOV: f32 = 14.0;
+/// Blocks per pixel at each zoom (right click with the map to change).
+const MAP_ZOOMS: [i32; 3] = [1, 2, 4];
 /// Parchment: land not seen yet.
 const PARCHMENT: [u8; 3] = [214, 196, 150];
 /// The most columns a map remembers (about 3 MB on disk).
@@ -391,10 +393,12 @@ fn show_gadgets(
         ),
     >,
     mut images: ResMut<Assets<Image>>,
-    (memory, mut colours, mut redraw): (
+    (memory, actions, mut colours, mut redraw, mut zoom): (
         Res<MapMemory>,
+        Res<Actions>,
         Local<HashMap<BlockId, [u8; 4]>>,
         Local<f32>,
+        Local<(usize, bool)>,
     ),
 ) {
     let held = inventory.held().map(|h| items.name(h)).unwrap_or("");
@@ -410,6 +414,14 @@ fn show_gadgets(
         return;
     }
     *redraw -= time.delta_secs();
+    // "Place" with a map zooms out (and back in after the last step).
+    let (level, was_down) = &mut *zoom;
+    if held == "core:map" && actions.place_block && !*was_down {
+        *level = (*level + 1) % MAP_ZOOMS.len();
+        *redraw = 0.0;
+    }
+    *was_down = actions.place_block;
+    let step = MAP_ZOOMS[*level];
     let draw_map = held == "core:map" && *redraw <= 0.0;
     if draw_map {
         *redraw = 0.5;
@@ -448,7 +460,7 @@ fn show_gadgets(
             let (cx, cz) = (me.x.floor() as i32, me.z.floor() as i32);
             for py in 0..MAP_SIZE as i32 {
                 for px_ in 0..MAP_SIZE as i32 {
-                    let (x, z) = (cx + px_ - half, cz + py - half);
+                    let (x, z) = (cx + (px_ - half) * step, cz + (py - half) * step);
                     let rgb = match streaming.top(x, z) {
                         Some(top) if top >= 0 => {
                             let b = world.0.block(x, top as i32, z);

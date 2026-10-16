@@ -290,10 +290,18 @@ The last few left from that list came with the fourth gap fixes, below.
   and the HUD (since milestone 20). The gallery now builds a small scene
   in the middle, with wire, a rail slope, ferns, a big chest, a dispenser
   and a lectern.
+- **Map zoom:** right click with the map to zoom out (1, 2 or 4 blocks a
+  pixel), so the remembered land beyond what's loaded shows up.
+- Fixed while checking on screen: after a long teleport the land around
+  you could stay missing for good (columns that arrived before the move
+  caught up were thrown away as "far", and the server doesn't send a
+  column twice); new columns are now kept for a few seconds.
 
-Seen on screen: the wire, slope, ferns, dispenser, a pair of chests and the
-map (which is how the hidden-world bug turned up). Not yet seen: the map
-filling in, the big chest and lectern screens, and banner patterns.
+Everything above has been seen on screen: wire, slope, ferns, dispenser,
+big chest (the same 54 slots from either half), the lectern book (kept
+after closing), banner patterns, and the map filling in from memory
+right after the game starts, and zoomed out. (Maps are remembered per
+server address, so two worlds hosted at the same address share one.)
 
 ### The big item list (milestones 17–24)
 
