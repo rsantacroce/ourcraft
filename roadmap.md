@@ -308,7 +308,30 @@ What was planned:
   clay tiles (fired clay), coloured "candy bricks" (our own colourful
   building block).
 
-### 19. Trees and stone
+### 19. Trees and stone ✅ done
+
+Five new woods (birch, pine, jungle, cherry and dark) next to oak, each
+with logs, planks, leaves, a sapling, stairs, a slab, a fence, a fence
+gate, a door and a trapdoor. Every wood has its own tree shape (tall
+jungle trees, cone-shaped pines, wide cherry blossom), used both by new
+terrain (pines in the snow and mountains, mixed forests, cherry groves on
+the plains) and by saplings, which leaves now drop and which grow into a
+tree after a while (or with bone meal). Recipes that just need wood take
+any planks, even mixed. Boats in every wood: put one on water, get in,
+row much faster than swimming, Shift to get out, hit it to pick it up.
+New stone: smooth stone, stone bricks (mossy and cracked), mossy
+cobblestone, sandstone (smooth and cut; under deserts), granite, diorite
+and andesite (patches underground, and polished), deep slate down below
+(cobbled, polished, bricks), walls, stairs and slabs for them, and
+obsidian where water meets still lava. Snowy lakes freeze over, snow lies
+on snowy ground in layers, snowballs make snow blocks, and nine ice make
+packed ice.
+
+Not quite as planned: no jungle biome (jungle trees grow in patches of
+forest); boats aren't saved with the world; mossy blocks are made with
+leaves; ice isn't slippery.
+
+What was planned:
 
 - More trees with their own wood: birch, pine, jungle, cherry-blossom and
   a dark wood, each with logs, planks, leaves, saplings, stairs, slabs,

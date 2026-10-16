@@ -14,6 +14,9 @@
 //! terrain into the sky colour hides that edge (and chunks popping in).
 
 mod colour_textures;
+mod stone_textures;
+mod wood_textures;
+pub use wood_textures::wood_colour;
 mod farm_icons;
 mod farm_textures;
 pub mod item_icons;

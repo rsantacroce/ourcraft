@@ -29,6 +29,10 @@ pub enum StageKind {
     Grass,
     /// A flower: sits on grass or dirt.
     Flower,
+    /// Grows into a tree of this wood (`woods::Wood::key`).
+    Sapling { wood: String },
+    /// A thin layer on the ground (snow): you can build straight into it.
+    Layer,
     /// Grows in the dark on any solid block.
     Mushroom,
     /// Each stage is one more slice eaten.
@@ -225,7 +229,7 @@ pub fn register_farming(reg: &mut BlockRegistry) {
     });
     reg.register(BlockDef {
         drops: Drops::Nothing,
-        bonus_drop: Some(("core:wheat_seeds".into(), 6)),
+        bonus_drop: vec![("core:wheat_seeds".into(), 6)],
         stage: one("core:tall_grass", StageKind::Grass),
         ..plant_def("core:tall_grass", "Tall Grass", "tall_grass", cross(13))
     });
@@ -342,7 +346,10 @@ impl BlockRegistry {
         self.stage(b).is_some_and(|s| {
             matches!(
                 s.kind,
-                StageKind::Crop | StageKind::Stem { .. } | StageKind::Cane
+                StageKind::Crop
+                    | StageKind::Stem { .. }
+                    | StageKind::Cane
+                    | StageKind::Sapling { .. }
             )
         })
     }
@@ -371,7 +378,7 @@ impl BlockRegistry {
     /// air.
     pub fn is_soft(&self, b: BlockId) -> bool {
         self.stage(b)
-            .is_some_and(|s| matches!(s.kind, StageKind::Grass))
+            .is_some_and(|s| matches!(s.kind, StageKind::Grass | StageKind::Layer))
     }
 
     /// Can `plant` be here? `get` gives the block at an offset from the
@@ -384,7 +391,7 @@ impl BlockRegistry {
         let named = |b: BlockId, names: &[&str]| names.contains(&self.get(b).name.as_str());
         match s.kind {
             StageKind::Crop | StageKind::Stem { .. } => self.is_farmland(below),
-            StageKind::Grass | StageKind::Flower => {
+            StageKind::Grass | StageKind::Flower | StageKind::Sapling { .. } => {
                 named(below, &["core:grass", "core:dirt", "core:snow"]) || self.is_farmland(below)
             }
             StageKind::Cane => {
@@ -403,7 +410,7 @@ impl BlockRegistry {
                     });
                 ground && wet
             }
-            StageKind::Mushroom => self.is_opaque(below),
+            StageKind::Mushroom | StageKind::Layer => self.is_opaque(below),
             StageKind::Cake => self.is_solid(below),
             StageKind::Composter => true,
         }

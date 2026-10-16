@@ -37,9 +37,11 @@ impl Plugin for EntitiesPlugin {
                     animate_legs,
                     bob_items,
                     update_particles,
+                    seat_rider,
                     light_entities,
                 )
-                    .chain(),
+                    .chain()
+                    .after(crate::player::PlayerUpdateSet),
             )
             .add_systems(
                 PreUpdate,
@@ -87,6 +89,28 @@ pub struct Mob {
     pub size: [f32; 2],
     pub baby: bool,
     pub sheared: bool,
+}
+
+/// A boat.
+#[derive(Component)]
+struct Boat;
+
+/// The boat we're sitting in stays right under us (the server's word on
+/// where it is comes a little late).
+fn seat_rider(
+    boating: Res<crate::player::Boating>,
+    map: Res<EntityMap>,
+    player: Single<&crate::player::Player>,
+    mut boats: Query<&mut Transform, With<Boat>>,
+) {
+    let Some(e) = boating.0.and_then(|id| map.0.get(&id)) else {
+        return;
+    };
+    if let Ok(mut t) = boats.get_mut(*e) {
+        t.translation = player.state.position;
+        // The boat points the way you face (its long side across).
+        t.rotation = Quat::from_rotation_y(player.yaw + std::f32::consts::FRAC_PI_2);
+    }
 }
 
 /// A leg (or anything else) that swings while the animal walks.
@@ -490,6 +514,55 @@ fn handle_messages(
                                         Transform::from_translation(p.at),
                                     ));
                                 }
+                            }
+                        })
+                        .id();
+                    if let Some(old) = map.0.insert(*id, e) {
+                        commands.entity(old).despawn();
+                    }
+                    continue;
+                }
+                // A boat ("@boat:<wood>"): a little hull in the wood's colour.
+                if let Some(wood) = model.strip_prefix("@boat:") {
+                    let c = crate::render::wood_colour(wood);
+                    let dark = [c[0] / 2 + 20, c[1] / 2 + 15, c[2] / 2 + 10, 255];
+                    let boxes: [([f32; 3], [f32; 3], [u8; 4]); 5] = [
+                        ([-0.7, 0.0, -0.45], [0.7, 0.12, 0.45], dark),
+                        ([-0.7, 0.12, -0.45], [0.7, 0.45, -0.35], c),
+                        ([-0.7, 0.12, 0.35], [0.7, 0.45, 0.45], c),
+                        ([-0.7, 0.12, -0.35], [-0.6, 0.45, 0.35], c),
+                        ([0.6, 0.12, -0.35], [0.7, 0.45, 0.35], c),
+                    ];
+                    let e = commands
+                        .spawn((
+                            new_net(None, Vec3::ZERO, false),
+                            EntityLight::default(),
+                            Boat,
+                            Mob {
+                                id: *id,
+                                kind: "core:boat".into(),
+                                size: [1.4, 0.5],
+                                baby: false,
+                                sheared: false,
+                            },
+                            Transform::from_translation(pos)
+                                .with_rotation(Quat::from_rotation_y(*yaw)),
+                            Visibility::Inherited,
+                        ))
+                        .with_children(|parent| {
+                            for (min, max, rgba) in boxes {
+                                let (min, max) = (Vec3::from_array(min), Vec3::from_array(max));
+                                let material = materials.add(StandardMaterial {
+                                    base_color: color(rgba),
+                                    unlit: true,
+                                    ..default()
+                                });
+                                parent.spawn((
+                                    Mesh3d(meshes.add(shaded_cuboid(max - min))),
+                                    Lit(material.clone()),
+                                    MeshMaterial3d(material),
+                                    Transform::from_translation((min + max) / 2.0),
+                                ));
                             }
                         })
                         .id();

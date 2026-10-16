@@ -99,6 +99,8 @@ pub struct ConnectedPlayer {
     pub sleeping: bool,
     /// Health, hunger and breath (survival).
     pub needs: crate::needs::Needs,
+    /// The boat (entity) they're sitting in.
+    pub boat: Option<u64>,
     /// Columns this client has been sent and (as far as we know) still has.
     pub sent: HashSet<ColumnPos>,
     pub connected_for: f32,
@@ -160,6 +162,7 @@ fn on_connect(
                 open_container: None,
                 sleeping: false,
                 needs: crate::needs::Needs::default(),
+                boat: None,
                 sent: HashSet::new(),
                 connected_for: 0.0,
                 rules: ourcraft_mod_api::PlayerRules::default(),
@@ -471,7 +474,8 @@ fn handle_messages(
             | ClientMessage::SetSign { .. }
             | ClientMessage::Eat { .. }
             | ClientMessage::HitEntity { .. }
-            | ClientMessage::LeaveBed => {}
+            | ClientMessage::LeaveBed
+            | ClientMessage::LeaveBoat => {}
             ClientMessage::SetBlock { pos, block, held } => {
                 let pos = IVec3::from_array(*pos);
                 let block = BlockId(*block);
@@ -611,6 +615,7 @@ fn simulate_players(
             // The game mode's rules win over whatever the client assumed.
             input.speed = speed;
             input.fly &= can_fly;
+            input.boat = p.boat.is_some();
             apply_input(&mut p.physics, &input, &world.0, &registry.0);
             p.state.yaw = input.yaw;
             p.state.pitch = input.pitch;

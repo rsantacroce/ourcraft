@@ -272,6 +272,17 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
             ));
         }
     }
+    // ---- Milestone 19: snowballs and a boat of every wood ----
+    items.push(ItemDef {
+        max_stack: 16,
+        ..ItemDef::material("core:snowball", "Snowball")
+    });
+    for wood in crate::woods::Wood::ALL {
+        items.push(ItemDef {
+            max_stack: 1,
+            ..ItemDef::material(&wood.boat(), &format!("{} Boat", wood.display()))
+        });
+    }
     // ---- Milestone 18: a dye in every colour ----
     for (c, display, _) in crate::colours::COLOURS {
         items.push(ItemDef::material(
@@ -306,6 +317,13 @@ fn block_extras(name: &str) -> (f32, Option<&'static str>) {
         "core:clay" => (0.0, Some("core:bricks")),
         "core:composter" => (15.0, None),
         "core:cactus" => (0.0, Some("core:green_dye")),
+        "core:stone" => (0.0, Some("core:smooth_stone")),
+        "core:stone_bricks" => (0.0, Some("core:cracked_stone_bricks")),
+        "core:sandstone" => (0.0, Some("core:smooth_sandstone")),
+        "core:cobbled_deep_slate" => (0.0, Some("core:deep_slate")),
+        // Every wood burns, and logs turn to coal.
+        n if n.ends_with("_log") => (15.0, Some("core:coal")),
+        n if n.ends_with("_planks") || n.ends_with("_sapling") => (7.5, None),
         _ => (0.0, None),
     }
 }
@@ -314,6 +332,8 @@ fn block_extras(name: &str) -> (f32, Option<&'static str>) {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ItemRegistry {
     defs: Vec<ItemDef>,
+    /// Name → id, for quick lookups.
+    names: std::collections::HashMap<String, ItemId>,
 }
 
 impl ItemRegistry {
@@ -346,12 +366,20 @@ impl ItemRegistry {
                 defs.push(item);
             }
         }
-        Self { defs }
+        Self::indexed(defs)
     }
 
     /// A registry from a full list (as sent by the server).
     pub fn from_defs(defs: Vec<ItemDef>) -> Self {
-        Self { defs }
+        Self::indexed(defs)
+    }
+
+    fn indexed(defs: Vec<ItemDef>) -> Self {
+        let mut names = std::collections::HashMap::new();
+        for (i, d) in defs.iter().enumerate() {
+            names.entry(d.name.clone()).or_insert(ItemId(i as u16));
+        }
+        Self { defs, names }
     }
 
     pub fn defs(&self) -> &[ItemDef] {
@@ -363,10 +391,7 @@ impl ItemRegistry {
     }
 
     pub fn by_name(&self, name: &str) -> Option<ItemId> {
-        self.defs
-            .iter()
-            .position(|d| d.name == name)
-            .map(|i| ItemId(i as u16))
+        self.names.get(name).copied()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (ItemId, &ItemDef)> {

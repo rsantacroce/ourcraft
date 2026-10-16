@@ -16,5 +16,7 @@ pub mod raycast;
 pub mod recipes;
 pub mod save;
 pub mod shapes;
+pub mod stones;
+pub mod woods;
 pub mod world;
 pub mod worldgen;

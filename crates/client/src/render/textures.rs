@@ -28,7 +28,7 @@ pub(super) fn one_in(x: usize, y: usize, seed: u32, n: u32) -> bool {
 }
 
 /// Random value in `-1.0..=1.0` for a pixel.
-fn noise(x: usize, y: usize, seed: u32) -> f32 {
+pub(super) fn noise(x: usize, y: usize, seed: u32) -> f32 {
     (hash(x, y, seed) % 1001) as f32 / 500.0 - 1.0
 }
 
@@ -47,7 +47,7 @@ pub(super) fn speckle(c: Rgba, x: usize, y: usize, seed: u32, spread: f32) -> Rg
     shift(c, noise(x, y, seed) * spread)
 }
 
-fn stone(x: usize, y: usize) -> Rgba {
+pub(super) fn stone(x: usize, y: usize) -> Rgba {
     let c = speckle(rgb(128, 128, 132), x, y, 1, 14.0);
     if one_in(x, y, 2, 11) {
         shift(c, -28.0)
@@ -93,7 +93,7 @@ fn snow_side(x: usize, y: usize) -> Rgba {
     if y < depth { snow(x, y) } else { dirt(x, y) }
 }
 
-fn sand(x: usize, y: usize) -> Rgba {
+pub(super) fn sand(x: usize, y: usize) -> Rgba {
     speckle(rgb(222, 208, 160), x, y, 8, 9.0)
 }
 
@@ -103,7 +103,7 @@ fn gravel(x: usize, y: usize) -> Rgba {
     speckle(shift(rgb(136, 128, 124), tone), x, y, 23, 10.0)
 }
 
-fn log_side(x: usize, y: usize) -> Rgba {
+pub(super) fn log_side(x: usize, y: usize) -> Rgba {
     let c = speckle(rgb(105, 78, 48), x, y, 9, 8.0);
     // Vertical bark grooves that wobble slightly.
     let wobble = (hash(0, y / 3, 10) % 2) as usize;
@@ -114,7 +114,7 @@ fn log_side(x: usize, y: usize) -> Rgba {
     }
 }
 
-fn log_top(x: usize, y: usize) -> Rgba {
+pub(super) fn log_top(x: usize, y: usize) -> Rgba {
     let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt();
     if d > 7.0 {
         return log_side(x, y); // bark rim
@@ -128,7 +128,7 @@ fn log_top(x: usize, y: usize) -> Rgba {
     speckle(base, x, y, 11, 5.0)
 }
 
-fn leaves(x: usize, y: usize) -> Rgba {
+pub(super) fn leaves(x: usize, y: usize) -> Rgba {
     // About one pixel in five is a gap you can see through.
     if one_in(x, y, 30, 5) {
         return [0, 0, 0, 0];
@@ -185,7 +185,7 @@ fn bedrock(x: usize, y: usize) -> Rgba {
     )
 }
 
-fn cobblestone(x: usize, y: usize) -> Rgba {
+pub(super) fn cobblestone(x: usize, y: usize) -> Rgba {
     // Rounded stones separated by dark mortar, on an offset grid.
     let row = y / 4;
     let offset = if row.is_multiple_of(2) { 0 } else { 3 };
@@ -213,7 +213,7 @@ fn glass(x: usize, y: usize) -> Rgba {
     }
 }
 
-fn bricks(x: usize, y: usize) -> Rgba {
+pub(super) fn bricks(x: usize, y: usize) -> Rgba {
     let row = y / 4;
     let offset = if row.is_multiple_of(2) { 0 } else { 4 };
     let mortar = y % 4 == 3 || (x + offset) % 8 == 7;
@@ -443,15 +443,15 @@ fn door(x: usize, y: usize, upper: bool) -> Rgba {
     }
 }
 
-fn door_lower(x: usize, y: usize) -> Rgba {
+pub(super) fn door_lower(x: usize, y: usize) -> Rgba {
     door(x, y, false)
 }
 
-fn door_upper(x: usize, y: usize) -> Rgba {
+pub(super) fn door_upper(x: usize, y: usize) -> Rgba {
     door(x, y, true)
 }
 
-fn trapdoor(x: usize, y: usize) -> Rgba {
+pub(super) fn trapdoor(x: usize, y: usize) -> Rgba {
     let c = speckle(rgb(150, 108, 64), x, y, 63, 6.0);
     let frame = x <= 1 || y <= 1 || x >= N - 2 || y >= N - 2;
     let slats = (x == 5 || x == 10) && (3..13).contains(&y);
@@ -591,6 +591,8 @@ pub fn is_builtin(name: &str) -> bool {
     builtin(name).is_some()
         || super::farm_textures::pixel(name, 0, 0).is_some()
         || super::colour_textures::pixel(name, 0, 0).is_some()
+        || super::wood_textures::pixel(name, 0, 0).is_some()
+        || super::stone_textures::pixel(name, 0, 0).is_some()
 }
 
 /// Generate the RGBA pixels (row by row, top row first) for a named texture.
@@ -604,6 +606,8 @@ pub fn generate_texture(name: &str) -> Vec<u8> {
                 Some(f) => f(x, y),
                 None => super::farm_textures::pixel(name, x, y)
                     .or_else(|| super::colour_textures::pixel(name, x, y))
+                    .or_else(|| super::wood_textures::pixel(name, x, y))
+                    .or_else(|| super::stone_textures::pixel(name, x, y))
                     .unwrap_or_else(|| missing(x, y)),
             };
             out.extend_from_slice(&px);

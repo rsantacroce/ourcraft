@@ -78,13 +78,8 @@ fn shapeless(ingredients: &[&str], result: &str, count: u16) -> Recipe {
 pub fn builtin_recipes() -> Vec<Recipe> {
     let mut r = vec![
         shapeless(&["core:log"], "core:planks", 4),
-        shaped(&["P", "P"], &[('P', "core:planks")], "core:stick", 4),
-        shaped(
-            &["PP", "PP"],
-            &[('P', "core:planks")],
-            "core:crafting_table",
-            1,
-        ),
+        shaped(&["P", "P"], &[('P', "#planks")], "core:stick", 4),
+        shaped(&["PP", "PP"], &[('P', "#planks")], "core:crafting_table", 1),
         shaped(
             &["CCC", "C C", "CCC"],
             &[('C', "core:cobblestone")],
@@ -134,16 +129,11 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         ),
         shaped(
             &["PPP", "PPP", " # "],
-            &[('P', "core:planks"), ('#', "core:stick")],
+            &[('P', "#planks"), ('#', "core:stick")],
             "core:sign",
             3,
         ),
-        shaped(
-            &["PPP", "P P", "PPP"],
-            &[('P', "core:planks")],
-            "core:chest",
-            1,
-        ),
+        shaped(&["PPP", "P P", "PPP"], &[('P', "#planks")], "core:chest", 1),
         shaped(
             &["C", "#"],
             &[('C', "core:coal"), ('#', "core:stick")],
@@ -152,7 +142,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         ),
     ];
     for (material, key) in [
-        ("core:planks", "wood"),
+        ("#planks", "wood"),
         ("core:cobblestone", "stone"),
         ("core:iron_ingot", "iron"),
         ("core:diamond", "diamond"),
@@ -182,6 +172,86 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             &format!("core:{key}_hoe"),
             1,
         ));
+    }
+    // ---- Milestone 19: stone kinds, ice and snow ----
+    let two_by_two = |from: &str, to: &str| shaped(&["XX", "XX"], &[('X', from)], to, 4);
+    r.extend([
+        two_by_two("core:stone", "core:stone_bricks"),
+        two_by_two("core:sandstone", "core:cut_sandstone"),
+        two_by_two("core:granite", "core:polished_granite"),
+        two_by_two("core:diorite", "core:polished_diorite"),
+        two_by_two("core:andesite", "core:polished_andesite"),
+        two_by_two("core:cobbled_deep_slate", "core:polished_deep_slate"),
+        two_by_two("core:polished_deep_slate", "core:deep_slate_bricks"),
+        shaped(&["XX", "XX"], &[('X', "core:sand")], "core:sandstone", 1),
+        shapeless(
+            &["core:stone_bricks", "#leaves"],
+            "core:mossy_stone_bricks",
+            1,
+        ),
+        shapeless(
+            &["core:cobblestone", "#leaves"],
+            "core:mossy_cobblestone",
+            1,
+        ),
+        shaped(
+            &["III", "III", "III"],
+            &[('I', "core:ice")],
+            "core:packed_ice",
+            1,
+        ),
+        shaped(
+            &["SS", "SS"],
+            &[('S', "core:snowball")],
+            "core:snow_block",
+            1,
+        ),
+        shaped(&["SSS"], &[('S', "core:snow_block")], "core:snow_layer", 6),
+    ]);
+    for (block, key) in crate::stones::WALLS {
+        r.push(shaped(
+            &["XXX", "XXX"],
+            &[('X', block)],
+            &format!("core:{key}_wall"),
+            6,
+        ));
+    }
+    for (key, _, _) in crate::stones::STAIRS {
+        let block = format!("core:{key}");
+        let k = [('X', block.as_str())];
+        r.push(shaped(
+            &["X  ", "XX ", "XXX"],
+            &k,
+            &format!("core:{key}_stairs"),
+            4,
+        ));
+        r.push(shaped(&["XXX"], &k, &format!("core:{key}_slab"), 6));
+    }
+    // ---- Milestone 19: woods ----
+    for wood in crate::woods::Wood::ALL {
+        let planks = wood.planks();
+        let p = planks.as_str();
+        if wood != crate::woods::Wood::Oak {
+            r.push(shapeless(&[&wood.log()], p, 4));
+            let k = [('X', p)];
+            r.push(shaped(&["X  ", "XX ", "XXX"], &k, &wood.stairs(), 4));
+            r.push(shaped(&["XXX"], &k, &wood.slab(), 6));
+            r.push(shaped(
+                &["P#P", "P#P"],
+                &[('P', p), ('#', "core:stick")],
+                &wood.fence(),
+                3,
+            ));
+            r.push(shaped(
+                &["#P#", "#P#"],
+                &[('#', "core:stick"), ('P', p)],
+                &wood.fence_gate(),
+                1,
+            ));
+            r.push(shaped(&["PP", "PP", "PP"], &[('P', p)], &wood.door(), 3));
+            r.push(shaped(&["PPP", "PPP"], &[('P', p)], &wood.trapdoor(), 2));
+        }
+        r.push(shaped(&["P P", "PPP"], &[('P', p)], &wood.boat(), 1));
     }
     // ---- Milestone 18: dyes and dyed things ----
     use crate::colours::{COLOURS, FLOWERS, bed_name, wool_name};
@@ -218,7 +288,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         }
         r.push(shaped(
             &["WWW", "PPP"],
-            &[('W', &wool), ('P', "core:planks")],
+            &[('W', &wool), ('P', "#planks")],
             &bed_name(c),
             1,
         ));
@@ -276,7 +346,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         ),
         shapeless(&["core:sugar_cane"], "core:sugar", 1),
         shaped(&["CCC"], &[('C', "core:sugar_cane")], "core:paper", 3),
-        shaped(&["P P", " P "], &[('P', "core:planks")], "core:bowl", 4),
+        shaped(&["P P", " P "], &[('P', "#planks")], "core:bowl", 4),
         shapeless(
             &[
                 "core:bowl",
@@ -303,7 +373,7 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         ),
         shaped(
             &["P P", "P P", "PPP"],
-            &[('P', "core:planks")],
+            &[('P', "#planks")],
             "core:composter",
             1,
         ),
@@ -336,9 +406,55 @@ enum Resolved {
     Shaped {
         w: usize,
         h: usize,
-        cells: Vec<Option<ItemId>>,
+        /// Each cell: empty, or any of these items.
+        cells: Vec<Option<Vec<ItemId>>>,
     },
-    Shapeless(Vec<ItemId>),
+    /// Each ingredient is any of its items.
+    Shapeless(Vec<Vec<ItemId>>),
+}
+
+/// What a name in a recipe stands for: one item, or a group such as
+/// `#planks` (planks of any wood), `#logs`, `#wool` or `#leaves`.
+fn ingredient(name: &str, items: &ItemRegistry) -> Option<Vec<ItemId>> {
+    let Some(tag) = name.strip_prefix('#') else {
+        return items.by_name(name).map(|i| vec![i]);
+    };
+    let (plain, suffix) = match tag {
+        "planks" => ("core:planks", "_planks"),
+        "logs" => ("core:log", "_log"),
+        "wool" => ("core:wool", "_wool"),
+        "leaves" => ("core:leaves", "_leaves"),
+        _ => return None,
+    };
+    let members: Vec<ItemId> = items
+        .iter()
+        .filter(|(_, d)| {
+            d.name == plain || (d.name.starts_with("core:") && d.name.ends_with(suffix))
+        })
+        .map(|(id, _)| id)
+        .collect();
+    (!members.is_empty()).then_some(members)
+}
+
+/// Can every present item be matched to a different ingredient?
+fn shapeless_match(ingredients: &[Vec<ItemId>], present: &[ItemId]) -> bool {
+    fn assign(ingredients: &[Vec<ItemId>], present: &[ItemId], used: &mut [bool]) -> bool {
+        let Some((first, rest)) = present.split_first() else {
+            return true;
+        };
+        for (i, ing) in ingredients.iter().enumerate() {
+            if !used[i] && ing.contains(first) {
+                used[i] = true;
+                if assign(ingredients, rest, used) {
+                    return true;
+                }
+                used[i] = false;
+            }
+        }
+        false
+    }
+    ingredients.len() == present.len()
+        && assign(ingredients, present, &mut vec![false; ingredients.len()])
 }
 
 /// All recipes, ready to match against a crafting grid.
@@ -377,7 +493,7 @@ impl RecipeBook {
                             let item = key
                                 .iter()
                                 .find(|(k, _)| *k == c)
-                                .and_then(|(_, n)| items.by_name(n));
+                                .and_then(|(_, n)| ingredient(n, items));
                             ok &= item.is_some();
                             cells.push(item);
                         }
@@ -392,15 +508,14 @@ impl RecipeBook {
                     result,
                     count,
                 } => {
-                    let ids: Option<Vec<ItemId>> =
-                        ingredients.iter().map(|n| items.by_name(n)).collect();
-                    let (Some(mut ids), Some(res)) = (ids, items.by_name(result)) else {
+                    let ids: Option<Vec<Vec<ItemId>>> =
+                        ingredients.iter().map(|n| ingredient(n, items)).collect();
+                    let (Some(ids), Some(res)) = (ids, items.by_name(result)) else {
                         continue;
                     };
                     if ids.is_empty() || ids.len() > 9 {
                         continue;
                     }
-                    ids.sort();
                     (Resolved::Shapeless(ids), res, *count)
                 }
             };
@@ -427,8 +542,12 @@ impl RecipeBook {
         };
         let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
         let cell = |x: usize, y: usize| grid[(y0 + y) * size + x0 + x];
-        let mut present: Vec<ItemId> = grid.iter().flatten().copied().collect();
-        present.sort();
+        let present: Vec<ItemId> = grid.iter().flatten().copied().collect();
+        let fits = |want: &Option<Vec<ItemId>>, have: Option<ItemId>| match (want, have) {
+            (None, None) => true,
+            (Some(set), Some(item)) => set.contains(&item),
+            _ => false,
+        };
 
         for (recipe, result, count) in &self.recipes {
             let matches = match recipe {
@@ -439,11 +558,12 @@ impl RecipeBook {
                 } => {
                     *rw == w
                         && *rh == h
-                        && ((0..h).all(|y| (0..w).all(|x| cells[y * w + x] == cell(x, y)))
-                            || (0..h)
-                                .all(|y| (0..w).all(|x| cells[y * w + (w - 1 - x)] == cell(x, y))))
+                        && ((0..h).all(|y| (0..w).all(|x| fits(&cells[y * w + x], cell(x, y))))
+                            || (0..h).all(|y| {
+                                (0..w).all(|x| fits(&cells[y * w + (w - 1 - x)], cell(x, y)))
+                            }))
                 }
-                Resolved::Shapeless(ids) => *ids == present,
+                Resolved::Shapeless(ids) => shapeless_match(ids, &present),
             };
             if matches {
                 return Some((*result, *count));
@@ -485,6 +605,36 @@ mod tests {
         grid[4] = log;
         assert!(book.find(&grid, 3).is_some());
         assert_eq!(book.find(&[None; 4], 2), None);
+    }
+
+    #[test]
+    fn any_planks_will_do() {
+        let (items, book) = book();
+        let oak = items.by_name("core:planks");
+        let birch = items.by_name("core:birch_planks");
+        let pine = items.by_name("core:pine_planks");
+        // A crafting table from mixed planks.
+        let grid = [oak, birch, pine, oak];
+        assert_eq!(
+            book.find(&grid, 2).map(|r| r.0),
+            items.by_name("core:crafting_table")
+        );
+        // Sticks from birch; but a birch fence needs birch planks.
+        assert_eq!(
+            book.find(&[birch, None, birch, None], 2).map(|r| r.0),
+            items.by_name("core:stick")
+        );
+        let stick = items.by_name("core:stick");
+        let fence = [birch, stick, birch, birch, stick, birch, None, None, None];
+        assert_eq!(
+            book.find(&fence, 3).map(|r| r.0),
+            items.by_name("core:birch_fence")
+        );
+        // Birch logs make birch planks.
+        assert_eq!(
+            book.find(&[items.by_name("core:birch_log"), None, None, None], 2),
+            birch.map(|b| (b, 4))
+        );
     }
 
     #[test]

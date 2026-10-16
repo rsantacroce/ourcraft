@@ -349,7 +349,7 @@ fn drop_broken_blocks(
         }
         let held = (edit.held != ItemId::NONE).then_some(edit.held);
         // Sometimes a little extra (apples from leaves).
-        if let Some((name, one_in)) = &registry.0.get(edit.old).bonus_drop {
+        for (name, one_in) in &registry.0.get(edit.old).bonus_drop {
             let mix = (edit.pos.x as u32) ^ (edit.pos.z as u32).rotate_left(16);
             *luck = luck
                 .wrapping_mul(1_103_515_245)

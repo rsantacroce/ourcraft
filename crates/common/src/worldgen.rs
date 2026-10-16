@@ -60,6 +60,15 @@ struct Plants {
     /// Ripe wild crops.
     crops: [BlockId; 4],
     flowers: Vec<BlockId>,
+    /// Log and leaves of each wood, in `Wood::ALL` order.
+    trees: Vec<(BlockId, BlockId)>,
+    granite: BlockId,
+    diorite: BlockId,
+    andesite: BlockId,
+    deep_slate: BlockId,
+    sandstone: BlockId,
+    ice: BlockId,
+    snow_layer: BlockId,
 }
 
 impl Plants {
@@ -78,6 +87,17 @@ impl Plants {
             pumpkin: id("core:pumpkin"),
             melon: id("core:melon"),
             flowers: crate::colours::FLOWERS.iter().map(|f| id(f.0)).collect(),
+            trees: crate::woods::Wood::ALL
+                .iter()
+                .map(|w| crate::woods::tree_blocks(&reg, *w))
+                .collect(),
+            granite: id("core:granite"),
+            diorite: id("core:diorite"),
+            andesite: id("core:andesite"),
+            deep_slate: id("core:deep_slate"),
+            sandstone: id("core:sandstone"),
+            ice: id("core:ice"),
+            snow_layer: id("core:snow_layer"),
             crops: [
                 ripe("core:wheat_crop"),
                 ripe("core:carrot_crop"),
@@ -245,7 +265,8 @@ impl WorldGenerator {
                     } else {
                         let b = surface_block(biome, depth, height);
                         if b == blocks::STONE {
-                            self.ore_at(wx, y, wz).unwrap_or(b)
+                            self.ore_at(wx, y, wz)
+                                .unwrap_or_else(|| self.stone_at(wx, y, wz, biome, depth))
                         } else if wet && depth < 2 && self.clay_at(wx, wz) {
                             blocks::CLAY
                         } else {
@@ -255,7 +276,13 @@ impl WorldGenerator {
                     col[idx(lx, y as usize, lz)] = block;
                 }
                 for y in (height + 1)..=SEA_LEVEL {
-                    col[idx(lx, y as usize, lz)] = blocks::WATER;
+                    // Snowy lakes freeze over.
+                    let frozen = y == SEA_LEVEL && biome == Biome::Snowy;
+                    col[idx(lx, y as usize, lz)] = if frozen {
+                        self.plants.ice
+                    } else {
+                        blocks::WATER
+                    };
                 }
             }
         }
@@ -289,6 +316,58 @@ impl WorldGenerator {
             return None;
         };
         (splitmix64(cell ^ h3(x, y, z)) % 100 < 60).then_some(ore)
+    }
+
+    /// What stone is like at a spot: deep slate deep down, patches of
+    /// granite, diorite and andesite, sandstone under deserts.
+    fn stone_at(&self, x: i32, y: i32, z: i32, biome: Biome, depth: i32) -> BlockId {
+        let p = &self.plants;
+        if biome == Biome::Desert && depth < 8 {
+            return p.sandstone;
+        }
+        // The change to deep slate wobbles a little.
+        let wobble =
+            (splitmix64(self.seed ^ 0x6465_6570 ^ (x as u32 as u64) ^ ((z as u32 as u64) << 32))
+                % 4) as i32;
+        if y < 14 + wobble {
+            return p.deep_slate;
+        }
+        // Blobs: the world cut into 4×4×4 cells, a few cells of each kind.
+        let cell = splitmix64(
+            self.seed
+                ^ 0x726f_636b
+                ^ ((x >> 2) as u32 as u64)
+                ^ (((y >> 2) as u32 as u64) << 21)
+                ^ (((z >> 2) as u32 as u64) << 42),
+        );
+        match cell % 100 {
+            0..3 => p.granite,
+            3..6 => p.diorite,
+            6..9 => p.andesite,
+            _ => blocks::STONE,
+        }
+    }
+
+    /// Which kind of tree grows here.
+    fn wood_at(&self, x: i32, z: i32, biome: Biome) -> crate::woods::Wood {
+        use crate::woods::Wood;
+        let region = splitmix64(
+            self.seed ^ 0x7472_6565 ^ ((x >> 5) as u32 as u64) ^ (((z >> 5) as u32 as u64) << 32),
+        ) % 100;
+        match biome {
+            Biome::Snowy | Biome::Mountains => Wood::Pine,
+            Biome::Forest => match region {
+                0..40 => Wood::Oak,
+                40..70 => Wood::Birch,
+                70..88 => Wood::Dark,
+                _ => Wood::Jungle,
+            },
+            _ => match region {
+                0..8 => Wood::Cherry,
+                8..20 => Wood::Birch,
+                _ => Wood::Oak,
+            },
+        }
     }
 
     /// Patches of clay under lakes and the sea.
@@ -332,7 +411,7 @@ impl WorldGenerator {
                     Biome::Snowy => 12,
                     Biome::Plains => 4,
                     Biome::Desert => 6,
-                    Biome::Mountains => 0,
+                    Biome::Mountains => 3,
                 };
                 if chance >= threshold
                     || height <= SEA_LEVEL + 1
@@ -349,27 +428,15 @@ impl WorldGenerator {
                     }
                     continue;
                 }
-                // A tree: trunk, then a blob of leaves around its top.
-                let trunk = 4 + (r2 % 3) as i32;
-                let top = base + trunk;
-                for dy in -3..=1i32 {
-                    let radius: i32 = if dy <= -2 { 2 } else { 1 };
-                    for dz in -radius..=radius {
-                        for dx in -radius..=radius {
-                            let corner = dx.abs() == radius && dz.abs() == radius;
-                            // Randomly trim some corners so trees look less boxy.
-                            let trim =
-                                (r2 >> ((dx + 2 + (dz + 2) * 5 + (dy + 3) * 25) as u64 % 40)) & 1
-                                    == 1;
-                            if corner && (radius == 1 || trim) {
-                                continue;
-                            }
-                            put(wx + dx, top + dy, wz + dz, blocks::LEAVES, false);
-                        }
-                    }
-                }
-                for dy in 0..trunk {
-                    put(wx, base + dy, wz, blocks::LOG, true);
+                // A tree of the kind that grows here.
+                let wood = self.wood_at(wx, wz, biome);
+                let (log, leaves) = self.plants.trees[wood as usize];
+                for (o, part) in crate::woods::tree_shape(wood, r) {
+                    let (block, replace) = match part {
+                        crate::woods::Part::Log => (log, true),
+                        crate::woods::Part::Leaves => (leaves, false),
+                    };
+                    put(wx + o[0], base + o[1], wz + o[2], block, replace);
                 }
                 // The ground under a tree is dirt, not grass.
                 put(wx, height, wz, blocks::DIRT, true);
@@ -440,6 +507,10 @@ impl WorldGenerator {
                 // Sugar cane on the shore, right next to the water.
                 let shore = height == SEA_LEVEL
                     && matches!(top, b if b == blocks::GRASS || b == blocks::SAND || b == blocks::DIRT);
+                // Snow lies on snowy ground.
+                if top == blocks::SNOW && col[above].is_air() && roll.is_multiple_of(3) {
+                    col[above] = p.snow_layer;
+                }
                 if shore && col[above].is_air() && roll.is_multiple_of(9) {
                     let wet = [(1, 0), (-1, 0), (0, 1), (0, -1)]
                         .iter()

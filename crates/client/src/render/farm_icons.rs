@@ -89,7 +89,35 @@ fn dye(c: Rgba) -> Vec<u8> {
     )
 }
 
+/// A little boat in a wood's colour.
+fn boat(c: Rgba) -> Vec<u8> {
+    draw(
+        &[
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            "................",
+            ".d............d.",
+            ".dCd........dCd.",
+            ".dCCddddddddCCd.",
+            "..dCCCCCCCCCCd..",
+            "..dCCLLLLLLCCd..",
+            "...dCCCCCCCCd...",
+            "....dddddddd....",
+            "................",
+            "................",
+            "................",
+        ],
+        &[('C', c), ('L', lighter(c, 35)), ('d', darker(c, 70))],
+    )
+}
+
 pub fn icon(name: &str) -> Option<Vec<u8>> {
+    if let Some(wood) = name.strip_suffix("_boat") {
+        return Some(boat(super::wood_colour(wood)));
+    }
     if let Some(colour) = name.strip_suffix("_dye")
         && let Some(c) = ourcraft_common::colours::COLOURS
             .iter()
@@ -355,6 +383,32 @@ pub fn icon(name: &str) -> Option<Vec<u8>> {
                 ('C', [210, 150, 80, 255]),
                 ('k', [80, 46, 26, 255]),
                 ('d', [140, 90, 40, 255]),
+            ],
+        ),
+        "snowball" => draw(
+            &[
+                "................",
+                "................",
+                "................",
+                "................",
+                "................",
+                "......dddd......",
+                ".....dWWWWd.....",
+                "....dWLLWWWd....",
+                "....dWLWWWWd....",
+                "....dWWWWWsd....",
+                "....dWWWWssd....",
+                ".....dWsssd.....",
+                "......dddd......",
+                "................",
+                "................",
+                "................",
+            ],
+            &[
+                ('W', [246, 250, 255, 255]),
+                ('L', [255, 255, 255, 255]),
+                ('s', [200, 214, 232, 255]),
+                ('d', [150, 170, 196, 255]),
             ],
         ),
         "bowl" => bowl_of(None),

@@ -31,6 +31,7 @@ impl Plugin for PlayerPlugin {
         app.insert_resource(Time::<Fixed>::from_hz(TICK_RATE))
             .init_resource::<GameMode>()
             .init_resource::<Asleep>()
+            .init_resource::<Boating>()
             .add_systems(Startup, spawn_player)
             .add_systems(
                 PreUpdate,
@@ -257,6 +258,7 @@ fn player_physics(
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
     conn: Option<ResMut<Connection>>,
+    boating: Res<Boating>,
     mut player: Single<&mut Player>,
 ) {
     if player.frozen {
@@ -275,6 +277,7 @@ fn player_physics(
         yaw: player.yaw,
         pitch: player.pitch,
         speed: rules.0.speed,
+        boat: boating.0.is_some(),
     };
     player.prev_position = player.state.position;
     apply_input(&mut player.state, &input, &world.0, &blocks.0);
@@ -381,28 +384,48 @@ fn toggle_game_mode(
     }
 }
 
+/// Sitting in this boat (an entity id).
+#[derive(Resource, Default, Debug)]
+pub struct Boating(pub Option<u64>);
+
 /// Asleep in the bed at this block: the view lies down in it.
 #[derive(Resource, Default, Debug)]
 pub struct Asleep(pub Option<IVec3>);
 
-fn hear_sleeping(mut messages: MessageReader<FromServer>, mut asleep: ResMut<Asleep>) {
+fn hear_sleeping(
+    mut messages: MessageReader<FromServer>,
+    mut asleep: ResMut<Asleep>,
+    mut boating: ResMut<Boating>,
+) {
     for FromServer(msg) in messages.read() {
         match msg {
             ServerMessage::Sleeping { bed } => asleep.0 = bed.map(IVec3::from_array),
-            // A new world: awake.
-            ServerMessage::Welcome { .. } => asleep.0 = None,
+            ServerMessage::Boating { boat } => boating.0 = *boat,
+            // A new world: awake, and on foot.
+            ServerMessage::Welcome { .. } => {
+                asleep.0 = None;
+                boating.0 = None;
+            }
             _ => {}
         }
     }
 }
 
-/// Moving or jumping gets you out of bed.
-fn get_up(actions: Res<Actions>, mut asleep: ResMut<Asleep>, conn: Option<ResMut<Connection>>) {
+/// Moving or jumping gets you out of bed; "down" gets you out of a boat.
+fn get_up(
+    actions: Res<Actions>,
+    mut asleep: ResMut<Asleep>,
+    mut boating: ResMut<Boating>,
+    conn: Option<ResMut<Connection>>,
+) {
+    let Some(mut conn) = conn else { return };
     if asleep.0.is_some() && (actions.movement != Vec2::ZERO || actions.jump) {
         asleep.0 = None;
-        if let Some(mut conn) = conn {
-            conn.send(Channel::Reliable, &ClientMessage::LeaveBed);
-        }
+        conn.send(Channel::Reliable, &ClientMessage::LeaveBed);
+    }
+    if boating.0.is_some() && actions.descend {
+        boating.0 = None;
+        conn.send(Channel::Reliable, &ClientMessage::LeaveBoat);
     }
 }
 

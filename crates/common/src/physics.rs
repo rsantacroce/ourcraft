@@ -36,6 +36,9 @@ const WALK_SPEED: f32 = 4.3;
 const SPRINT_SPEED: f32 = 6.2;
 const FLY_SPEED: f32 = 11.0;
 const SWIM_SPEED: f32 = 3.0;
+/// Rowing a boat on water (on land a boat only shuffles along).
+const BOAT_SPEED: f32 = 6.0;
+const BOAT_LAND_SPEED: f32 = 0.8;
 const GROUND_ACCEL: f32 = 60.0;
 const AIR_ACCEL: f32 = 12.0;
 const FLY_ACCEL: f32 = 40.0;
@@ -59,6 +62,8 @@ pub struct PlayerInput {
     pub auto_jump: bool,
     /// Speed multiplier set by the game mode (1 = normal, 0 = can't move).
     pub speed: f32,
+    /// Sitting in a boat: float on water and row quickly.
+    pub boat: bool,
 }
 
 impl Default for PlayerInput {
@@ -71,6 +76,7 @@ impl Default for PlayerInput {
             yaw: 0.0,
             auto_jump: false,
             speed: 1.0,
+            boat: false,
         }
     }
 }
@@ -277,6 +283,28 @@ pub fn step(
             approach(state.velocity.y, target.y, a),
             approach(state.velocity.z, target.z, a),
         );
+    } else if input.boat {
+        // Afloat: the boat sits on the water, wherever its surface is.
+        let under = is_liquid(world, reg, state.position + Vec3::Y * 0.1);
+        let afloat = under || is_liquid(world, reg, state.position - Vec3::Y * 0.2);
+        let speed = if !afloat {
+            BOAT_LAND_SPEED
+        } else if input.sprint {
+            BOAT_SPEED * 1.3
+        } else {
+            BOAT_SPEED
+        };
+        let target = wish * speed;
+        let a = GROUND_ACCEL * 0.4 * dt;
+        state.velocity.x = approach(state.velocity.x, target.x, a);
+        state.velocity.z = approach(state.velocity.z, target.z, a);
+        state.velocity.y = if under {
+            approach(state.velocity.y, 2.5, 30.0 * dt)
+        } else if afloat {
+            0.0
+        } else {
+            (state.velocity.y - GRAVITY * dt).max(-TERMINAL_SPEED)
+        };
     } else if state.in_water {
         let target = wish * SWIM_SPEED;
         let a = GROUND_ACCEL * 0.5 * dt;
@@ -610,6 +638,44 @@ mod tests {
         assert!(collides(&w, &reg, s.position));
         run(&mut s, PlayerInput::default(), &w, 10);
         assert!((s.position.y - 50.0).abs() < 0.01, "y = {}", s.position.y);
+    }
+
+    #[test]
+    fn boats_float_and_row_faster_than_swimming() {
+        let mut w = flat_world();
+        for y in 10..20 {
+            for x in -30..30 {
+                for z in -3..3 {
+                    w.set_block(x, y, z, BlockId(blocks::WATER.0));
+                }
+            }
+        }
+        // Row forward (facing +x) for two seconds, in a boat and swimming.
+        let go = |boat: bool| {
+            let mut s = PlayerState::new(Vec3::new(0.5, 19.5, 0.5));
+            let input = PlayerInput {
+                movement: Vec2::new(0.0, 1.0),
+                yaw: -std::f32::consts::FRAC_PI_2,
+                boat,
+                ..PlayerInput::default()
+            };
+            run(&mut s, input, &w, 120);
+            s
+        };
+        let (boat, swim) = (go(true), go(false));
+        assert!(
+            boat.position.x > swim.position.x + 3.0,
+            "{} vs {}",
+            boat.position.x,
+            swim.position.x
+        );
+        // The boat stays at the surface (the top of the water is y = 20).
+        assert!(
+            (19.6..20.6).contains(&boat.position.y),
+            "y = {}",
+            boat.position.y
+        );
+        assert!(swim.position.y < 19.6, "a swimmer sinks a bit");
     }
 
     #[test]

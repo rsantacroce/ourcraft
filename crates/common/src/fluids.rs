@@ -3,7 +3,8 @@
 //! Water you pour (or that's freed by digging) spreads: straight down as a
 //! "falling" column, and sideways along the ground, one step lower each
 //! block, up to 7 blocks (lava: 3, and slower). Cut off from its source it
-//! dries up again. Lava that meets water turns to stone.
+//! dries up again. Lava that meets water hardens: still lava into
+//! obsidian, flowing lava into cobblestone.
 //!
 //! [`next_state`] says what a spot should become given its neighbours; the
 //! server calls it whenever something nearby changes.
@@ -172,13 +173,14 @@ pub fn next_state(reg: &BlockRegistry, get: impl Fn([i32; 3]) -> BlockId) -> Opt
             .any(|o| reg.fluid(get(*o)).is_some_and(|f| f.family == family))
     };
 
-    // Lava next to water hardens.
+    // Lava next to water hardens: still lava into obsidian, flowing lava
+    // into cobblestone.
     if let Some(f) = &fluid_here
         && f.family == "core:lava"
         && touches("core:water")
     {
         return Some(if f.level == 0 && !f.falling {
-            blocks::STONE
+            reg.by_name("core:obsidian").unwrap_or(blocks::STONE)
         } else {
             blocks::COBBLESTONE
         });
@@ -317,7 +319,7 @@ mod tests {
         // Pour water next to it.
         w.0.insert([-1, 1, 0], blocks::WATER);
         w.settle(&reg);
-        assert_eq!(w.get([0, 1, 0]), blocks::STONE);
+        assert_eq!(Some(w.get([0, 1, 0])), reg.by_name("core:obsidian"));
     }
 
     #[test]

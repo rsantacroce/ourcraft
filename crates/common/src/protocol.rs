@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 11;
+pub const PROTOCOL_VERSION: u64 = 12;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -91,6 +91,8 @@ pub struct NetInput {
     pub pitch: f32,
     /// The speed multiplier the client assumed (the server uses its own).
     pub speed: f32,
+    /// In a boat (the server checks).
+    pub boat: bool,
 }
 
 impl Default for NetInput {
@@ -106,6 +108,7 @@ impl Default for NetInput {
             yaw: 0.0,
             pitch: 0.0,
             speed: 1.0,
+            boat: false,
         }
     }
 }
@@ -250,6 +253,8 @@ pub enum ClientMessage {
     },
     /// Got out of bed (moved while sleeping).
     LeaveBed,
+    /// Got out of a boat.
+    LeaveBoat,
 }
 
 /// Lines on a sign, and characters per line.
@@ -406,6 +411,10 @@ pub enum ServerMessage {
     /// You're asleep in the bed at this block (lie down), or awake again.
     Sleeping {
         bed: Option<[i32; 3]>,
+    },
+    /// You're sitting in this boat (an entity), or not in one.
+    Boating {
+        boat: Option<u64>,
     },
 }
 

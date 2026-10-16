@@ -174,6 +174,9 @@ pub enum BlockShape {
     /// A post that grows rails towards its neighbours (see
     /// `BlockRegistry::boxes_at`).
     Fence,
+    /// A thick post that joins walls, fences and solid blocks with low
+    /// walls.
+    Wall,
 }
 
 impl BlockShape {
@@ -182,6 +185,7 @@ impl BlockShape {
         match self {
             BlockShape::Cube => vec![([0.0; 3], [1.0; 3])],
             BlockShape::Fence => BlockShape::Boxes(vec![[6, 0, 6, 10, 16, 10]]).boxes(),
+            BlockShape::Wall => BlockShape::Boxes(vec![[4, 0, 4, 12, 16, 12]]).boxes(),
             BlockShape::Boxes(b) => b
                 .iter()
                 .map(|b| {
@@ -232,8 +236,8 @@ pub struct BlockDef {
     /// The tool tier needed to get anything when it breaks (0 = bare
     /// hands are fine; 1 = wood, 2 = stone, 3 = iron, 4 = diamond).
     pub min_tier: u8,
-    /// Sometimes drops this item as well: (item name, one time in N).
-    pub bonus_drop: Option<(String, u16)>,
+    /// Sometimes drops these items as well: (item name, one time in N).
+    pub bonus_drop: Vec<(String, u16)>,
     pub shape: BlockShape,
     /// Left out of the creative palette (variants like wall torches, which
     /// you get by placing the normal kind).
@@ -266,7 +270,7 @@ impl BlockDef {
             hardness: 1.0,
             tool: None,
             min_tier: 0,
-            bonus_drop: None,
+            bonus_drop: Vec::new(),
             shape: BlockShape::Cube,
             hidden: false,
             variant: None,
@@ -299,12 +303,15 @@ impl BlockDef {
 #[derive(Clone, Debug)]
 pub struct BlockRegistry {
     defs: Vec<BlockDef>,
+    /// Name → id, for quick lookups.
+    names: std::collections::HashMap<String, BlockId>,
 }
 
 impl BlockRegistry {
     /// A registry containing only air.
     pub fn new() -> Self {
         Self {
+            names: [("core:air".to_owned(), BlockId::AIR)].into(),
             defs: vec![BlockDef {
                 name: "core:air".to_owned(),
                 display_name: "Air".to_owned(),
@@ -318,7 +325,7 @@ impl BlockRegistry {
                 hardness: 0.0,
                 tool: None,
                 min_tier: 0,
-                bonus_drop: None,
+                bonus_drop: Vec::new(),
                 shape: BlockShape::Cube,
                 hidden: false,
                 variant: None,
@@ -372,7 +379,7 @@ impl BlockRegistry {
         );
         reg.register(BlockDef {
             // Now and then an apple falls out.
-            bonus_drop: Some(("core:apple".into(), 8)),
+            bonus_drop: vec![("core:apple".into(), 8), ("core:oak_sapling".into(), 12)],
             ..BlockDef::cutout("core:leaves", "Leaves", T::all("leaves")).mined(0.2, None, 0)
         });
         reg.register(
@@ -381,6 +388,7 @@ impl BlockRegistry {
         reg.register(
             BlockDef {
                 drops: Drops::Block(blocks::DIRT),
+                bonus_drop: vec![("core:snowball".into(), 1)],
                 ..BlockDef::solid(
                     "core:snow",
                     "Snowy Grass",
@@ -497,6 +505,9 @@ impl BlockRegistry {
         crate::farming::register_farming(&mut reg);
         // ---- Milestone 18: colours ----
         crate::colours::register_colours(&mut reg);
+        // ---- Milestone 19: trees and stone ----
+        crate::woods::register_woods(&mut reg);
+        crate::stones::register_stones(&mut reg);
         reg
     }
 
@@ -506,7 +517,12 @@ impl BlockRegistry {
         let air_first = defs
             .first()
             .is_some_and(|d| d.render == RenderKind::Invisible);
-        (air_first && defs.len() <= u16::MAX as usize).then_some(Self { defs })
+        let names = defs
+            .iter()
+            .enumerate()
+            .map(|(i, d)| (d.name.clone(), BlockId(i as u16)))
+            .collect();
+        (air_first && defs.len() <= u16::MAX as usize).then_some(Self { defs, names })
     }
 
     /// All definitions in id order.
@@ -542,7 +558,7 @@ impl BlockRegistry {
             hardness: 1.0,
             tool: None,
             min_tier: 0,
-            bonus_drop: None,
+            bonus_drop: Vec::new(),
             shape: BlockShape::Cube,
             hidden: false,
             variant: None,
@@ -558,6 +574,7 @@ impl BlockRegistry {
 
     pub fn register(&mut self, def: BlockDef) -> BlockId {
         let id = BlockId(u16::try_from(self.defs.len()).expect("too many block types"));
+        self.names.entry(def.name.clone()).or_insert(id);
         self.defs.push(def);
         id
     }
@@ -605,10 +622,7 @@ impl BlockRegistry {
 
     /// Look up a block by its namespaced name.
     pub fn by_name(&self, name: &str) -> Option<BlockId> {
-        self.defs
-            .iter()
-            .position(|d| d.name == name)
-            .map(|i| BlockId(i as u16))
+        self.names.get(name).copied()
     }
 
     pub fn len(&self) -> usize {
@@ -652,7 +666,7 @@ mod tests {
         assert_eq!(reg.get(blocks::DIAMOND_BLOCK).name, "core:diamond_block");
         assert_eq!(reg.get(blocks::WOOL).name, "core:wool");
         assert_eq!(reg.get(blocks::LAVA).name, "core:lava");
-        assert!(reg.get(blocks::LEAVES).bonus_drop.is_some(), "apples");
+        assert!(!reg.get(blocks::LEAVES).bonus_drop.is_empty(), "apples");
         assert_eq!(reg.get(blocks::TORCH).name, "core:torch");
         assert_eq!(
             reg.get(blocks::WALL_TORCH_NORTH).name,

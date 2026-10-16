@@ -183,7 +183,7 @@ fn hotbar_selection(actions: Res<Actions>, mut inventory: ResMut<PlayerInventory
 #[allow(clippy::too_many_arguments)]
 fn use_blocks(
     actions: Res<Actions>,
-    target: Res<Target>,
+    (target, source): (Res<Target>, Res<SourceTarget>),
     target_mob: Res<TargetMob>,
     defs: Res<crate::entities::MobDefs>,
     items: Res<Items>,
@@ -236,11 +236,25 @@ fn use_blocks(
         }
         return;
     }
+    let held = inventory.held().unwrap_or(ItemId::NONE);
+    // A boat goes on the water (or the ground) you point at.
+    if items.name(held).ends_with("_boat")
+        && let Some(spot) = source.0.or(target.0)
+        && let Some(mut conn) = conn
+    {
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseBlock {
+                pos: spot.block.to_array(),
+                held: held.0,
+            },
+        );
+        return;
+    }
     let Some(hit) = target.0 else { return };
     let Some(mut conn) = conn else { return };
     let pos = hit.block.to_array();
     // Cakes, composters, and bone meal on plants: the server does it.
-    let held = inventory.held().unwrap_or(ItemId::NONE);
     if used_in_place(&registry.0, hit.id, items.name(held)) {
         conn.send(
             Channel::Reliable,

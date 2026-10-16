@@ -87,6 +87,49 @@ fn fruit_spot(
     (get(at)?.is_air() && soil).then_some(at)
 }
 
+/// Grow the tree a sapling at `at` becomes, if there's room: its trunk
+/// needs empty space (leaves only fill empty space). Returns whether it
+/// grew.
+fn grow_tree(
+    world: &mut ServerWorld,
+    cache: &mut ColumnCache,
+    open: &OpenWorld,
+    net: &mut Network,
+    registry: &Registry,
+    at: IVec3,
+    wood: &str,
+    roll: u32,
+) -> bool {
+    use ourcraft_common::woods::{Part, Wood, tree_blocks, tree_shape};
+    let Some(wood) = Wood::from_key(wood) else {
+        return false;
+    };
+    let reg = &registry.0;
+    let (log, leaves) = tree_blocks(reg, wood);
+    let shape = tree_shape(wood, roll as u64 | ((roll as u64) << 32));
+    let free = |w: &ServerWorld, p: IVec3| {
+        w.get_block(p.x, p.y, p.z)
+            .is_some_and(|b| b.is_air() || reg.is_soft(b) || p == at)
+    };
+    let fits = shape
+        .iter()
+        .filter(|(_, part)| *part == Part::Log)
+        .all(|(o, _)| free(world, at + IVec3::from_array(*o)));
+    if !fits {
+        return false;
+    }
+    for (o, part) in &shape {
+        let p = at + IVec3::from_array(*o);
+        let block = match part {
+            Part::Log => log,
+            Part::Leaves if free(world, p) => leaves,
+            Part::Leaves => continue,
+        };
+        change(world, cache, open, net, p, block);
+    }
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 fn grow(
     time: Res<Time>,
@@ -190,6 +233,14 @@ fn grow(
                     && let Some(at) = fruit_spot(&world, &registry, p, fruit, roll)
                 {
                     change(&mut world, &mut cache, &open, &mut net, at, fruit);
+                }
+            }
+            StageKind::Sapling { wood } => {
+                if chance(&mut seed, 30) {
+                    let roll = next(&mut seed);
+                    grow_tree(
+                        &mut world, &mut cache, &open, &mut net, &registry, p, &wood, roll,
+                    );
                 }
             }
             StageKind::Cane => {
@@ -315,7 +366,15 @@ fn use_farm_blocks(
                 && reg.grows(b)
             {
                 let grown = reg.advanced(b, 2 + (next(&mut seed) % 3) as u8);
-                if let Some(new) = grown {
+                if let StageKind::Sapling { wood } = &s.kind {
+                    // Half the time, a tree straight away.
+                    let roll = next(&mut seed);
+                    if roll.is_multiple_of(2) {
+                        grow_tree(
+                            &mut world, &mut cache, &open, &mut net, &registry, pos, wood, roll,
+                        );
+                    }
+                } else if let Some(new) = grown {
                     change(&mut world, &mut cache, &open, &mut net, pos, new);
                 } else if let StageKind::Stem { fruit } = &s.kind
                     && let Some(fruit) = reg.by_name(fruit)

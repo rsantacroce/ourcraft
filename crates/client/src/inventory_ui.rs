@@ -446,10 +446,19 @@ impl PaletteKind {
             .is_some_and(|b| blocks.sits_on_ground(b) || blocks.grows(b));
         if def.food > 0 || def.heals > 0 || def.name == "core:cake" {
             PaletteKind::Food
-        } else if def.tool().is_some() || TOOLS.contains(&def.name.as_str()) {
+        } else if def.tool().is_some()
+            || TOOLS.contains(&def.name.as_str())
+            || def.name.ends_with("_boat")
+        {
             PaletteKind::Tools
         } else if plant
             || NATURE.contains(&def.name.as_str())
+            || def.name.ends_with("_log")
+            || def.name.ends_with("_leaves")
+            || matches!(
+                def.name.as_str(),
+                "core:ice" | "core:deep_slate" | "core:obsidian"
+            )
             || matches!(
                 def.name.as_str(),
                 "core:pumpkin" | "core:melon" | "core:sugar_cane"

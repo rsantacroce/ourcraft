@@ -271,14 +271,29 @@ impl BlockRegistry {
         neighbour: impl Fn([i32; 3]) -> BlockId,
     ) -> Vec<([f32; 3], [f32; 3])> {
         let shape = self.shape(block);
-        if *shape != BlockShape::Fence {
+        let wall = *shape == BlockShape::Wall;
+        if *shape != BlockShape::Fence && !wall {
             return shape.boxes();
         }
-        let mut boxes: Vec<ShapeBox> = vec![[6, 0, 6, 10, 16, 10]];
-        for d in Dir4::ALL {
-            let n = neighbour(d.vector());
+        let joins = |n: BlockId| {
             let gate = self.variant_kind(n) == Some(VariantKind::FenceGate);
-            if *self.shape(n) == BlockShape::Fence || gate || self.is_opaque(n) {
+            matches!(self.shape(n), BlockShape::Fence | BlockShape::Wall)
+                || gate
+                || self.is_opaque(n)
+        };
+        let mut boxes: Vec<ShapeBox> = if wall {
+            vec![[4, 0, 4, 12, 16, 12]]
+        } else {
+            vec![[6, 0, 6, 10, 16, 10]]
+        };
+        for d in Dir4::ALL {
+            if !joins(neighbour(d.vector())) {
+                continue;
+            }
+            if wall {
+                // A low wall towards the neighbour.
+                boxes.extend(facing(&[[5, 0, 0, 11, 14, 4]], d));
+            } else {
                 // Two rails towards the neighbour.
                 boxes.extend(facing(&[[7, 6, 0, 9, 9, 6], [7, 12, 0, 9, 15, 6]], d));
             }
@@ -287,10 +302,170 @@ impl BlockRegistry {
     }
 }
 
+/// One state of a family: (facing, open, upper, boxes).
+type State = (Dir4, bool, bool, Vec<ShapeBox>);
+
+/// Register a family of blocks; the first state is the base (the one in
+/// the inventory, which every other state drops).
+fn register_family(
+    reg: &mut BlockRegistry,
+    kind: VariantKind,
+    base: &str,
+    display: &str,
+    def: &dyn Fn(&str) -> BlockDef,
+    states: Vec<State>,
+    no_drop_upper: bool,
+) {
+    let mut base_id = None;
+    for (i, (dir, open, upper, boxes)) in states.into_iter().enumerate() {
+        let name = if i == 0 {
+            base.to_owned()
+        } else {
+            let mut n = format!("{base}_{}", dir.name());
+            if open {
+                n.push_str("_open");
+            }
+            if upper {
+                n.push_str("_upper");
+            }
+            n
+        };
+        let mut d = def(&name);
+        d.display_name = display.to_owned();
+        d.shape = BlockShape::Boxes(boxes);
+        d.hidden = i > 0;
+        d.variant = Some(Variant {
+            kind,
+            family: base.to_owned(),
+            facing: dir,
+            open,
+            upper,
+        });
+        if let Some(b) = base_id {
+            d.drops = if upper && no_drop_upper {
+                Drops::Nothing
+            } else {
+                Drops::Block(b)
+            };
+        }
+        let id = reg.register(d);
+        base_id.get_or_insert(id);
+    }
+}
+
+/// The same boxes facing each of the four ways.
+fn all_dirs(boxes: &[ShapeBox], open: bool, upper: bool) -> Vec<State> {
+    Dir4::ALL
+        .into_iter()
+        .map(|d| (d, open, upper, facing(boxes, d)))
+        .collect()
+}
+
+fn cutout(name: &str, display: &str, tex: T) -> BlockDef {
+    BlockDef {
+        render: RenderKind::Cutout,
+        ..BlockDef::solid(name, display, tex)
+    }
+}
+
+fn wooden(d: BlockDef) -> BlockDef {
+    d.mined(2.0, Some(ToolKind::Axe), 0)
+}
+
+/// Stairs and a slab of a material: `core:{key}_stairs`, `core:{key}_slab`.
+pub fn register_stairs_and_slab(
+    reg: &mut BlockRegistry,
+    key: &str,
+    display: &str,
+    tex: &str,
+    tool: ToolKind,
+    tier: u8,
+) {
+    let def = |name: &str| cutout(name, "", T::all(tex)).mined(2.0, Some(tool), tier);
+    register_family(
+        reg,
+        VariantKind::Stairs,
+        &format!("core:{key}_stairs"),
+        &format!("{display} Stairs"),
+        &def,
+        all_dirs(&[[0, 0, 0, 16, 8, 16], [0, 8, 0, 16, 16, 8]], false, false),
+        false,
+    );
+    register_family(
+        reg,
+        VariantKind::Slab,
+        &format!("core:{key}_slab"),
+        &format!("{display} Slab"),
+        &def,
+        vec![
+            (Dir4::North, false, false, vec![[0, 0, 0, 16, 8, 16]]),
+            (Dir4::North, false, true, vec![[0, 8, 0, 16, 16, 16]]),
+        ],
+        false,
+    );
+}
+
+/// A fence whose rails reach out to its neighbours.
+pub fn register_fence(reg: &mut BlockRegistry, name: &str, display: &str, tex: &str) {
+    reg.register(wooden(BlockDef {
+        shape: BlockShape::Fence,
+        ..cutout(name, display, T::all(tex))
+    }));
+}
+
+/// A door, two blocks tall: `planks` on top and bottom, `lower` and
+/// `upper` on the sides.
+pub fn register_door(
+    reg: &mut BlockRegistry,
+    family: &str,
+    display: &str,
+    planks: &str,
+    lower: &str,
+    upper_tex: &str,
+) {
+    let door = |name: &str| {
+        let side = if name.ends_with("_upper") {
+            upper_tex
+        } else {
+            lower
+        };
+        wooden(cutout(name, "", T::top_bottom_side(planks, planks, side)))
+    };
+    let closed: [ShapeBox; 1] = [[0, 0, 0, 16, 16, 3]];
+    let opened: [ShapeBox; 1] = [[0, 0, 0, 3, 16, 16]];
+    let mut states = Vec::new();
+    for upper in [false, true] {
+        states.extend(all_dirs(&closed, false, upper));
+        states.extend(all_dirs(&opened, true, upper));
+    }
+    register_family(reg, VariantKind::Door, family, display, &door, states, true);
+}
+
+/// A trapdoor that opens upwards.
+pub fn register_trapdoor(reg: &mut BlockRegistry, family: &str, display: &str, tex: &str) {
+    let trapdoor = |name: &str| wooden(cutout(name, "", T::all(tex)));
+    let mut states = all_dirs(&[[0, 0, 0, 16, 3, 16]], false, false);
+    states.extend(all_dirs(&[[0, 0, 0, 16, 16, 3]], true, false));
+    register_family(
+        reg,
+        VariantKind::Trapdoor,
+        family,
+        display,
+        &trapdoor,
+        states,
+        false,
+    );
+}
+
 /// Fence gates: a fence you can open (right click). Closed, they span the
 /// way they face sideways; open, the two halves swing back against the
 /// posts.
 pub fn register_fence_gates(reg: &mut BlockRegistry) {
+    register_fence_gate(reg, "core:fence_gate", "Fence Gate", "planks");
+}
+
+/// A fence gate called `family`, made of `tex`.
+pub fn register_fence_gate(reg: &mut BlockRegistry, family: &str, display: &str, tex: &str) {
     let closed: [ShapeBox; 4] = [
         [0, 0, 7, 2, 16, 9],
         [14, 0, 7, 16, 16, 9],
@@ -308,27 +483,23 @@ pub fn register_fence_gates(reg: &mut BlockRegistry) {
         for d in Dir4::ALL {
             let first = base.is_none();
             let name = if first {
-                "core:fence_gate".to_owned()
+                family.to_owned()
             } else if open {
-                format!("core:fence_gate_{}_open", d.name())
+                format!("{family}_{}_open", d.name())
             } else {
-                format!("core:fence_gate_{}", d.name())
+                format!("{family}_{}", d.name())
             };
             let boxes = if open { &opened } else { &closed };
             let mut def = BlockDef {
                 render: RenderKind::Cutout,
                 solid: !open,
-                ..BlockDef::solid(&name, "Fence Gate", T::all("planks")).mined(
-                    2.0,
-                    Some(ToolKind::Axe),
-                    0,
-                )
+                ..BlockDef::solid(&name, display, T::all(tex)).mined(2.0, Some(ToolKind::Axe), 0)
             };
             def.shape = BlockShape::Boxes(facing(boxes, d));
             def.hidden = !first;
             def.variant = Some(Variant {
                 kind: VariantKind::FenceGate,
-                family: "core:fence_gate".into(),
+                family: family.into(),
                 facing: d,
                 open,
                 upper: false,
@@ -398,57 +569,6 @@ pub fn register_shaped_blocks(reg: &mut BlockRegistry) {
         render: RenderKind::Cutout,
         ..BlockDef::solid(name, display, tex)
     };
-    // Register a family: `states` are (facing, open, upper, boxes); the
-    // first is the base.
-    let family = |reg: &mut BlockRegistry,
-                  kind: VariantKind,
-                  base: &str,
-                  display: &str,
-                  def: &dyn Fn(&str) -> BlockDef,
-                  states: Vec<(Dir4, bool, bool, Vec<ShapeBox>)>,
-                  no_drop_upper: bool| {
-        let mut base_id = None;
-        for (i, (dir, open, upper, boxes)) in states.into_iter().enumerate() {
-            let name = if i == 0 {
-                base.to_owned()
-            } else {
-                let mut n = format!("{base}_{}", dir.name());
-                if open {
-                    n.push_str("_open");
-                }
-                if upper {
-                    n.push_str("_upper");
-                }
-                n
-            };
-            let mut d = def(&name);
-            d.display_name = display.to_owned();
-            d.shape = BlockShape::Boxes(boxes);
-            d.hidden = i > 0;
-            d.variant = Some(Variant {
-                kind,
-                family: base.to_owned(),
-                facing: dir,
-                open,
-                upper,
-            });
-            if let Some(b) = base_id {
-                d.drops = if upper && no_drop_upper {
-                    Drops::Nothing
-                } else {
-                    Drops::Block(b)
-                };
-            }
-            let id = reg.register(d);
-            base_id.get_or_insert(id);
-        }
-    };
-    let all_dirs = |boxes: &[ShapeBox], open: bool, upper: bool| {
-        Dir4::ALL
-            .into_iter()
-            .map(|d| (d, open, upper, facing(boxes, d)))
-            .collect::<Vec<_>>()
-    };
 
     // ---- Torches (milestone 13): kept as the first family so their ids
     // match `blocks::TORCH` and friends. ----
@@ -463,7 +583,7 @@ pub fn register_shaped_blocks(reg: &mut BlockRegistry) {
         )
         .mined(0.0, None, 0)
     };
-    family(
+    register_family(
         reg,
         VariantKind::Torch,
         "core:torch",
@@ -502,81 +622,29 @@ pub fn register_shaped_blocks(reg: &mut BlockRegistry) {
         ("stone", "Stone", "stone", ToolKind::Pickaxe, 1),
         ("bricks", "Brick", "bricks", ToolKind::Pickaxe, 1),
     ] {
-        let def = |name: &str| base_def(name, "", T::all(tex)).mined(2.0, Some(tool), tier);
-        family(
-            reg,
-            VariantKind::Stairs,
-            &format!("core:{mat}_stairs"),
-            &format!("{display} Stairs"),
-            &def,
-            all_dirs(&[[0, 0, 0, 16, 8, 16], [0, 8, 0, 16, 16, 8]], false, false),
-            false,
-        );
-        family(
-            reg,
-            VariantKind::Slab,
-            &format!("core:{mat}_slab"),
-            &format!("{display} Slab"),
-            &def,
-            vec![
-                (Dir4::North, false, false, vec![[0, 0, 0, 16, 8, 16]]),
-                (Dir4::North, false, true, vec![[0, 8, 0, 16, 16, 16]]),
-            ],
-            false,
-        );
+        register_stairs_and_slab(reg, mat, display, tex, tool, tier);
     }
 
     // ---- Fence: its rails depend on its neighbours. ----
-    reg.register(wood(BlockDef {
-        shape: BlockShape::Fence,
-        ..base_def("core:fence", "Fence", T::all("planks"))
-    }));
+    register_fence(reg, "core:fence", "Fence", "planks");
 
     // ---- Door (two blocks tall) and trapdoor. ----
-    let door = |name: &str| {
-        let upper = name.ends_with("_upper");
-        let side = if upper { "door_upper" } else { "door_lower" };
-        wood(base_def(
-            name,
-            "",
-            T::top_bottom_side("planks", "planks", side),
-        ))
-    };
-    let closed: [ShapeBox; 1] = [[0, 0, 0, 16, 16, 3]];
-    let opened: [ShapeBox; 1] = [[0, 0, 0, 3, 16, 16]];
-    let mut states = Vec::new();
-    for upper in [false, true] {
-        states.extend(all_dirs(&closed, false, upper));
-        states.extend(all_dirs(&opened, true, upper));
-    }
-    family(
+    register_door(
         reg,
-        VariantKind::Door,
         "core:door",
         "Door",
-        &door,
-        states,
-        true,
+        "planks",
+        "door_lower",
+        "door_upper",
     );
-    let trapdoor = |name: &str| wood(base_def(name, "", T::all("trapdoor")));
-    let mut states = all_dirs(&[[0, 0, 0, 16, 3, 16]], false, false);
-    states.extend(all_dirs(&[[0, 0, 0, 16, 16, 3]], true, false));
-    family(
-        reg,
-        VariantKind::Trapdoor,
-        "core:trapdoor",
-        "Trapdoor",
-        &trapdoor,
-        states,
-        false,
-    );
+    register_trapdoor(reg, "core:trapdoor", "Trapdoor", "trapdoor");
 
     // ---- Ladder (climbable; hangs on the wall behind it). ----
     let ladder = |name: &str| BlockDef {
         solid: false,
         ..base_def(name, "", T::all("ladder")).mined(0.6, Some(ToolKind::Axe), 0)
     };
-    family(
+    register_family(
         reg,
         VariantKind::Ladder,
         "core:ladder",
@@ -593,7 +661,7 @@ pub fn register_shaped_blocks(reg: &mut BlockRegistry) {
     };
     let mut states = all_dirs(&[[7, 0, 7, 9, 9, 9], [0, 9, 7, 16, 16, 9]], false, false);
     states.extend(all_dirs(&[[0, 4, 14, 16, 12, 16]], false, true));
-    family(
+    register_family(
         reg,
         VariantKind::Sign,
         "core:sign",
