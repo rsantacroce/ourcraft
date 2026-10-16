@@ -29,14 +29,12 @@ picks up from there.
 
 ## Missing
 
-- Armour, swords, more food (bread with farming)
-- Redstone-style circuits
+See milestones 17–24 for the full item list. Also still missing:
+
 - Villages and other generated structures
-- Other dimensions (an "underworld" and an "end" world)
-- Thunder
-- Farming (seeds, wheat, animals to feed)
 - Experience points and achievements
-- Maps and a compass
+- Thunder (left out on purpose, for now)
+- Swords (left out on purpose: bopping monsters is enough)
 
 ## Next milestones
 
@@ -230,12 +228,131 @@ The "not quite as planned" bits from milestones 11–16, filled in:
 Still left, on purpose: the server trusts players' crafting (as it trusts
 their inventories), and there's no thunder.
 
+### The big item list (milestones 17–24)
+
+Minecraft has well over a thousand items, most of them colour and wood
+variants of each other. The batches below cover the *kinds* of things it
+has, so Ourcraft ends up with a similar range, about 150–200 core items.
+Plain words (bread, bucket, boat) are fine; anything that's another game's
+own invention gets an original name and look (see the note at the end).
+Each batch should be playable on its own, with recipes, pictures and a
+manual page, like the earlier milestones.
+
+### 17. Farming ✅ done
+
+Hoes (four tiers) till dirt and grass into farmland, which stays wet
+within four blocks of water (dry, bare farmland turns back to dirt).
+Wheat, carrots, potatoes and beetroots grow in stages on farmland (faster
+when wet) and give their harvest when broken: young plants give back the
+seed, ripe ones more. Pumpkin and melon seeds grow stems that put a fruit
+next to them; melons break into slices. Sugar cane grows up to three tall
+by the water. Tall grass (sometimes seeds), wild crops, pumpkins, melons,
+sugar cane and mushrooms (forests and cave floors) appear in new terrain.
+Foods: bread, cookies, baked potato, pumpkin pie, beetroot soup and
+mushroom stew (in a bowl, which you keep), milk (a bucket on a cow), and
+cake, a block eaten a slice at a time. Sugar and paper from sugar cane, a
+pumpkin lantern that glows. Bone meal (from a composter filled with plant
+scraps) makes crops shoot up and grass sprout. Sheep and cows love wheat,
+pigs carrots, chickens seeds (apples still work). Crafting with a milk
+bucket gives the bucket back. The creative palette has tabs now
+(Building, Nature, Food, Tools, Items), with pages.
+
+Not quite as planned: plants grow by day and night alike, even in the
+dark (the server doesn't know light levels); no ferns yet, and no
+trampling of farmland.
+
+What was planned:
+
+- Hoe (wood, stone, iron, diamond): turns dirt and grass into farmland.
+  Farmland stays wet within 4 blocks of water; dry farmland grows slowly.
+- Tall grass and ferns on the ground; breaking them sometimes gives
+  wheat seeds.
+- Crops that grow in stages on farmland (faster when lit and wet), and
+  pop out their harvest when broken: wheat (seeds → wheat and more
+  seeds), carrots, potatoes, beetroots.
+- Pumpkins and melons: their seeds grow a stem that puts a fruit next to
+  it. Melon slices; a carved pumpkin lantern.
+- Sugar cane grows on sand or dirt next to water, up to three tall.
+- Food: bread, baked potato, pumpkin pie, cookies, cake (a block you eat
+  slice by slice), beetroot soup and mushroom stew (in a bowl).
+- Mushrooms (red and brown) in dark places.
+- Milk: a bucket on a cow. Sugar from sugar cane, paper too.
+- Each animal gets its own favourite food: sheep and cows wheat, pigs
+  carrots, chickens seeds (apples still work as a treat).
+- A composter that turns plant scraps into bone meal, which makes crops
+  grow at once.
+
+### 18. Colours
+
+- Flowers in the meadows (several kinds, original looks), and dyes from
+  them (16 colours), plus a few from other things (ink from coal, white
+  from bone meal).
+- Dyed wool in every colour (and dyeing a sheep so it grows coloured
+  wool), coloured beds, carpets, stained glass and glass panes, coloured
+  clay tiles (fired clay), coloured "candy bricks" (our own colourful
+  building block).
+
+### 19. Trees and stone
+
+- More trees with their own wood: birch, pine, jungle, cherry-blossom and
+  a dark wood, each with logs, planks, leaves, saplings, stairs, slabs,
+  fences, gates, doors and trapdoors. Saplings grow into trees; leaves drop
+  saplings.
+- Boats to row across lakes.
+- Stone kinds: smooth stone, stone bricks (mossy and cracked too), mossy
+  cobblestone, sandstone (and smooth, cut), granite, diorite and andesite
+  (and polished), deep slate further down, walls for the stone kinds,
+  ice, packed ice, snow layers, obsidian (from water on still lava).
+
+### 20. Tools and adventure
+
+- Fishing rod and fish (and cooked fish).
+- Bow and arrows for targets: a target block that rings when hit. (Kept
+  gentle: arrows don't hurt animals.)
+- Armour in leather, iron, gold and diamond: monsters' bonks hurt less.
+- Compass (points to your bed or spawn), clock, maps you fill in by
+  walking, a spyglass.
+- Rope (lead animals around), name tags, a saddle to ride pigs.
+- Flint and steel for a campfire; a campfire that cooks food.
+
+### 21. Decoration and storage
+
+- Flower pots, paintings (our own pictures), item frames, banners with
+  patterns, carpets, lanterns, candles, glass panes, iron bars, chains.
+- Bookshelves, books and a writable book, a lectern.
+- Barrels, and a bigger double chest.
+- Ladders and scaffolding for building tall things.
+
+### 22. Circuits and transport
+
+- A power source with an original name and look (a glowing "spark" ore
+  and dust), wires, switches (levers), buttons, pressure plates, powered
+  lamps, doors and trapdoors that open with power, repeaters, pistons
+  (normal and sticky), a dispenser, a note block.
+- Mine carts, rails, powered rails.
+
+### 23. More creatures
+
+- Animals: horses and donkeys (rideable), rabbits, foxes, cats and dogs
+  you can befriend, fish in the water, frogs, bees with hives and honey.
+- A few more gentle monsters at night, all original.
+
+### 24. Our own magic
+
+Minecraft's magic (enchanting tables, other dimensions, its special
+gems and metals, its creatures) is its own invention, so we don't copy
+it. Instead, our own version if kids want it: a "wish table" that gives
+tools a sparkle (faster, longer-lasting), potions brewed from plants
+(jump higher, glow, swim faster), and maybe a dreamy sky world reached
+through a cloud portal.
+
+**Naming rule for all of the above:** everyday things keep their everyday
+names (wheat, bucket, boat, compass). Inventions specific to another game
+get new names and art, never copied ones.
+
 ### Later ideas
 
 - Villages and other structures in world generation.
-- Simple circuits (switches, wires, lamps, doors).
-- Farming: seeds, wheat, bread.
-- Maps and a compass.
 - Achievements to guide new players ("Make a crafting table!").
 - More game modes as mods: a racing course, hide and seek, a building
   contest with voting.

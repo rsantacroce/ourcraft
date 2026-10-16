@@ -45,6 +45,45 @@ pub struct WorldGenerator {
     cave_a: FastNoiseLite,
     cave_b: FastNoiseLite,
     cheese: FastNoiseLite,
+    plants: Plants,
+}
+
+/// Plant blocks the generator puts in the world. Their numbers come after
+/// the older built-in blocks, so they're looked up once by name (built-in
+/// blocks always get the same numbers, before any mod's).
+struct Plants {
+    tall_grass: BlockId,
+    sugar_cane: BlockId,
+    mushrooms: [BlockId; 2],
+    pumpkin: BlockId,
+    melon: BlockId,
+    /// Ripe wild crops.
+    crops: [BlockId; 4],
+}
+
+impl Plants {
+    fn look_up() -> Self {
+        let reg = crate::block::BlockRegistry::with_builtin_blocks();
+        let id = |n: &str| reg.by_name(n).unwrap_or(BlockId::AIR);
+        let ripe = |family: &str| {
+            reg.by_name(family)
+                .and_then(|b| reg.advanced(b, u8::MAX))
+                .unwrap_or(BlockId::AIR)
+        };
+        Self {
+            tall_grass: id("core:tall_grass"),
+            sugar_cane: id("core:sugar_cane"),
+            mushrooms: [id("core:red_mushroom"), id("core:brown_mushroom")],
+            pumpkin: id("core:pumpkin"),
+            melon: id("core:melon"),
+            crops: [
+                ripe("core:wheat_crop"),
+                ripe("core:carrot_crop"),
+                ripe("core:potato_crop"),
+                ripe("core:beetroot_crop"),
+            ],
+        }
+    }
 }
 
 fn noise(
@@ -90,6 +129,7 @@ impl WorldGenerator {
             cave_a: noise(seed, 6, 0.018, 1, FBm),
             cave_b: noise(seed, 7, 0.018, 1, FBm),
             cheese: noise(seed, 8, 0.011, 2, FBm),
+            plants: Plants::look_up(),
         }
     }
 
@@ -219,6 +259,7 @@ impl WorldGenerator {
         }
 
         self.place_features(pos, &mut col);
+        self.place_plants(pos, &mut col);
 
         (0..WORLD_HEIGHT_CHUNKS as usize)
             .map(|cy| Chunk::from_blocks(&col[cy * CHUNK_VOLUME..(cy + 1) * CHUNK_VOLUME]))
@@ -330,6 +371,74 @@ impl WorldGenerator {
                 }
                 // The ground under a tree is dirt, not grass.
                 put(wx, height, wz, blocks::DIRT, true);
+            }
+        }
+    }
+}
+
+impl WorldGenerator {
+    /// Small plants, one block each (so they never cross into the next
+    /// column): tall grass, wild crops, pumpkins and melons, sugar cane by
+    /// the water, and mushrooms in forests and caves.
+    fn place_plants(&self, pos: ColumnPos, col: &mut [BlockId]) {
+        let s = CHUNK_SIZE;
+        let idx = |x: usize, y: i32, z: usize| x + z * s + y as usize * s * s;
+        let p = &self.plants;
+        for lz in 0..s {
+            for lx in 0..s {
+                let (wx, wz) = (
+                    pos.x * CHUNK_SIZE_I32 + lx as i32,
+                    pos.z * CHUNK_SIZE_I32 + lz as i32,
+                );
+                let r = splitmix64(
+                    self.seed ^ 0x706c_616e ^ splitmix64((wx as u64) << 32 ^ (wz as u32 as u64)),
+                );
+                let (height, biome) = self.surface(wx, wz);
+                if height + 3 >= WORLD_HEIGHT || height < 1 {
+                    continue;
+                }
+                let top = col[idx(lx, height, lz)];
+                let above = idx(lx, height + 1, lz);
+                let roll = r % 10_000;
+                if col[above].is_air() && top == blocks::GRASS {
+                    let plant = match biome {
+                        Biome::Plains if roll < 1_200 => Some(p.tall_grass),
+                        Biome::Plains if roll < 1_230 => {
+                            Some(p.crops[(r >> 20) as usize % p.crops.len()])
+                        }
+                        Biome::Plains | Biome::Forest if roll >= 9_990 => Some(p.pumpkin),
+                        Biome::Forest if roll < 600 => Some(p.tall_grass),
+                        Biome::Forest if roll < 640 => Some(p.mushrooms[(r >> 20) as usize % 2]),
+                        Biome::Forest if roll >= 9_984 => Some(p.melon),
+                        _ => None,
+                    };
+                    if let Some(b) = plant {
+                        col[above] = b;
+                    }
+                }
+                // Sugar cane on the shore, right next to the water.
+                let shore = height == SEA_LEVEL
+                    && matches!(top, b if b == blocks::GRASS || b == blocks::SAND || b == blocks::DIRT);
+                if shore && col[above].is_air() && roll.is_multiple_of(9) {
+                    let wet = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                        .iter()
+                        .any(|(dx, dz)| self.surface(wx + dx, wz + dz).0 < SEA_LEVEL);
+                    if wet {
+                        for dy in 1..=1 + (r >> 24) as i32 % 3 {
+                            col[idx(lx, height + dy, lz)] = p.sugar_cane;
+                        }
+                    }
+                }
+                // Mushrooms on the floors of caves.
+                for y in 2..height - 3 {
+                    let here = idx(lx, y, lz);
+                    if col[here].is_air()
+                        && col[idx(lx, y - 1, lz)] == blocks::STONE
+                        && splitmix64(r ^ y as u64).is_multiple_of(500)
+                    {
+                        col[here] = p.mushrooms[(y as usize) % 2];
+                    }
+                }
             }
         }
     }
@@ -481,6 +590,19 @@ mod tests {
         assert!(n(blocks::GOLD_ORE) > 0 && n(blocks::DIAMOND_ORE) > 0);
         // Ores are a small part of the stone.
         assert!(n(blocks::COAL_ORE) < 64 * 64 * 99 / 50);
+    }
+
+    #[test]
+    fn plants_grow_wild() {
+        let g = WorldGenerator::new(5);
+        let grass = g.plants.tall_grass;
+        assert_ne!(grass, BlockId::AIR);
+        let found = (0..6).any(|x| {
+            g.generate_column(ColumnPos::new(x, 0))
+                .iter()
+                .any(|c| c.palette().contains(&grass))
+        });
+        assert!(found, "no tall grass anywhere");
     }
 
     #[test]

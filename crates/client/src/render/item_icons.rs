@@ -4,13 +4,13 @@
 
 use crate::render::textures::TEXTURE_SIZE;
 
-type Rgba = [u8; 4];
+pub(super) type Rgba = [u8; 4];
 
 const STICK: Rgba = [150, 104, 58, 255];
 const STICK_DARK: Rgba = [96, 64, 34, 255];
 
 /// Turn pixel art into RGBA bytes.
-fn draw(rows: &[&str; 16], palette: &[(char, Rgba)]) -> Vec<u8> {
+pub(super) fn draw(rows: &[&str; 16], palette: &[(char, Rgba)]) -> Vec<u8> {
     let n = TEXTURE_SIZE as usize;
     let mut out = Vec::with_capacity(n * n * 4);
     for row in rows {
@@ -27,7 +27,7 @@ fn draw(rows: &[&str; 16], palette: &[(char, Rgba)]) -> Vec<u8> {
     out
 }
 
-fn darker(c: Rgba, by: u8) -> Rgba {
+pub(super) fn darker(c: Rgba, by: u8) -> Rgba {
     [
         c[0].saturating_sub(by),
         c[1].saturating_sub(by),
@@ -36,7 +36,7 @@ fn darker(c: Rgba, by: u8) -> Rgba {
     ]
 }
 
-fn lighter(c: Rgba, by: u8) -> Rgba {
+pub(super) fn lighter(c: Rgba, by: u8) -> Rgba {
     [
         c[0].saturating_add(by),
         c[1].saturating_add(by),
@@ -102,6 +102,25 @@ const SHOVEL: [&str; 16] = [
     "................",
 ];
 
+const HOE: [&str; 16] = [
+    "................",
+    "........hhhhh...",
+    ".......hHHHHHh..",
+    "......SHhhhHHh..",
+    ".....SsS....hh..",
+    "....SsS.........",
+    "...SsS..........",
+    "..SsS...........",
+    ".SsS............",
+    ".ss.............",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+    "................",
+];
+
 fn tool(shape: &[&str; 16], head: Rgba) -> Vec<u8> {
     draw(
         shape,
@@ -159,6 +178,7 @@ pub fn item_icon(name: &str) -> Option<Vec<u8>> {
             "pickaxe" => Some(&PICKAXE),
             "axe" => Some(&AXE),
             "shovel" => Some(&SHOVEL),
+            "hoe" => Some(&HOE),
             _ => None,
         };
         if let (Some(shape), Some(c)) = (shape, tier_color(tier)) {
@@ -511,9 +531,10 @@ pub fn item_icon(name: &str) -> Option<Vec<u8>> {
             ],
         ),
         "bucket" => bucket(None),
+        "milk_bucket" => bucket(Some(([236, 236, 236, 255], [255, 255, 255, 255]))),
         "water_bucket" => bucket(Some(([60, 110, 230, 255], [120, 170, 255, 255]))),
         "lava_bucket" => bucket(Some(([230, 100, 20, 255], [255, 200, 60, 255]))),
-        _ => return None,
+        _ => return super::farm_icons::icon(name),
     })
 }
 

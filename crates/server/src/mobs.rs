@@ -298,7 +298,7 @@ fn use_mobs(
                 change_look(&mut entities, &mut states, *id);
                 sound = Some("grab");
             }
-        } else if kind.food.as_deref() == Some(held_name) && held != ItemId::NONE {
+        } else if kind.likes(held_name) && held != ItemId::NONE {
             let fed = if state.baby_for > 0.0 {
                 // Food helps babies grow up faster.
                 state.baby_for = (state.baby_for - 60.0).max(0.01);
@@ -583,10 +583,9 @@ fn think(
             }
         }
         // Someone nearby holding my favourite food: follow them.
-        let food = kind.food.as_deref();
         let follow = holders
             .iter()
-            .filter(|(_, held)| Some(held.as_str()) == food)
+            .filter(|(_, held)| kind.likes(held))
             .map(|(at, _)| *at)
             .filter(|at| at.distance(me) < FOLLOW)
             .min_by(|a, b| a.distance(me).total_cmp(&b.distance(me)));

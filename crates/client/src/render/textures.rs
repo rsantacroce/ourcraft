@@ -9,11 +9,11 @@ pub const TEXTURE_SIZE: u32 = 16;
 const N: usize = TEXTURE_SIZE as usize;
 
 /// Red, green, blue, alpha (alpha 0 = fully see-through).
-type Rgba = [u8; 4];
+pub(super) type Rgba = [u8; 4];
 
 /// A cheap, deterministic pseudo-random number per pixel. The same inputs
 /// always give the same "random" pattern, so textures never change.
-fn hash(x: usize, y: usize, seed: u32) -> u32 {
+pub(super) fn hash(x: usize, y: usize, seed: u32) -> u32 {
     let mut h = (x as u32).wrapping_mul(0x8da6_b343)
         ^ (y as u32).wrapping_mul(0xd816_3841)
         ^ seed.wrapping_mul(0xcb1a_b31f);
@@ -23,7 +23,7 @@ fn hash(x: usize, y: usize, seed: u32) -> u32 {
 }
 
 /// True for roughly one pixel in `n`.
-fn one_in(x: usize, y: usize, seed: u32, n: u32) -> bool {
+pub(super) fn one_in(x: usize, y: usize, seed: u32, n: u32) -> bool {
     hash(x, y, seed).is_multiple_of(n)
 }
 
@@ -32,18 +32,18 @@ fn noise(x: usize, y: usize, seed: u32) -> f32 {
     (hash(x, y, seed) % 1001) as f32 / 500.0 - 1.0
 }
 
-fn rgb(r: u8, g: u8, b: u8) -> Rgba {
+pub(super) fn rgb(r: u8, g: u8, b: u8) -> Rgba {
     [r, g, b, 255]
 }
 
 /// Brighten (positive) or darken (negative) a colour by `amount` (0–255 scale).
-fn shift(c: Rgba, amount: f32) -> Rgba {
+pub(super) fn shift(c: Rgba, amount: f32) -> Rgba {
     let f = |v: u8| (v as f32 + amount).clamp(0.0, 255.0) as u8;
     [f(c[0]), f(c[1]), f(c[2]), c[3]]
 }
 
 /// A colour with per-pixel random brightness variation of up to `spread`.
-fn speckle(c: Rgba, x: usize, y: usize, seed: u32, spread: f32) -> Rgba {
+pub(super) fn speckle(c: Rgba, x: usize, y: usize, seed: u32, spread: f32) -> Rgba {
     shift(c, noise(x, y, seed) * spread)
 }
 
@@ -56,7 +56,7 @@ fn stone(x: usize, y: usize) -> Rgba {
     }
 }
 
-fn dirt(x: usize, y: usize) -> Rgba {
+pub(super) fn dirt(x: usize, y: usize) -> Rgba {
     let c = speckle(rgb(134, 96, 67), x, y, 3, 16.0);
     if one_in(x, y, 4, 9) {
         shift(c, 22.0)
@@ -141,7 +141,7 @@ fn leaves(x: usize, y: usize) -> Rgba {
     }
 }
 
-fn planks(x: usize, y: usize) -> Rgba {
+pub(super) fn planks(x: usize, y: usize) -> Rgba {
     let board = y / 4;
     // Each board has a slightly different tone and its own seam position.
     let tone = (hash(0, board, 14) % 3) as f32 * 8.0 - 8.0;
@@ -588,17 +588,21 @@ fn builtin(name: &str) -> Option<fn(usize, usize) -> Rgba> {
 
 /// True if `name` is one of the built-in textures.
 pub fn is_builtin(name: &str) -> bool {
-    builtin(name).is_some()
+    builtin(name).is_some() || super::farm_textures::pixel(name, 0, 0).is_some()
 }
 
 /// Generate the RGBA pixels (row by row, top row first) for a named texture.
 /// Unknown names get the magenta "missing" texture.
 pub fn generate_texture(name: &str) -> Vec<u8> {
-    let pixel = builtin(name).unwrap_or(missing);
+    let pixel = builtin(name);
     let mut out = Vec::with_capacity(N * N * 4);
     for y in 0..N {
         for x in 0..N {
-            out.extend_from_slice(&pixel(x, y));
+            let px = match pixel {
+                Some(f) => f(x, y),
+                None => super::farm_textures::pixel(name, x, y).unwrap_or_else(|| missing(x, y)),
+            };
+            out.extend_from_slice(&px);
         }
     }
     out

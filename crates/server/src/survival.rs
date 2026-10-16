@@ -293,11 +293,10 @@ fn drop_broken_blocks(
                 );
                 let broke_the_dropless_half =
                     registry.0.get(edit.old).drops == ourcraft_common::block::Drops::Nothing;
-                if survival_breaker
-                    && broke_the_dropless_half
-                    && let Some((item, n)) = open.items.drop_for(&registry.0, partner, None)
-                {
-                    spawn_item(&mut entities, center, ItemStack::new(item, n));
+                if survival_breaker && broke_the_dropless_half {
+                    for (item, n) in open.items.drops(&registry.0, partner, None, *luck) {
+                        spawn_item(&mut entities, center, ItemStack::new(item, n));
+                    }
                 }
             }
         }
@@ -321,14 +320,15 @@ fn drop_broken_blocks(
                     block: 0,
                 };
                 net.broadcast(Channel::Reliable, &msg);
-                if survival_breaker
-                    && let Some((item, n)) = open.items.drop_for(&registry.0, b, None)
-                {
-                    spawn_item(
-                        &mut entities,
-                        at.as_vec3() + Vec3::splat(0.5),
-                        ItemStack::new(item, n),
-                    );
+                if survival_breaker {
+                    *luck = luck.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                    for (item, n) in open.items.drops(&registry.0, b, None, *luck >> 4) {
+                        spawn_item(
+                            &mut entities,
+                            at.as_vec3() + Vec3::splat(0.5),
+                            ItemStack::new(item, n),
+                        );
+                    }
                 }
             }
         }
@@ -361,7 +361,8 @@ fn drop_broken_blocks(
                 spawn_item(&mut entities, center, ItemStack::new(item, 1));
             }
         }
-        if let Some((item, count)) = open.items.drop_for(&registry.0, edit.old, held) {
+        *luck = luck.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        for (item, count) in open.items.drops(&registry.0, edit.old, held, *luck >> 4) {
             let max = open.items.max_stack(item);
             let mut left = count;
             while left > 0 {

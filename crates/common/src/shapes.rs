@@ -237,6 +237,10 @@ impl BlockRegistry {
     /// The block something hangs on (torches, ladders, signs), as an
     /// offset: when that block goes, this one falls off.
     pub fn attached_to(&self, block: BlockId) -> Option<[i32; 3]> {
+        // Plants and cakes stand on the block below.
+        if self.sits_on_ground(block) {
+            return Some([0, -1, 0]);
+        }
         let v = self.variant(block)?;
         let back = || {
             let f = v.facing.vector();

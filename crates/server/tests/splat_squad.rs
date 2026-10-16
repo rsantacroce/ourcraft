@@ -193,8 +193,15 @@ fn splat_squad_full_flow() {
     // (A shot at your own feet can spawn and land in the same server tick,
     // and then only its removal is sent.)
     let splat_done = |b: &[&mut Bot]| {
-        b[0].has(|m| matches!(m, ServerMessage::Effect { kind: EffectKind::Splat, .. }))
-            && b[0].has(|m| matches!(m, ServerMessage::EntityRemoved(_)))
+        b[0].has(|m| {
+            matches!(
+                m,
+                ServerMessage::Effect {
+                    kind: EffectKind::Splat,
+                    ..
+                }
+            )
+        }) && b[0].has(|m| matches!(m, ServerMessage::EntityRemoved(_)))
     };
     let mut splatted = false;
     for _ in 0..12 {

@@ -173,7 +173,10 @@ fn doors_signs_chests_and_beds() {
     );
     pause(&mut lee);
     lee.received.clear();
-    lee.send(&ClientMessage::UseBlock { pos: at(2, 0, 0) });
+    lee.send(&ClientMessage::UseBlock {
+        pos: at(2, 0, 0),
+        held: 0,
+    });
     let open_lower = registry.toggled(door.block).unwrap()[0].1;
     assert!(
         run_until(&mut [&mut lee], 3.0, |b| {
@@ -257,7 +260,7 @@ fn doors_signs_chests_and_beds() {
     });
     pause(&mut lee);
     lee.received.clear();
-    lee.send(&ClientMessage::UseBlock { pos: foot });
+    lee.send(&ClientMessage::UseBlock { pos: foot, held: 0 });
     assert!(
         run_until(&mut [&mut lee], 3.0, |b| b[0].has(
             |m| matches!(m, ServerMessage::TimeOfDay(t) if (0.25..0.3).contains(t))

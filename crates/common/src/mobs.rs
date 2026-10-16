@@ -36,7 +36,7 @@ pub struct MobDef {
     /// The grass-like block it appears on (by name), if it appears on its own.
     pub spawns_on: Option<String>,
     /// The item it loves: hold it and it follows you; feed two and they
-    /// have a baby.
+    /// have a baby. (Every friendly animal likes an apple too.)
     pub food: Option<String>,
     /// Can be sheared for this item (by name).
     pub shears_into: Option<String>,
@@ -46,6 +46,13 @@ pub struct MobDef {
     pub sound: String,
     /// Monsters: they come out at night, chase players and bonk them.
     pub hostile: Option<Hostile>,
+}
+
+impl MobDef {
+    /// Does it eat this (its favourite food, or an apple as a treat)?
+    pub fn likes(&self, item: &str) -> bool {
+        self.food.as_deref() == Some(item) || (self.food.is_some() && item == "core:apple")
+    }
 }
 
 /// How a monster fights (gently: it's a game for kids).
@@ -115,6 +122,7 @@ pub fn builtin_mobs() -> Vec<MobDef> {
     let wool = [242, 242, 236, 255];
     let face = [196, 178, 160, 255];
     let mut sheep = base("core:sheep", "Sheep", [0.8, 1.1], 1.1, "baa");
+    sheep.food = Some("core:wheat".into());
     sheep.skin = [232, 206, 186, 255];
     sheep.shears_into = Some("core:wool".into());
     sheep.parts = vec![
@@ -133,6 +141,7 @@ pub fn builtin_mobs() -> Vec<MobDef> {
 
     let pink = [242, 168, 176, 255];
     let mut pig = base("core:pig", "Pig", [0.8, 0.9], 1.2, "oink");
+    pig.food = Some("core:carrot".into());
     pig.parts = vec![
         part([-0.32, 0.32, -0.5], [0.32, 0.82, 0.45], pink),
         part([-0.27, 0.4, 0.42], [0.27, 0.9, 0.82], pink),
@@ -150,6 +159,7 @@ pub fn builtin_mobs() -> Vec<MobDef> {
     let brown = [112, 80, 58, 255];
     let white = [238, 236, 230, 255];
     let mut cow = base("core:cow", "Cow", [0.9, 1.35], 0.9, "moo");
+    cow.food = Some("core:wheat".into());
     cow.parts = vec![
         part([-0.4, 0.6, -0.62], [0.4, 1.22, 0.55], brown),
         // White patches on both sides.
@@ -168,6 +178,7 @@ pub fn builtin_mobs() -> Vec<MobDef> {
     let orange = [244, 160, 40, 255];
     let mut chicken = base("core:chicken", "Chicken", [0.45, 0.9], 1.3, "cluck");
     chicken.lays = Some("core:egg".into());
+    chicken.food = Some("core:wheat_seeds".into());
     chicken.parts = vec![
         part([-0.18, 0.3, -0.25], [0.18, 0.62, 0.2], feathers),
         part([-0.12, 0.58, 0.1], [0.12, 0.88, 0.3], feathers),

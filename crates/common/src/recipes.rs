@@ -182,7 +182,80 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             &format!("core:{key}_shovel"),
             1,
         ));
+        r.push(shaped(
+            &["XX", " #", " #"],
+            &k,
+            &format!("core:{key}_hoe"),
+            1,
+        ));
     }
+    // ---- Milestone 17: farming and food ----
+    r.extend([
+        shaped(&["WWW"], &[('W', "core:wheat")], "core:bread", 1),
+        shaped(
+            &["WSW"],
+            &[('W', "core:wheat"), ('S', "core:sugar")],
+            "core:cookie",
+            8,
+        ),
+        shaped(
+            &["MMM", "SES", "WWW"],
+            &[
+                ('M', "core:milk_bucket"),
+                ('S', "core:sugar"),
+                ('E', "core:egg"),
+                ('W', "core:wheat"),
+            ],
+            "core:cake",
+            1,
+        ),
+        shapeless(
+            &["core:pumpkin", "core:sugar", "core:egg"],
+            "core:pumpkin_pie",
+            1,
+        ),
+        shapeless(&["core:pumpkin"], "core:pumpkin_seeds", 4),
+        shapeless(&["core:melon_slice"], "core:melon_seeds", 1),
+        shaped(
+            &["MMM", "MMM", "MMM"],
+            &[('M', "core:melon_slice")],
+            "core:melon",
+            1,
+        ),
+        shapeless(&["core:sugar_cane"], "core:sugar", 1),
+        shaped(&["CCC"], &[('C', "core:sugar_cane")], "core:paper", 3),
+        shaped(&["P P", " P "], &[('P', "core:planks")], "core:bowl", 4),
+        shapeless(
+            &[
+                "core:bowl",
+                "core:beetroot",
+                "core:beetroot",
+                "core:beetroot",
+                "core:beetroot",
+                "core:beetroot",
+                "core:beetroot",
+            ],
+            "core:beetroot_soup",
+            1,
+        ),
+        shapeless(
+            &["core:bowl", "core:red_mushroom", "core:brown_mushroom"],
+            "core:mushroom_stew",
+            1,
+        ),
+        shaped(
+            &["P", "T"],
+            &[('P', "core:pumpkin"), ('T', "core:torch")],
+            "core:pumpkin_lantern",
+            1,
+        ),
+        shaped(
+            &["P P", "P P", "PPP"],
+            &[('P', "core:planks")],
+            "core:composter",
+            1,
+        ),
+    ]);
     for mat in ["planks", "cobblestone", "stone", "bricks"] {
         let block = format!("core:{mat}");
         let k = [('X', block.as_str())];

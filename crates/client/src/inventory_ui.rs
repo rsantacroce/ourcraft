@@ -34,6 +34,7 @@ impl Plugin for InventoryUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<OpenScreen>()
             .init_resource::<Cursor>()
+            .init_resource::<PaletteTab>()
             .init_resource::<CraftGrid>()
             .init_resource::<ContainerView>()
             .add_systems(
@@ -360,7 +361,103 @@ enum SlotButton {
     Container(usize),
     /// An item in the creative palette.
     Palette(ItemId),
+    /// A tab of the creative palette.
+    Tab(PaletteKind),
+    /// The next (+1) or previous (-1) page of the palette tab.
+    Page(i8),
 }
+
+/// The creative palette's tabs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PaletteKind {
+    #[default]
+    Building,
+    Nature,
+    Food,
+    Tools,
+    Items,
+}
+
+impl PaletteKind {
+    const ALL: [PaletteKind; 5] = [
+        PaletteKind::Building,
+        PaletteKind::Nature,
+        PaletteKind::Food,
+        PaletteKind::Tools,
+        PaletteKind::Items,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            PaletteKind::Building => "Building",
+            PaletteKind::Nature => "Nature",
+            PaletteKind::Food => "Food",
+            PaletteKind::Tools => "Tools",
+            PaletteKind::Items => "Items",
+        }
+    }
+
+    /// Which tab an item goes on.
+    fn of(
+        def: &ourcraft_common::item::ItemDef,
+        blocks: &ourcraft_common::block::BlockRegistry,
+    ) -> Self {
+        const NATURE: [&str; 16] = [
+            "core:grass",
+            "core:dirt",
+            "core:sand",
+            "core:gravel",
+            "core:snow",
+            "core:cactus",
+            "core:leaves",
+            "core:log",
+            "core:clay",
+            "core:water",
+            "core:lava",
+            "core:coal_ore",
+            "core:iron_ore",
+            "core:gold_ore",
+            "core:diamond_ore",
+            "core:bedrock",
+        ];
+        const TOOLS: [&str; 4] = [
+            "core:shears",
+            "core:bucket",
+            "core:water_bucket",
+            "core:lava_bucket",
+        ];
+        let plant = def
+            .block()
+            .is_some_and(|b| blocks.sits_on_ground(b) || blocks.grows(b));
+        if def.food > 0 || def.heals > 0 || def.name == "core:cake" {
+            PaletteKind::Food
+        } else if def.tool().is_some() || TOOLS.contains(&def.name.as_str()) {
+            PaletteKind::Tools
+        } else if plant
+            || NATURE.contains(&def.name.as_str())
+            || matches!(
+                def.name.as_str(),
+                "core:pumpkin" | "core:melon" | "core:sugar_cane"
+            )
+        {
+            PaletteKind::Nature
+        } else if def.block().is_some() {
+            PaletteKind::Building
+        } else {
+            PaletteKind::Items
+        }
+    }
+}
+
+/// The palette tab being looked at, and its page.
+#[derive(Resource, Default, Debug)]
+pub struct PaletteTab {
+    pub kind: PaletteKind,
+    pub page: usize,
+}
+
+/// Palette slots per page (five rows of nine).
+const PALETTE_PAGE: usize = 45;
 
 #[derive(Component)]
 struct InventoryScreen;
@@ -457,6 +554,29 @@ fn spawn_stack_extras(
 }
 
 /// Spawn one slot's UI: a frame, the item picture, its count and wear.
+/// A tab (or page arrow) of the creative palette.
+fn tab_button(label: &str, on: bool, button: SlotButton) -> impl Bundle {
+    (
+        Button,
+        button,
+        Node {
+            padding: UiRect::axes(px(10), px(5)),
+            border_radius: BorderRadius::all(px(5)),
+            ..default()
+        },
+        BackgroundColor(if on {
+            Color::srgb(0.38, 0.5, 0.75)
+        } else {
+            Color::srgb(0.28, 0.3, 0.36)
+        }),
+        children![(
+            Text::new(label),
+            TextFont::from_font_size(15.0),
+            Pickable::IGNORE,
+        )],
+    )
+}
+
 fn spawn_slot(
     parent: &mut ChildSpawnerCommands,
     stack: Option<ItemStack>,
@@ -710,7 +830,10 @@ fn palette(items: &ItemRegistry, blocks: &ourcraft_common::block::BlockRegistry)
     use ourcraft_common::block::RenderKind;
     items
         .iter()
-        .filter(|(_, d)| match d.kind {
+        .filter(|(id, d)| match d.kind {
+            // Seeds and the like plant a hidden block, but are items of
+            // their own.
+            ItemKind::Block(b) if id.0 != b.0 => true,
             ItemKind::Block(b) => {
                 let def = blocks.get(b);
                 // Water and lava sources are fine; their flowing bits are hidden.
@@ -750,6 +873,7 @@ fn rebuild_screen(
     grid: Res<CraftGrid>,
     cursor: Res<Cursor>,
     furnace: Res<ContainerView>,
+    mut tab: ResMut<PaletteTab>,
     existing: Query<Entity, With<InventoryScreen>>,
 ) {
     let changed = focus.is_changed()
@@ -759,6 +883,7 @@ fn rebuild_screen(
         || grid.is_changed()
         || cursor.is_changed()
         || furnace.is_changed()
+        || tab.is_changed()
         || icons.is_changed();
     if !changed {
         return;
@@ -830,13 +955,52 @@ fn rebuild_screen(
 
                     // ---- Top part: crafting, furnace or palette ----
                     if palette_screen {
-                        panel.spawn(row()).with_children(|g| {
-                            for item in palette(&items, &blocks.0) {
-                                let stack = Some(ItemStack::new(item, 1));
-                                let b = Some(SlotButton::Palette(item));
-                                spawn_slot(g, stack, false, false, &icons, &items, b);
-                            }
-                        });
+                        let all: Vec<ItemId> = palette(&items, &blocks.0)
+                            .into_iter()
+                            .filter(|i| {
+                                items
+                                    .get(*i)
+                                    .is_some_and(|d| PaletteKind::of(d, &blocks.0) == tab.kind)
+                            })
+                            .collect();
+                        let pages = all.len().div_ceil(PALETTE_PAGE).max(1);
+                        let page = tab.page.min(pages - 1);
+                        // Past the last page: stay on the last one.
+                        tab.bypass_change_detection().page = page;
+                        // Tabs along the top, and arrows for more pages.
+                        panel
+                            .spawn(Node {
+                                column_gap: px(6),
+                                ..default()
+                            })
+                            .with_children(|tabs| {
+                                for kind in PaletteKind::ALL {
+                                    let on = kind == tab.kind;
+                                    tabs.spawn(tab_button(kind.label(), on, SlotButton::Tab(kind)));
+                                }
+                                if pages > 1 {
+                                    tabs.spawn(tab_button("<", false, SlotButton::Page(-1)));
+                                    tabs.spawn((
+                                        Text::new(format!("{}/{pages}", page + 1)),
+                                        TextFont::from_font_size(14.0),
+                                    ));
+                                    tabs.spawn(tab_button(">", false, SlotButton::Page(1)));
+                                }
+                            });
+                        panel
+                            .spawn(Node {
+                                min_height: px(5.0 * (SLOT + 4.0)),
+                                align_content: AlignContent::FlexStart,
+                                ..row()
+                            })
+                            .with_children(|g| {
+                                for item in all.iter().skip(page * PALETTE_PAGE).take(PALETTE_PAGE)
+                                {
+                                    let stack = Some(ItemStack::new(*item, 1));
+                                    let b = Some(SlotButton::Palette(*item));
+                                    spawn_slot(g, stack, false, false, &icons, &items, b);
+                                }
+                            });
                     } else if let OpenScreen::Container(_) = *screen {
                         match furnace.0.as_ref().map(|v| v.kind) {
                             Some(ContainerKind::Chest) => {
@@ -1056,6 +1220,7 @@ fn slot_clicks(
     mut inventory: ResMut<PlayerInventory>,
     mut cursor: ResMut<Cursor>,
     mut grid: ResMut<CraftGrid>,
+    mut tab: ResMut<PaletteTab>,
     conn: Option<ResMut<crate::net::Connection>>,
 ) {
     if !focus.inventory_open {
@@ -1075,6 +1240,12 @@ fn slot_clicks(
     };
     let creative = *mode == GameMode::Creative;
     match button {
+        SlotButton::Tab(kind) => {
+            *tab = PaletteTab { kind, page: 0 };
+        }
+        SlotButton::Page(step) => {
+            tab.page = tab.page.saturating_add_signed(step as isize);
+        }
         SlotButton::Palette(item) => {
             let selected = inventory.selected;
             let count = items.max_stack(item);
@@ -1117,8 +1288,15 @@ fn slot_clicks(
             for cell in grid.0[..size * size].iter_mut() {
                 if let Some(s) = cell {
                     s.count -= 1;
+                    // Milk buckets give their buckets back.
+                    let left = items
+                        .get(s.item)
+                        .and_then(|d| d.leaves.as_deref())
+                        .and_then(|n| items.by_name(n));
                     if s.count == 0 {
-                        *cell = None;
+                        *cell = left.map(|l| ItemStack::new(l, 1));
+                    } else if let Some(l) = left {
+                        inventory.add(&items, l, 1);
                     }
                 }
             }

@@ -15,6 +15,7 @@
 
 pub mod building;
 pub mod entities;
+pub mod farming;
 pub mod mobs;
 pub mod mods;
 pub mod needs;
@@ -146,6 +147,7 @@ impl Plugin for ServerPlugin {
             updates::UpdatesPlugin,
             needs::NeedsPlugin,
             weather::WeatherPlugin,
+            farming::FarmingPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

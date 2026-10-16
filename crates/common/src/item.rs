@@ -56,6 +56,9 @@ pub struct ItemDef {
     pub food: u8,
     /// Health it gives back when eaten. Out of 20.
     pub heals: u8,
+    /// What's left after eating it or crafting with it (a bowl, an empty
+    /// bucket).
+    pub leaves: Option<String>,
 }
 
 impl ItemDef {
@@ -70,6 +73,7 @@ impl ItemDef {
             smelts_into: None,
             food: 0,
             heals: 0,
+            leaves: None,
         }
     }
 
@@ -122,8 +126,8 @@ const BREAK_SPEEDUP: f32 = 0.7;
 
 /// Non-block items that come with the game. Icons are drawn by the client
 /// (by name, without the `core:` part).
-fn builtin_items() -> Vec<ItemDef> {
-    use ToolKind::{Axe, Pickaxe, Shovel};
+fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
+    use ToolKind::{Axe, Hoe, Pickaxe, Shovel};
     let mut items = vec![
         ItemDef {
             fuel: 2.5,
@@ -167,6 +171,80 @@ fn builtin_items() -> Vec<ItemDef> {
             max_stack: 1,
             ..ItemDef::material("core:lava_bucket", "Lava Bucket")
         },
+        // ---- Milestone 17: farming ----
+        ItemDef::material("core:wheat", "Wheat"),
+        plants(blocks, "core:wheat_seeds", "Wheat Seeds", "core:wheat_crop"),
+        ItemDef {
+            food: 3,
+            ..plants(blocks, "core:carrot", "Carrot", "core:carrot_crop")
+        },
+        ItemDef {
+            food: 1,
+            smelts_into: Some("core:baked_potato".into()),
+            ..plants(blocks, "core:potato", "Potato", "core:potato_crop")
+        },
+        ItemDef {
+            food: 5,
+            ..ItemDef::material("core:baked_potato", "Baked Potato")
+        },
+        ItemDef {
+            food: 1,
+            ..ItemDef::material("core:beetroot", "Beetroot")
+        },
+        plants(
+            blocks,
+            "core:beetroot_seeds",
+            "Beetroot Seeds",
+            "core:beetroot_crop",
+        ),
+        plants(
+            blocks,
+            "core:pumpkin_seeds",
+            "Pumpkin Seeds",
+            "core:pumpkin_stem",
+        ),
+        plants(blocks, "core:melon_seeds", "Melon Seeds", "core:melon_stem"),
+        ItemDef {
+            food: 2,
+            ..ItemDef::material("core:melon_slice", "Melon Slice")
+        },
+        ItemDef::material("core:sugar", "Sugar"),
+        ItemDef::material("core:paper", "Paper"),
+        ItemDef {
+            food: 5,
+            ..ItemDef::material("core:bread", "Bread")
+        },
+        ItemDef {
+            food: 8,
+            ..ItemDef::material("core:pumpkin_pie", "Pumpkin Pie")
+        },
+        ItemDef {
+            food: 2,
+            ..ItemDef::material("core:cookie", "Cookie")
+        },
+        ItemDef {
+            fuel: 2.5,
+            ..ItemDef::material("core:bowl", "Bowl")
+        },
+        ItemDef {
+            food: 6,
+            max_stack: 1,
+            leaves: Some("core:bowl".into()),
+            ..ItemDef::material("core:beetroot_soup", "Beetroot Soup")
+        },
+        ItemDef {
+            food: 6,
+            max_stack: 1,
+            leaves: Some("core:bowl".into()),
+            ..ItemDef::material("core:mushroom_stew", "Mushroom Stew")
+        },
+        ItemDef {
+            food: 2,
+            max_stack: 1,
+            leaves: Some("core:bucket".into()),
+            ..ItemDef::material("core:milk_bucket", "Milk Bucket")
+        },
+        ItemDef::material("core:bone_meal", "Bone Meal"),
         // ---- Milestone 15: food ----
         ItemDef {
             food: 6,
@@ -180,7 +258,12 @@ fn builtin_items() -> Vec<ItemDef> {
     ];
     for (tier, material) in [(1, "Wooden"), (2, "Stone"), (3, "Iron"), (4, "Diamond")] {
         let key = ["wood", "stone", "iron", "diamond"][tier as usize - 1];
-        for (kind, tool) in [(Pickaxe, "Pickaxe"), (Axe, "Axe"), (Shovel, "Shovel")] {
+        for (kind, tool) in [
+            (Pickaxe, "Pickaxe"),
+            (Axe, "Axe"),
+            (Shovel, "Shovel"),
+            (Hoe, "Hoe"),
+        ] {
             items.push(ItemDef::new_tool(
                 &format!("core:{key}_{}", tool.to_lowercase()),
                 &format!("{material} {tool}"),
@@ -190,6 +273,16 @@ fn builtin_items() -> Vec<ItemDef> {
         }
     }
     items
+}
+
+/// Something you plant: placing it puts `crop` in the world.
+fn plants(blocks: &BlockRegistry, name: &str, display: &str, crop: &str) -> ItemDef {
+    ItemDef {
+        kind: blocks
+            .by_name(crop)
+            .map_or(ItemKind::Material, ItemKind::Block),
+        ..ItemDef::material(name, display)
+    }
 }
 
 /// Furnace and fuel properties of blocks, by block name.
@@ -204,6 +297,7 @@ fn block_extras(name: &str) -> (f32, Option<&'static str>) {
         "core:iron_ore" => (0.0, Some("core:iron_ingot")),
         "core:gold_ore" => (0.0, Some("core:gold_ingot")),
         "core:clay" => (0.0, Some("core:bricks")),
+        "core:composter" => (15.0, None),
         _ => (0.0, None),
     }
 }
@@ -232,10 +326,14 @@ impl ItemRegistry {
                     smelts_into: smelts.map(Into::into),
                     food: 0,
                     heals: 0,
+                    leaves: None,
                 }
             })
             .collect();
-        for item in builtin_items().into_iter().chain(extra.iter().cloned()) {
+        for item in builtin_items(blocks)
+            .into_iter()
+            .chain(extra.iter().cloned())
+        {
             if !defs.iter().any(|d| d.name == item.name) {
                 defs.push(item);
             }
@@ -341,8 +439,35 @@ impl ItemRegistry {
             Drops::Itself => Some((ItemId::from_block(block), 1)),
             Drops::Block(b) => Some((ItemId::from_block(*b), 1)),
             Drops::Item(name, n) => self.by_name(name).map(|i| (i, *n)),
-            Drops::Nothing => None,
+            Drops::Harvest(_) | Drops::Nothing => None,
         }
+    }
+
+    /// Everything a broken block gives: its normal drop, or a harvest of
+    /// several items (each a random amount, picked with `luck`).
+    pub fn drops(
+        &self,
+        blocks: &BlockRegistry,
+        block: BlockId,
+        held: Option<ItemId>,
+        luck: u32,
+    ) -> Vec<(ItemId, u16)> {
+        if let Drops::Harvest(list) = &blocks.get(block).drops {
+            if !self.can_harvest(blocks, block, held) {
+                return Vec::new();
+            }
+            return list
+                .iter()
+                .enumerate()
+                .filter_map(|(i, (name, lo, hi))| {
+                    let spread = (hi.saturating_sub(*lo) + 1) as u32;
+                    let roll = luck.rotate_left(i as u32 * 7) % spread;
+                    let n = lo + roll as u16;
+                    Some((self.by_name(name)?, n)).filter(|(_, n)| *n > 0)
+                })
+                .collect();
+        }
+        self.drop_for(blocks, block, held).into_iter().collect()
     }
 
     /// What a furnace makes from this item.

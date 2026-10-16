@@ -154,6 +154,9 @@ pub enum Drops {
     Block(BlockId),
     /// Some of an item, by name (coal ore drops `core:coal`).
     Item(String, u16),
+    /// Several items, each a random amount from `min` to `max` (a ripe
+    /// crop gives wheat and seeds): `(name, min, max)`.
+    Harvest(Vec<(String, u16, u16)>),
     Nothing,
 }
 
@@ -200,6 +203,8 @@ pub enum ToolKind {
     Pickaxe,
     Axe,
     Shovel,
+    /// Turns dirt into farmland (and cuts plants quickly).
+    Hoe,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -240,6 +245,9 @@ pub struct BlockDef {
     pub fluid: Option<crate::fluids::Fluid>,
     /// Falls when there's nothing under it (sand, gravel).
     pub falls: bool,
+    /// Plants that grow, cakes being eaten, composters filling up. See
+    /// `farming`.
+    pub stage: Option<crate::farming::Stage>,
 }
 
 impl BlockDef {
@@ -264,6 +272,7 @@ impl BlockDef {
             variant: None,
             fluid: None,
             falls: false,
+            stage: None,
         }
     }
 
@@ -315,6 +324,7 @@ impl BlockRegistry {
                 variant: None,
                 fluid: None,
                 falls: false,
+                stage: None,
             }],
         }
     }
@@ -483,6 +493,8 @@ impl BlockRegistry {
         }
         // ---- Later additions go last, so earlier block numbers stay put ----
         crate::shapes::register_fence_gates(&mut reg);
+        // ---- Milestone 17: farming ----
+        crate::farming::register_farming(&mut reg);
         reg
     }
 
@@ -534,6 +546,7 @@ impl BlockRegistry {
             variant: None,
             fluid: None,
             falls: false,
+            stage: None,
         }))
     }
 

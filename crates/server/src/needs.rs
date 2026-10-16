@@ -157,6 +157,18 @@ fn eat(
                 wear: 0,
             }),
         );
+        // Soup leaves its bowl, milk its bucket.
+        if let Some(left) = def.leaves.as_deref().and_then(|n| open.items.by_name(n)) {
+            net.send(
+                *client,
+                Channel::Reliable,
+                &ServerMessage::GiveItems(NetStack {
+                    item: left.0,
+                    count: 1,
+                    wear: 0,
+                }),
+            );
+        }
         net.send(
             *client,
             Channel::Reliable,

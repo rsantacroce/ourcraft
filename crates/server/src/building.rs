@@ -35,7 +35,7 @@ pub fn is_night(time_of_day: f32) -> bool {
 }
 
 /// Change a block and tell everyone.
-fn change(
+pub(crate) fn change(
     world: &mut ServerWorld,
     cache: &mut ColumnCache,
     open: &OpenWorld,
@@ -83,7 +83,7 @@ fn use_blocks(
                 }
                 continue;
             }
-            ClientMessage::UseBlock { pos } => (IVec3::from_array(*pos), None),
+            ClientMessage::UseBlock { pos, .. } => (IVec3::from_array(*pos), None),
             ClientMessage::SetSign { pos, lines } => (IVec3::from_array(*pos), Some(lines)),
             _ => continue,
         };

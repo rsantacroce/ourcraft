@@ -225,11 +225,29 @@ fn use_blocks(
         if shears && shearable && !mob.sheared && !mob.baby && survival {
             inventory.wear_selected(&items);
         }
+        // A bucket on a cow: milk.
+        let bucket = held.is_some_and(|h| items.name(h) == "core:bucket");
+        if bucket
+            && mob.kind == "core:cow"
+            && !mob.baby
+            && let Some(milk) = items.by_name("core:milk_bucket")
+        {
+            inventory.exchange_selected(&items, milk);
+        }
         return;
     }
     let Some(hit) = target.0 else { return };
     let Some(mut conn) = conn else { return };
     let pos = hit.block.to_array();
+    // Cakes, composters, and bone meal on plants: the server does it.
+    let held = inventory.held().unwrap_or(ItemId::NONE);
+    if used_in_place(&registry.0, hit.id, items.name(held)) {
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseBlock { pos, held: held.0 },
+        );
+        return;
+    }
     use ourcraft_common::shapes::VariantKind;
     let opened = match (usable(&registry.0, hit.id), registry.0.variant_kind(hit.id)) {
         (false, _) => return,
@@ -242,7 +260,10 @@ fn use_blocks(
                 | VariantKind::Bed,
             ),
         ) => {
-            conn.send(Channel::Reliable, &ClientMessage::UseBlock { pos });
+            conn.send(
+                Channel::Reliable,
+                &ClientMessage::UseBlock { pos, held: held.0 },
+            );
             return;
         }
         (_, Some(VariantKind::Sign | VariantKind::WallSign)) => OpenScreen::Sign(hit.block),
@@ -258,11 +279,31 @@ fn use_blocks(
     focus.inventory_open = true;
 }
 
+/// Using a block that changes right where it is: eating cake, filling a
+/// composter, giving a plant (or grass) bone meal.
+pub fn used_in_place(
+    registry: &ourcraft_common::block::BlockRegistry,
+    id: BlockId,
+    held: &str,
+) -> bool {
+    use ourcraft_common::farming::StageKind;
+    let stepped = registry
+        .stage(id)
+        .is_some_and(|s| matches!(s.kind, StageKind::Cake | StageKind::Composter));
+    let feeds = held == "core:bone_meal" && (registry.grows(id) || id == blocks::GRASS);
+    stepped || feeds
+}
+
 /// Blocks that do something when you use them (instead of having a block
 /// placed against them).
 pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> bool {
+    use ourcraft_common::farming::StageKind;
     use ourcraft_common::shapes::VariantKind as K;
-    id == blocks::CRAFTING_TABLE
+    let stepped = registry
+        .stage(id)
+        .is_some_and(|s| matches!(s.kind, StageKind::Cake | StageKind::Composter));
+    stepped
+        || id == blocks::CRAFTING_TABLE
         || id == blocks::FURNACE
         || registry.get(id).name == "core:chest"
         || matches!(
@@ -321,14 +362,33 @@ fn break_and_place(
             &mut inventory,
             survival,
         );
+        let bucket = bucket.or_else(|| {
+            // A hoe turns dirt and grass into farmland.
+            let name = held.map(|h| items.name(h)).unwrap_or("");
+            let hit = target.0?;
+            let soil = hit.id == blocks::DIRT || hit.id == blocks::GRASS;
+            let above = world.block(hit.block.x, hit.block.y + 1, hit.block.z);
+            if !name.ends_with("_hoe") || !soil || !above.is_air() {
+                return None;
+            }
+            if survival {
+                inventory.wear_selected(&items);
+            }
+            Some((hit.block, blocks.0.by_name("core:farmland")?))
+        });
         if let Some(edit) = bucket {
             edits.write(BlockEditRequest {
                 pos: edit.0,
                 block: edit.1,
                 held: held.unwrap_or(ItemId::NONE),
             });
+            let sound = if blocks.0.is_farmland(edit.1) {
+                "step_grass"
+            } else {
+                "splat"
+            };
             sounds.write(crate::audio::PlaySound {
-                name: "splat".into(),
+                name: sound.into(),
                 at: Some(edit.0.as_vec3() + Vec3::splat(0.5)),
             });
             *cooldown = REPEAT_DELAY;
@@ -396,12 +456,17 @@ fn break_and_place(
         if let Some((offset, extra)) = placed.extra {
             parts.push((pos + IVec3::from_array(offset), extra));
         }
-        // Only into empty space (air or water), and never inside the player.
+        // Only into empty space (air, water or tall grass), never inside
+        // the player, and plants only where they can grow.
         let me = Aabb::player(player.state.position);
         let fits = parts.iter().all(|(p, b)| {
             let existing = world.block(p.x, p.y, p.z);
-            let replaceable = existing.is_air() || blocks.0.is_liquid(existing);
-            replaceable && !(blocks.0.is_solid(*b) && me.intersects(&Aabb::block(*p)))
+            let replaceable =
+                existing.is_air() || blocks.0.is_liquid(existing) || blocks.0.is_soft(existing);
+            let grows_here = blocks
+                .0
+                .fits(*b, |o| world.block(p.x + o[0], p.y + o[1], p.z + o[2]));
+            replaceable && grows_here && !(blocks.0.is_solid(*b) && me.intersects(&Aabb::block(*p)))
         });
         if fits {
             if survival {

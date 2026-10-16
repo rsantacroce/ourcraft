@@ -25,7 +25,7 @@ use crate::world::{
 };
 
 /// How far players can reach, plus some slack for lag.
-const MAX_REACH: f32 = 6.0 + 2.0;
+pub const MAX_REACH: f32 = 6.0 + 2.0;
 /// Columns sent per player per tick, at most.
 const COLUMNS_PER_TICK: usize = 6;
 /// Movement updates sent per second.
@@ -480,8 +480,8 @@ fn handle_messages(
                     continue;
                 }
                 let others: Vec<Vec3> = query.iter().map(|o| o.feet()).collect();
-                let bucket = open.items.name(ItemId(*held)) == "core:bucket";
-                let ok = edit_allowed(&world, &registry.0, p, &others, pos, block, bucket);
+                let held_name = open.items.name(ItemId(*held));
+                let ok = edit_allowed(&world, &registry.0, p, &others, pos, block, held_name);
                 let current = world.get_block(pos.x, pos.y, pos.z);
                 match (ok, current) {
                     // Allowed so far: mods get a say before it happens.
@@ -683,8 +683,9 @@ fn edit_allowed(
     players: &[Vec3],
     pos: IVec3,
     block: BlockId,
-    bucket: bool,
+    held: &str,
 ) -> bool {
+    let bucket = held == "core:bucket";
     if block.0 as usize >= registry.len() || !player.rules.can_build {
         return false;
     }
@@ -698,13 +699,28 @@ fn edit_allowed(
     if eye.distance(pos.as_vec3() + Vec3::splat(0.5)) > MAX_REACH {
         return false;
     }
+    let near = |o: [i32; 3]| {
+        world
+            .get_block(pos.x + o[0], pos.y + o[1], pos.z + o[2])
+            .unwrap_or_default()
+    };
     if block.is_air() {
         // Breaking (or scooping up water or lava with a bucket).
         !existing.is_air()
             && (registry.is_breakable(existing) || (bucket && registry.is_fluid_source(existing)))
+    } else if registry.is_farmland(block) {
+        // A hoe turns dirt and grass into farmland (with air above).
+        let soil = existing == ourcraft_common::block::blocks::DIRT
+            || existing == ourcraft_common::block::blocks::GRASS;
+        held.ends_with("_hoe") && soil && near([0, 1, 0]).is_air()
     } else {
-        // Placing: only into empty space, and never inside anyone.
-        let replaceable = existing.is_air() || registry.is_liquid(existing);
+        // Placing: only into empty space (tall grass counts), never inside
+        // anyone, and plants only where they can grow.
+        let replaceable =
+            existing.is_air() || registry.is_liquid(existing) || registry.is_soft(existing);
+        if !registry.fits(block, near) {
+            return false;
+        }
         let blocks_someone = registry.is_solid(block)
             && players
                 .iter()
