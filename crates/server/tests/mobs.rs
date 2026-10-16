@@ -243,6 +243,53 @@ fn animals_appear_walk_and_react() {
         "shearing didn't work"
     );
 
+    // ---- The sheep we looked after are saved, and come back.
+    run_until(&mut [&mut ana], 1.0, |_| false);
+    stop.0.store(true, Ordering::Relaxed);
+    let _ = server.join();
+    let storage = ourcraft_common::save::WorldStorage::open(&dir).unwrap();
+    let saved = storage.load_animals().unwrap();
+    assert!(
+        saved.iter().filter(|a| a.kind == "core:sheep").count() >= 4,
+        "kept sheep weren't saved: {saved:?}"
+    );
+    assert!(saved.iter().any(|a| a.sheared_for > 0.0));
+
+    let port = UdpSocket::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let config = ServerConfig {
+        world_dir: dir.clone(),
+        bind: Some(addr),
+        max_view_distance: 4,
+        ..Default::default()
+    };
+    let stop = StopFlag::default();
+    let server_stop = stop.clone();
+    let server = std::thread::spawn(move || {
+        build_app(config, None, server_stop, SaveNowFlag::default(), false).run();
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let mut ana = Bot::connect(addr, 22);
+    assert!(run_until(&mut [&mut ana], 5.0, |b| b[0]
+        .client
+        .is_connected()));
+    ana.send(&ClientMessage::Hello {
+        name: "Ana".into(),
+        view_distance: 4,
+        protocol_version: PROTOCOL_VERSION,
+    });
+    assert!(
+        run_until(&mut [&mut ana], 10.0, |b| b[0].has(|m| matches!(
+            m,
+            ServerMessage::EntitySpawned { model, .. } if model == "@mob:core:sheep:sheared"
+        ))),
+        "the sheared sheep didn't come back"
+    );
+
     stop.0.store(true, Ordering::Relaxed);
     let _ = server.join();
     let _ = std::fs::remove_dir_all(&dir);

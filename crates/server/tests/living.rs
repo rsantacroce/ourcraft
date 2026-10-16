@@ -188,6 +188,31 @@ fn flowing_falling_eating_and_monsters() {
         "the water didn't flow"
     );
 
+    // ---- The source can't be broken by hand, but a bucket scoops it up.
+    let water = registry.by_name("core:water").unwrap().0;
+    max.received.clear();
+    set(&mut max, at(3, 2, 0), 0);
+    assert!(
+        run_until(&mut [&mut max], 2.0, |b| b[0].has(|m| matches!(
+            m,
+            ServerMessage::BlockChanged { pos, block } if *pos == at(3, 2, 0) && *block == water
+        ))),
+        "broke water by hand"
+    );
+    max.received.clear();
+    max.send(&ClientMessage::SetBlock {
+        pos: at(3, 2, 0),
+        block: 0,
+        held: item("core:bucket"),
+    });
+    assert!(
+        run_until(&mut [&mut max], 2.0, |b| b[0].has(|m| matches!(
+            m,
+            ServerMessage::BlockChanged { pos, block } if *pos == at(3, 2, 0) && *block == 0
+        ))),
+        "the bucket didn't scoop up the water"
+    );
+
     // ---- Sand placed in the air falls.
     set(&mut max, at(-3, 0, -3), 0);
     set(&mut max, at(-3, 1, -3), 0);
@@ -233,16 +258,16 @@ fn flowing_falling_eating_and_monsters() {
     assert!(!max.has(|m| matches!(m, ServerMessage::TakeItems(_))));
 
     // ---- The weather is announced, and /weather changes it.
-    assert!(run_until(&mut [&mut max], 8.0, |b| b[0].has(
-        |m| matches!(m, ServerMessage::Weather { raining: false })
-    )));
+    assert!(run_until(&mut [&mut max], 8.0, |b| b[0].has(|m| matches!(
+        m,
+        ServerMessage::Weather { raining: false }
+    ))));
     max.send(&ClientMessage::Chat {
         text: "/weather rain".into(),
     });
     assert!(
-        run_until(&mut [&mut max], 3.0, |b| b[0].has(
-            |m| matches!(m, ServerMessage::Weather { raining: true })
-        )),
+        run_until(&mut [&mut max], 3.0, |b| b[0]
+            .has(|m| matches!(m, ServerMessage::Weather { raining: true }))),
         "no rain"
     );
 

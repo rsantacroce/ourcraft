@@ -29,6 +29,29 @@ pub fn raycast(
     dir: Vec3,
     max_distance: f32,
 ) -> Option<RayHit> {
+    cast(world, reg, origin, dir, max_distance, false)
+}
+
+/// Like [`raycast`], but also stops at still water and lava (the sources
+/// a bucket can scoop up).
+pub fn raycast_sources(
+    world: &impl BlockSource,
+    reg: &BlockRegistry,
+    origin: Vec3,
+    dir: Vec3,
+    max_distance: f32,
+) -> Option<RayHit> {
+    cast(world, reg, origin, dir, max_distance, true)
+}
+
+fn cast(
+    world: &impl BlockSource,
+    reg: &BlockRegistry,
+    origin: Vec3,
+    dir: Vec3,
+    max_distance: f32,
+    sources: bool,
+) -> Option<RayHit> {
     let dir = dir.try_normalize()?;
     let mut block = origin.floor().as_ivec3();
     let step = IVec3::new(
@@ -62,6 +85,9 @@ pub fn raycast(
 
     while t <= max_distance {
         if let Some(id) = world.get_block(block.x, block.y, block.z) {
+            if sources && reg.is_fluid_source(id) {
+                return Some(RayHit { block, id, normal });
+            }
             let targetable = reg.render_kind(id) != RenderKind::Invisible && !reg.is_liquid(id);
             if targetable {
                 if reg.shape(id).is_cube() {

@@ -70,6 +70,19 @@ fn use_blocks(
             continue;
         };
         let (pos, sign_lines) = match msg {
+            ClientMessage::LeaveBed => {
+                if let Ok(mut p) = players.get_mut(entity)
+                    && p.sleeping
+                {
+                    p.sleeping = false;
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Sleeping { bed: None },
+                    );
+                }
+                continue;
+            }
             ClientMessage::UseBlock { pos } => (IVec3::from_array(*pos), None),
             ClientMessage::SetSign { pos, lines } => (IVec3::from_array(*pos), Some(lines)),
             _ => continue,
@@ -105,8 +118,8 @@ fn use_blocks(
         }
 
         match kind {
-            // Doors and trapdoors open and close.
-            Some(VariantKind::Door | VariantKind::Trapdoor) => {
+            // Doors, trapdoors and fence gates open and close.
+            Some(VariantKind::Door | VariantKind::Trapdoor | VariantKind::FenceGate) => {
                 let Some(changes) = registry.0.toggled(block) else {
                     continue;
                 };
@@ -133,6 +146,13 @@ fn use_blocks(
                 open.beds.insert(name, pos);
                 let text = if is_night(open.time_of_day()) {
                     p.sleeping = true;
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Sleeping {
+                            bed: Some(pos.to_array()),
+                        },
+                    );
                     "Good night... Zzz (the night ends when everyone is in bed)"
                 } else {
                     "You'll wake up here. You can only sleep at night."
@@ -177,7 +197,14 @@ fn wake_up(
     }
     if all || !night {
         for mut p in &mut players {
-            p.sleeping = false;
+            if p.sleeping {
+                p.sleeping = false;
+                net.send(
+                    p.client,
+                    Channel::Reliable,
+                    &ServerMessage::Sleeping { bed: None },
+                );
+            }
         }
     }
 }

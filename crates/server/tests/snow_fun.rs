@@ -162,6 +162,19 @@ fn snow_fun_commands_and_snowballs() {
         )),
         "the mod's recipe reached the client"
     );
+    // The snow cone: an item (not a block) with its own picture, and food.
+    let cone = content
+        .items
+        .iter()
+        .find(|i| i.name == "snow_fun:snow_cone")
+        .expect("the mod's item reached the client");
+    assert_eq!((cone.food, cone.block()), (3, None));
+    assert!(
+        content
+            .textures
+            .iter()
+            .any(|(n, _)| n == "snow_fun:snow_cone")
+    );
 
     // Step 3: /snowman builds bricks and a lantern head, and stays out of chat.
     sam.send(&ClientMessage::Chat {

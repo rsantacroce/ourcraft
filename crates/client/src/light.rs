@@ -55,6 +55,64 @@ pub fn column_heights(chunks: &[Chunk]) -> Box<Heights> {
     h
 }
 
+/// About how much sky and block light there is at a spot, for things
+/// that aren't part of the terrain (animals, dropped items). Cheaper than
+/// the flood fill: sky light comes in sideways from the nearest open sky,
+/// and block light from the brightest glowing block nearby, one level
+/// less per block in between (walls aren't counted).
+pub fn light_near(
+    world: &VoxelWorld,
+    streaming: &crate::world::ChunkStreaming,
+    registry: &BlockRegistry,
+    at: bevy::math::Vec3,
+) -> (u8, u8) {
+    let p = at.floor().as_ivec3();
+    let mut sky = 0u8;
+    const SKY_REACH: i32 = 6;
+    for dz in -SKY_REACH..=SKY_REACH {
+        for dx in -SKY_REACH..=SKY_REACH {
+            let d = (dx.abs() + dz.abs()) as u8;
+            if d as i32 > SKY_REACH || MAX_LIGHT.saturating_sub(d) <= sky {
+                continue;
+            }
+            let open = streaming
+                .top(p.x + dx, p.z + dz)
+                .is_none_or(|top| (top as i32) < p.y);
+            if open {
+                sky = MAX_LIGHT - d;
+            }
+        }
+    }
+    // Glowing blocks in the chunks around (most chunks have none).
+    let mut block = 0u8;
+    let here = ChunkPos::from_block(p.x, p.y, p.z);
+    for cy in -1..=1 {
+        for cz in -1..=1 {
+            for cx in -1..=1 {
+                let pos = ChunkPos::new(here.x + cx, here.y + cy, here.z + cz);
+                let Some(chunk) = world.chunk(pos) else {
+                    continue;
+                };
+                if !chunk.palette().iter().any(|b| registry.get(*b).light > 0) {
+                    continue;
+                }
+                let origin = bevy::math::IVec3::new(pos.x, pos.y, pos.z) * CHUNK_SIZE_I32;
+                for ((x, y, z), b) in chunk.iter() {
+                    let emit = registry.get(b).light;
+                    if emit <= block {
+                        continue;
+                    }
+                    let q = origin + bevy::math::IVec3::new(x as i32, y as i32, z as i32);
+                    let d = (q - p).abs();
+                    let d = (d.x + d.y + d.z).min(255) as u8;
+                    block = block.max(emit.saturating_sub(d));
+                }
+            }
+        }
+    }
+    (sky, block)
+}
+
 /// Find the new top of a column after the block at `y` changed.
 pub fn height_after_edit(
     world: &VoxelWorld,

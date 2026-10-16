@@ -128,6 +128,7 @@ impl ConnectedPlayer {
             inventory: Vec::new(),
             selected: 0,
             creative: self.creative,
+            vitals: Some(self.needs.saved()),
         };
         save.store_inventory(&self.inventory, items);
         save
@@ -303,6 +304,9 @@ fn handle_messages(
                         p.state.flying = s.flying;
                         p.inventory = s.inventory(&open.items);
                         p.creative = s.creative;
+                        if let Some(v) = s.vitals {
+                            p.needs = crate::needs::Needs::restore(v);
+                        }
                     }
                     None => {
                         p.creative = open.meta.creative;
@@ -466,7 +470,8 @@ fn handle_messages(
             | ClientMessage::UseBlock { .. }
             | ClientMessage::SetSign { .. }
             | ClientMessage::Eat { .. }
-            | ClientMessage::HitEntity { .. } => {}
+            | ClientMessage::HitEntity { .. }
+            | ClientMessage::LeaveBed => {}
             ClientMessage::SetBlock { pos, block, held } => {
                 let pos = IVec3::from_array(*pos);
                 let block = BlockId(*block);
@@ -475,7 +480,8 @@ fn handle_messages(
                     continue;
                 }
                 let others: Vec<Vec3> = query.iter().map(|o| o.feet()).collect();
-                let ok = edit_allowed(&world, &registry.0, p, &others, pos, block);
+                let bucket = open.items.name(ItemId(*held)) == "core:bucket";
+                let ok = edit_allowed(&world, &registry.0, p, &others, pos, block, bucket);
                 let current = world.get_block(pos.x, pos.y, pos.z);
                 match (ok, current) {
                     // Allowed so far: mods get a say before it happens.
@@ -677,6 +683,7 @@ fn edit_allowed(
     players: &[Vec3],
     pos: IVec3,
     block: BlockId,
+    bucket: bool,
 ) -> bool {
     if block.0 as usize >= registry.len() || !player.rules.can_build {
         return false;
@@ -692,8 +699,9 @@ fn edit_allowed(
         return false;
     }
     if block.is_air() {
-        // Breaking.
-        !existing.is_air() && registry.is_breakable(existing)
+        // Breaking (or scooping up water or lava with a bucket).
+        !existing.is_air()
+            && (registry.is_breakable(existing) || (bucket && registry.is_fluid_source(existing)))
     } else {
         // Placing: only into empty space, and never inside anyone.
         let replaceable = existing.is_air() || registry.is_liquid(existing);

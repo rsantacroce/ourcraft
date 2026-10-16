@@ -151,6 +151,12 @@ pub fn register_recipe(spec: RecipeSpec) {
     host(&HostCall::RegisterRecipe(spec));
 }
 
+/// Add an item that isn't a block (during `Init`). Register its texture
+/// first.
+pub fn register_item(spec: ItemSpec) {
+    host(&HostCall::RegisterItem(spec));
+}
+
 /// Add a kind of animal (during `Init`). Register its model first.
 pub fn register_mob(spec: MobSpec) {
     host(&HostCall::RegisterMob(spec));

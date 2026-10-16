@@ -187,17 +187,27 @@ fn splat_squad_full_flow() {
     alex.received.clear();
     // Wait out the badge cooldown.
     run_until(&mut [&mut alex, &mut sam], 0.6, |_| false);
-    alex.send(&ClientMessage::UseTool {
-        tool: "splat:blaster".into(),
-        direction: [0.0, -1.0, 0.0],
-        secondary: false,
-    });
+    // Keep pulling the trigger now and then: on a busy machine the server
+    // may still count the badge cooldown when the first shot arrives.
     // (Generous time: these tests share the machine with the others.)
-    let splatted = run_until(&mut [&mut alex, &mut sam], 10.0, |b| {
-        b[0].has(|m| matches!(m, ServerMessage::EntitySpawned { model, .. } if model == "splat:pellet_red"))
-            && b[0].has(|m| matches!(m, ServerMessage::Effect { kind: EffectKind::Splat, .. }))
+    // (A shot at your own feet can spawn and land in the same server tick,
+    // and then only its removal is sent.)
+    let splat_done = |b: &[&mut Bot]| {
+        b[0].has(|m| matches!(m, ServerMessage::Effect { kind: EffectKind::Splat, .. }))
             && b[0].has(|m| matches!(m, ServerMessage::EntityRemoved(_)))
-    });
+    };
+    let mut splatted = false;
+    for _ in 0..12 {
+        alex.send(&ClientMessage::UseTool {
+            tool: "splat:blaster".into(),
+            direction: [0.0, -1.0, 0.0],
+            secondary: false,
+        });
+        if run_until(&mut [&mut alex, &mut sam], 1.0, splat_done) {
+            splatted = true;
+            break;
+        }
+    }
     assert!(
         splatted,
         "the shot didn't splat: {:#?}",

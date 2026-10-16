@@ -54,6 +54,9 @@ pub struct Actions {
     pub break_block: bool,
     /// Held: place a block (repeats while held).
     pub place_block: bool,
+    /// Held: eat what's in hand (the touch Eat button; with a mouse,
+    /// holding "place" does it).
+    pub eat: bool,
     /// Pressed: copy the targeted block into the hotbar (creative).
     pub pick_block: bool,
     pub toggle_fly: bool,

@@ -260,9 +260,58 @@ fn place_sign_text(
     }
 }
 
+/// Something to do to the sign being written: from the keyboard, or from
+/// the on-screen keys on touch screens.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+enum SignKey {
+    Char(char),
+    Back,
+    Next,
+    Done,
+}
+
+/// The on-screen keys, row by row.
+const KEY_ROWS: [&str; 4] = ["1234567890", "QWERTYUIOP", "ASDFGHJKL!", "ZXCVBNM?.,"];
+
+impl SignEditor {
+    /// Returns true when the writing is finished.
+    fn press(&mut self, key: SignKey) -> bool {
+        let line = self.line;
+        match key {
+            SignKey::Next => {
+                if line + 1 < SIGN_LINES {
+                    self.line += 1;
+                } else {
+                    return true;
+                }
+            }
+            SignKey::Done => return true,
+            SignKey::Back => {
+                if self.lines[line].pop().is_none() && line > 0 {
+                    self.line -= 1;
+                }
+            }
+            SignKey::Char(c) => {
+                if self.lines[line].chars().count() < SIGN_LINE_LEN {
+                    self.lines[line].push(c);
+                }
+            }
+        }
+        false
+    }
+}
+
 /// Typing on the sign that's open.
+#[allow(clippy::too_many_arguments)]
 fn edit_signs(
     mut typed: MessageReader<KeyboardInput>,
+    (mut clicks, mut touches, window): (
+        MessageReader<bevy::input::mouse::MouseButtonInput>,
+        MessageReader<bevy::input::touch::TouchInput>,
+        Single<&Window, With<bevy::window::PrimaryWindow>>,
+    ),
+    keys: Query<(&SignKey, &ComputedNode, &UiGlobalTransform)>,
+    lines: Query<(&EditorLine, &ComputedNode, &UiGlobalTransform)>,
     mut focus: ResMut<UiFocus>,
     screen: Res<OpenScreen>,
     signs: Res<SignTexts>,
@@ -282,39 +331,49 @@ fn edit_signs(
         }
         editor.pos = open;
         typed.clear();
+        clicks.clear();
+        touches.clear();
         return;
     }
     let Some(pos) = open else { return };
-    let mut done = false;
+    let mut pressed: Vec<SignKey> = Vec::new();
     for e in typed.read().filter(|e| e.state == ButtonState::Pressed) {
-        let line = editor.line;
         match &e.logical_key {
-            Key::Enter | Key::ArrowDown => {
-                if line + 1 < SIGN_LINES {
-                    editor.line += 1;
-                } else {
-                    done = true;
-                }
-            }
-            Key::ArrowUp => editor.line = line.saturating_sub(1),
-            Key::Escape => done = true,
-            Key::Backspace => {
-                if editor.lines[line].pop().is_none() && line > 0 {
-                    editor.line -= 1;
-                }
-            }
-            Key::Space if editor.lines[line].chars().count() < SIGN_LINE_LEN => {
-                editor.lines[line].push(' ');
-            }
-            Key::Character(s) => {
-                for c in s.chars() {
-                    if editor.lines[line].chars().count() < SIGN_LINE_LEN {
-                        editor.lines[line].push(c);
-                    }
-                }
-            }
+            Key::Enter | Key::ArrowDown => pressed.push(SignKey::Next),
+            Key::ArrowUp => editor.line = editor.line.saturating_sub(1),
+            Key::Escape => pressed.push(SignKey::Done),
+            Key::Backspace => pressed.push(SignKey::Back),
+            Key::Space => pressed.push(SignKey::Char(' ')),
+            Key::Character(s) => pressed.extend(s.chars().map(SignKey::Char)),
             _ => {}
         }
+    }
+    // On-screen keys, and tapping a line moves the cursor there. We look
+    // at where each click or touch starts ourselves (in physical pixels,
+    // like the UI's layout), so even the quickest tap counts.
+    let scale = window.scale_factor();
+    let mut points: Vec<Vec2> = clicks
+        .read()
+        .filter(|c| c.state == ButtonState::Pressed && c.button == MouseButton::Left)
+        .filter_map(|_| window.physical_cursor_position())
+        .collect();
+    points.extend(
+        touches
+            .read()
+            .filter(|t| t.phase == bevy::input::touch::TouchPhase::Started)
+            .map(|t| t.position * scale),
+    );
+    for point in points {
+        if let Some((k, _, _)) = keys.iter().find(|(_, n, t)| n.contains_point(**t, point)) {
+            pressed.push(*k);
+        } else if let Some((l, _, _)) = lines.iter().find(|(_, n, t)| n.contains_point(**t, point))
+        {
+            editor.line = l.0;
+        }
+    }
+    let mut done = false;
+    for key in pressed {
+        done |= editor.press(key);
     }
     if done {
         if let Some(mut conn) = conn {
@@ -330,20 +389,71 @@ fn edit_signs(
     }
 }
 
+/// One line of the sign in the editor.
+#[derive(Component)]
+struct EditorLine(usize);
+
+/// Show the sign being written: built when it opens, then only the lines
+/// change (so a finger on a key isn't lost while typing).
 fn draw_editor(
     mut commands: Commands,
     editor: Res<SignEditor>,
+    touch: Res<crate::touch::TouchControls>,
     existing: Query<Entity, With<EditorPanel>>,
+    mut shown_for: Local<Option<IVec3>>,
+    mut lines: Query<(&EditorLine, &mut Text, &mut BackgroundColor)>,
 ) {
     if !editor.is_changed() {
         return;
     }
-    for e in &existing {
-        commands.entity(e).despawn();
-    }
-    if editor.pos.is_none() {
+    if *shown_for != editor.pos {
+        *shown_for = editor.pos;
+        for e in &existing {
+            commands.entity(e).despawn();
+        }
+        if editor.pos.is_some() {
+            spawn_editor(&mut commands, &editor, touch.enabled);
+        }
         return;
     }
+    for (l, mut text, mut bg) in &mut lines {
+        let (t, c) = line_look(&editor, l.0);
+        text.0 = t;
+        bg.0 = c;
+    }
+}
+
+fn line_look(editor: &SignEditor, i: usize) -> (String, Color) {
+    let line = editor.lines.get(i).map_or("", |l| l.as_str());
+    if i == editor.line {
+        (format!("{line}_"), Color::srgba(1.0, 1.0, 1.0, 0.25))
+    } else {
+        (line.to_owned(), Color::srgba(1.0, 1.0, 1.0, 0.08))
+    }
+}
+
+fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
+    let key = |label: String, k: SignKey, width: f32| {
+        (
+            Button,
+            k,
+            Node {
+                width: px(width),
+                height: px(34),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border_radius: BorderRadius::all(px(6)),
+                ..default()
+            },
+            BackgroundColor(Color::srgb(0.93, 0.88, 0.78)),
+            children![(
+                Text::new(label),
+                TextFont::from_font_size(18.0),
+                TextColor(Color::srgb(0.2, 0.13, 0.06)),
+                Pickable::IGNORE,
+            )],
+        )
+    };
     commands
         .spawn((
             EditorPanel,
@@ -363,8 +473,8 @@ fn draw_editor(
                 .spawn((
                     Node {
                         flex_direction: FlexDirection::Column,
-                        row_gap: px(8),
-                        padding: UiRect::all(px(20)),
+                        row_gap: px(if keys { 5 } else { 8 }),
+                        padding: UiRect::all(px(if keys { 12 } else { 20 })),
                         border_radius: BorderRadius::all(px(8)),
                         align_items: AlignItems::Center,
                         ..default()
@@ -376,30 +486,48 @@ fn draw_editor(
                         Text::new("Write on the sign"),
                         TextFont::from_font_size(18.0),
                     ));
-                    for (i, line) in editor.lines.iter().enumerate() {
-                        let cursor = if i == editor.line { "_" } else { "" };
+                    for i in 0..SIGN_LINES {
+                        let (t, c) = line_look(editor, i);
                         board.spawn((
-                            Text::new(format!("{line}{cursor}")),
-                            TextFont::from_font_size(22.0),
+                            Button,
+                            EditorLine(i),
+                            Text::new(t),
+                            TextFont::from_font_size(if keys { 18.0 } else { 22.0 }),
                             TextColor(Color::srgb(0.15, 0.1, 0.05)),
                             Node {
                                 min_width: px(260),
-                                min_height: px(28),
+                                min_height: px(if keys { 20 } else { 28 }),
                                 justify_content: JustifyContent::Center,
                                 ..default()
                             },
-                            BackgroundColor(if i == editor.line {
-                                Color::srgba(1.0, 1.0, 1.0, 0.25)
-                            } else {
-                                Color::NONE
-                            }),
+                            BackgroundColor(c),
                         ));
                     }
-                    board.spawn((
-                        Text::new("Enter: next line (and done)   Esc: done"),
-                        TextFont::from_font_size(13.0),
-                        TextColor(Color::srgb(0.95, 0.9, 0.8)),
-                    ));
+                    if !keys {
+                        board.spawn((
+                            Text::new("Enter: next line (and done)   Esc: done"),
+                            TextFont::from_font_size(13.0),
+                            TextColor(Color::srgb(0.95, 0.9, 0.8)),
+                        ));
+                        return;
+                    }
+                    let row = || Node {
+                        column_gap: px(4),
+                        ..default()
+                    };
+                    for chars in KEY_ROWS {
+                        board.spawn(row()).with_children(|r| {
+                            for c in chars.chars() {
+                                r.spawn(key(c.to_string(), SignKey::Char(c), 40.0));
+                            }
+                        });
+                    }
+                    board.spawn(row()).with_children(|r| {
+                        r.spawn(key("Del".into(), SignKey::Back, 72.0));
+                        r.spawn(key("Space".into(), SignKey::Char(' '), 160.0));
+                        r.spawn(key("Next".into(), SignKey::Next, 96.0));
+                        r.spawn(key("Done".into(), SignKey::Done, 72.0));
+                    });
                 });
         });
 }
@@ -407,6 +535,38 @@ fn draw_editor(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writing_with_keys() {
+        let mut e = SignEditor {
+            pos: None,
+            lines: vec![String::new(); SIGN_LINES],
+            line: 0,
+        };
+        for c in "HI".chars() {
+            assert!(!e.press(SignKey::Char(c)));
+        }
+        e.press(SignKey::Next);
+        e.press(SignKey::Char('!'));
+        e.press(SignKey::Back);
+        e.press(SignKey::Back); // empty line: back up to the one before
+        assert_eq!((e.lines[0].as_str(), e.line), ("HI", 0));
+        for _ in 0..30 {
+            e.press(SignKey::Char('A'));
+        }
+        assert_eq!(e.lines[0].chars().count(), SIGN_LINE_LEN);
+        for _ in 1..SIGN_LINES {
+            assert!(!e.press(SignKey::Next));
+        }
+        assert!(e.press(SignKey::Next), "Next on the last line finishes");
+    }
+
+    #[test]
+    fn every_key_has_a_glyph() {
+        for c in KEY_ROWS.concat().chars() {
+            assert_ne!(glyph(c), 0, "{c}");
+        }
+    }
 
     #[test]
     fn text_is_drawn_in_ink() {

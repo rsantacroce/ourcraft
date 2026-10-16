@@ -98,6 +98,7 @@ pub struct ServerHost {
     pub tools: Vec<api::ToolSpec>,
     pub recipes: Vec<ourcraft_common::recipes::Recipe>,
     pub mobs: Vec<api::MobSpec>,
+    pub items: Vec<ourcraft_common::item::ItemDef>,
     world: Option<ServerWorld>,
     cache: Option<ColumnCache>,
     open: Option<OpenWorld>,
@@ -116,6 +117,7 @@ impl ServerHost {
             tools: Vec::new(),
             recipes: Vec::new(),
             mobs: Vec::new(),
+            items: Vec::new(),
             world: None,
             cache: None,
             open: None,
@@ -228,6 +230,29 @@ impl Host for ServerHost {
                 self.recipes.push(r.into());
                 HostReply::Ok
             }
+            HostCall::RegisterItem(i) if init => {
+                let Some(rgba) = self
+                    .textures
+                    .iter()
+                    .find(|t| t.0 == i.texture)
+                    .map(|t| t.1.clone())
+                else {
+                    return error("register the item's texture first");
+                };
+                if !i.name.contains(':') || i.name.starts_with("core:") {
+                    return error("item names look like \"yourmod:thing\"");
+                }
+                if self.registry.by_name(&i.name).is_some()
+                    || self.items.iter().any(|d| d.name == i.name)
+                {
+                    return error("there's already something with that name");
+                }
+                // The client draws an item from the texture with its name.
+                self.textures.push((i.name.clone(), rgba));
+                self.items
+                    .push(ourcraft_common::item::ItemDef::from_spec(&i));
+                HostReply::Ok
+            }
             HostCall::RegisterMob(m) if init => {
                 if !self.models.iter().any(|x| x.name == m.model) {
                     return error("register the mob's model first");
@@ -240,6 +265,7 @@ impl Host for ServerHost {
             | HostCall::RegisterModel(_)
             | HostCall::RegisterTool(_)
             | HostCall::RegisterRecipe(_)
+            | HostCall::RegisterItem(_)
             | HostCall::RegisterMob(_) => error("content can only be registered during Init"),
             HostCall::BlockId(name) => match self.registry.by_name(&name) {
                 Some(id) => HostReply::Block(id.0),
@@ -498,7 +524,7 @@ pub fn load_mods(
             game_mode,
         },
     );
-    let items = ourcraft_common::item::ItemRegistry::build(&host.registry, &[]);
+    let items = ourcraft_common::item::ItemRegistry::build(&host.registry, &host.items);
     let mut recipes = ourcraft_common::recipes::builtin_recipes();
     recipes.extend(host.recipes);
     let mut mobs = ourcraft_common::mobs::builtin_mobs();
@@ -554,6 +580,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         tools: Vec::new(),
         recipes: Vec::new(),
         mobs: Vec::new(),
+        items: Vec::new(),
         world: world.remove_resource::<ServerWorld>(),
         cache: world.remove_resource::<ColumnCache>(),
         open: world.remove_resource::<OpenWorld>(),

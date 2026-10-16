@@ -2,8 +2,9 @@
 
 A blocky sandbox game in Rust: infinite generated worlds to explore and
 build in, survival with ores, tools, crafting and furnaces, friendly
-animals, multiplayer, mods, and a cartoon team game mode called
-**Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
+animals you can keep, gentle night (and cave) monsters, real light, flowing
+water you can carry in a bucket, multiplayer, mods, and a cartoon team
+game mode called **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
 
 **Website and player manual:** https://rsantacroce.github.io/ourcraft-site/
 

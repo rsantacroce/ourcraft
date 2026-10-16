@@ -56,7 +56,7 @@ own (inventories are now stored by item name).
 
 Not quite as planned: the player's own game checks crafting recipes, not
 the server (the server trusts players' inventories, as before). Mods can
-add recipes but not yet new items.
+add recipes and, since the gap fixes below, items (`register_item`).
 
 What was planned:
 
@@ -85,9 +85,8 @@ chickens lay eggs, and a pat with an empty hand makes them hop with
 hearts. `/summon sheep` in creative. Mods can add animals
 (`register_mob`, `spawn_mob`).
 
-Not quite as planned: animals aren't saved; they appear near players and
-go away when everyone leaves (ones a mod made stay). Food is apples for
-every animal until farming adds wheat.
+Not quite as planned: food is apples for every animal until farming adds
+wheat. (Animals weren't saved at first; see the gap fixes below.)
 
 What was planned:
 
@@ -110,9 +109,9 @@ Torches fall off when the block they hang on breaks. Blocks can now have
 shapes made of boxes (drawn, aimed at and placed correctly), ready for
 milestone 14.
 
-Not quite as planned: animals and dropped items aren't darkened in caves
-yet (only by night). The monster-spawning switch comes with the monsters
-(milestone 15).
+Not quite as planned: the monster-spawning switch came with the monsters
+(milestone 15, `/peaceful`). (Animals and dropped items were only
+darkened by night at first; see the gap fixes below.)
 
 What was planned:
 
@@ -134,8 +133,10 @@ that set where you wake up and skip the night once everyone's in bed.
 Shapes collide box by box, and you walk up slabs and stair steps without
 jumping. Each shape faces the way you look or the wall you click.
 
-Not quite as planned: one kind of fence and door (wood); no half-open
-fence gates or coloured beds yet. Sleeping doesn't show you lying down.
+Not quite as planned: one kind of fence and door (wood), and no coloured
+beds (that needs dyes). Other players still see a sleeper standing up.
+(Fence gates, lying down in bed and writing signs on touch screens came
+with the gap fixes below.)
 
 What was planned:
 
@@ -161,10 +162,8 @@ lava more slowly), dry up without a source, and make stone where they
 meet; sand and gravel fall; lava lakes fill the deepest caves. Water and
 lava sources are in the creative palette.
 
-Not quite as planned: no bucket yet, so in survival water only flows out
-of lakes and the sea; health and hunger reset when you rejoin; monsters
-appear at night on the surface, not in dark caves by day (the server
-doesn't know light levels).
+Not quite as planned: the bucket, saved health, cave monsters and eating
+on touch screens came a little later (see the gap fixes below).
 
 What was planned:
 
@@ -197,6 +196,39 @@ What was planned:
 - Footsteps per block type, ambient sounds (birds, water, wind) and a few
   calm music loops.
 - Particles when breaking blocks.
+
+### Gap fixes ✅ done
+
+The "not quite as planned" bits from milestones 11–16, filled in:
+
+- **Health and hunger are saved** with the player (player files are now
+  version 4; older ones upgrade on their own). Someone who left while
+  fainting comes back with a little health.
+- **Animals you look after are saved** (`animals.dat`): ones you've
+  petted, fed, sheared, bred or summoned stay where they are and come back
+  when the world opens. Wild ones still come and go, so the world doesn't
+  fill up. Kept animals stop having babies at 200.
+- **Bucket** (iron ingots in a V): scoop up still water or lava, pour it
+  out somewhere else.
+- **Monsters in dark caves**, day or night, and never where torches or
+  lamps light things up (on the surface too). Cave monsters stay in their
+  caves in the morning. The server estimates light from glowing blocks
+  nearby (walls aren't counted, so it errs on the bright side).
+- **Animals, dropped items and mod entities are lit like the terrain**:
+  dark in caves and at night, bright next to a torch.
+- **Touch screens:** an Eat button appears when you hold food in survival,
+  and signs get an on-screen keyboard.
+- **Fence gates** (sticks and planks: `#P# / #P#`) open and close, and
+  fences join up to them.
+- **Lying down in bed:** the view lies on the pillow looking up; moving
+  gets you up.
+- **Mods can add items** (`register_item` with an `ItemSpec`: picture,
+  stack size, food, fuel, smelting). Snow Fun adds a snow cone.
+- Fixed on the way: players in creative or in game modes were sent their
+  (empty) health bars every tick.
+
+Still left, on purpose: the server trusts players' crafting (as it trusts
+their inventories), and there's no thunder.
 
 ### Later ideas
 

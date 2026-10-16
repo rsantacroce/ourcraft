@@ -249,6 +249,44 @@ pub struct HudLine {
     pub color: Rgba,
 }
 
+/// Something to carry that isn't a block: a gem, a cookie, a coin. Its
+/// picture is a registered texture. (Every block is already an item.)
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ItemSpec {
+    /// `"yourmod:thing"`.
+    pub name: String,
+    pub display_name: String,
+    /// A texture registered with [`HostCall::RegisterTexture`], used as
+    /// the item's picture.
+    pub texture: String,
+    /// How many fit in one slot (1–64).
+    pub max_stack: u16,
+    /// Hunger points it fills when eaten, out of 20 (0 = not food).
+    pub food: u8,
+    /// Health it gives back when eaten, out of 20.
+    pub heals: u8,
+    /// Seconds it keeps a furnace burning (0 = not a fuel).
+    pub fuel: f32,
+    /// What a furnace turns it into (an item or block name), if anything.
+    pub smelts_into: Option<String>,
+}
+
+impl ItemSpec {
+    /// A plain item that stacks to 64.
+    pub fn simple(name: &str, display_name: &str, texture: &str) -> Self {
+        Self {
+            name: name.into(),
+            display_name: display_name.into(),
+            texture: texture.into(),
+            max_stack: 64,
+            food: 0,
+            heals: 0,
+            fuel: 0.0,
+            smelts_into: None,
+        }
+    }
+}
+
 /// A crafting recipe. Items are named like blocks (`"core:planks"`,
 /// `"yourmod:thing"`); every block is also an item.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -403,6 +441,8 @@ pub enum HostCall {
         name: String,
         position: Vec3,
     },
+    /// Add an item. *Init only.*
+    RegisterItem(ItemSpec),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

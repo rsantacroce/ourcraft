@@ -125,6 +125,22 @@ impl BlockRegistry {
         b.is_air() || self.fluid(b).is_some_and(|f| f.level > 0 || f.falling)
     }
 
+    /// Still water or lava: what a bucket picks up.
+    pub fn is_fluid_source(&self, b: BlockId) -> bool {
+        self.fluid(b).is_some_and(|f| f.level == 0 && !f.falling)
+    }
+
+    /// The source block of a fluid family (`"core:water"`).
+    pub fn fluid_source(&self, family: &str) -> Option<BlockId> {
+        self.iter()
+            .find(|(_, d)| {
+                d.fluid
+                    .as_ref()
+                    .is_some_and(|f| f.family == family && f.level == 0 && !f.falling)
+            })
+            .map(|(id, _)| id)
+    }
+
     pub fn falls(&self, b: BlockId) -> bool {
         self.get(b).falls
     }

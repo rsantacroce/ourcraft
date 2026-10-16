@@ -105,6 +105,7 @@ pub enum VariantKind {
     Sign,
     WallSign,
     Bed,
+    FenceGate,
 }
 
 /// Which family a block belongs to and its state in it.
@@ -114,7 +115,7 @@ pub struct Variant {
     /// The base block's name (the one in the inventory).
     pub family: String,
     pub facing: Dir4,
-    /// Doors and trapdoors.
+    /// Doors, trapdoors and fence gates.
     pub open: bool,
     /// The upper half of a door, the head of a bed, a top slab.
     pub upper: bool,
@@ -173,7 +174,7 @@ impl BlockRegistry {
                 }
                 None => None,
             },
-            VariantKind::Stairs | VariantKind::Trapdoor => {
+            VariantKind::Stairs | VariantKind::Trapdoor | VariantKind::FenceGate => {
                 single(self.find_variant(fam, looking, false, false)?)
             }
             VariantKind::Slab => {
@@ -211,7 +212,7 @@ impl BlockRegistry {
         let v = self.variant(block)?;
         let flip = |upper| self.find_variant(&v.family, v.facing, !v.open, upper);
         match v.kind {
-            VariantKind::Trapdoor => Some(vec![([0, 0, 0], flip(false)?)]),
+            VariantKind::Trapdoor | VariantKind::FenceGate => Some(vec![([0, 0, 0], flip(false)?)]),
             VariantKind::Door => {
                 let other = if v.upper { [0, -1, 0] } else { [0, 1, 0] };
                 Some(vec![([0, 0, 0], flip(v.upper)?), (other, flip(!v.upper)?)])
@@ -272,12 +273,68 @@ impl BlockRegistry {
         let mut boxes: Vec<ShapeBox> = vec![[6, 0, 6, 10, 16, 10]];
         for d in Dir4::ALL {
             let n = neighbour(d.vector());
-            if *self.shape(n) == BlockShape::Fence || self.is_opaque(n) {
+            let gate = self.variant_kind(n) == Some(VariantKind::FenceGate);
+            if *self.shape(n) == BlockShape::Fence || gate || self.is_opaque(n) {
                 // Two rails towards the neighbour.
                 boxes.extend(facing(&[[7, 6, 0, 9, 9, 6], [7, 12, 0, 9, 15, 6]], d));
             }
         }
         BlockShape::Boxes(boxes).boxes()
+    }
+}
+
+/// Fence gates: a fence you can open (right click). Closed, they span the
+/// way they face sideways; open, the two halves swing back against the
+/// posts.
+pub fn register_fence_gates(reg: &mut BlockRegistry) {
+    let closed: [ShapeBox; 4] = [
+        [0, 0, 7, 2, 16, 9],
+        [14, 0, 7, 16, 16, 9],
+        [2, 6, 7, 14, 9, 9],
+        [2, 12, 7, 14, 15, 9],
+    ];
+    let opened: [ShapeBox; 4] = [
+        [0, 0, 7, 2, 16, 9],
+        [14, 0, 7, 16, 16, 9],
+        [0, 6, 1, 2, 15, 7],
+        [14, 6, 1, 16, 15, 7],
+    ];
+    let mut base = None;
+    for open in [false, true] {
+        for d in Dir4::ALL {
+            let first = base.is_none();
+            let name = if first {
+                "core:fence_gate".to_owned()
+            } else if open {
+                format!("core:fence_gate_{}_open", d.name())
+            } else {
+                format!("core:fence_gate_{}", d.name())
+            };
+            let boxes = if open { &opened } else { &closed };
+            let mut def = BlockDef {
+                render: RenderKind::Cutout,
+                solid: !open,
+                ..BlockDef::solid(&name, "Fence Gate", T::all("planks")).mined(
+                    2.0,
+                    Some(ToolKind::Axe),
+                    0,
+                )
+            };
+            def.shape = BlockShape::Boxes(facing(boxes, d));
+            def.hidden = !first;
+            def.variant = Some(Variant {
+                kind: VariantKind::FenceGate,
+                family: "core:fence_gate".into(),
+                facing: d,
+                open,
+                upper: false,
+            });
+            if let Some(b) = base {
+                def.drops = Drops::Block(b);
+            }
+            let id = reg.register(def);
+            base.get_or_insert(id);
+        }
     }
 }
 
@@ -590,6 +647,27 @@ mod tests {
         // Only the bottom half drops a door.
         assert_eq!(r.get(top).drops, Drops::Nothing);
         assert!(r.get(p.block).solid && !r.is_opaque(p.block));
+    }
+
+    #[test]
+    fn fence_gates_open_and_join_fences() {
+        let r = reg();
+        let gate = r.by_name("core:fence_gate").unwrap();
+        let placed = r.placement(gate, [0, 1, 0], [1.0, 0.0, 0.0]).unwrap().block;
+        assert!(r.is_solid(placed));
+        let toggled = r.toggled(placed).unwrap();
+        let open = toggled[0].1;
+        assert!(!r.is_solid(open), "you walk through an open gate");
+        assert_eq!(r.toggled(open).unwrap()[0].1, placed);
+        assert_eq!(r.get(open).drops, Drops::Block(gate));
+        // A fence next to a gate reaches out to it.
+        let fence = r.by_name("core:fence").unwrap();
+        let alone = r.boxes_at(fence, |_| BlockId::AIR).len();
+        let joined = r.boxes_at(
+            fence,
+            |o| if o == [1, 0, 0] { placed } else { BlockId::AIR },
+        );
+        assert!(joined.len() > alone);
     }
 
     #[test]

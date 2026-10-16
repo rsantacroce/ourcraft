@@ -10,7 +10,9 @@ use ourcraft_common::block::{BlockId, BlockRegistry};
 use ourcraft_common::chunk::Chunk;
 use ourcraft_common::container::Container;
 use ourcraft_common::item::ItemRegistry;
-use ourcraft_common::save::{BlockRemap, SavedContainer, WorldMeta, WorldStorage, encode_column};
+use ourcraft_common::save::{
+    BlockRemap, SavedAnimal, SavedContainer, WorldMeta, WorldStorage, encode_column,
+};
 use ourcraft_common::world::{ColumnPos, DAY_LENGTH_SECS, VoxelWorld};
 use ourcraft_common::worldgen::WorldGenerator;
 
@@ -85,6 +87,9 @@ pub struct OpenWorld {
     pub beds: HashMap<String, IVec3>,
     /// No monsters and no hunger.
     pub peaceful: bool,
+    /// Animals players look after: loaded with the world, then kept up to
+    /// date by the animals module for saving.
+    pub animals: Vec<SavedAnimal>,
     /// Shared with the save-on-exit guard.
     snapshot: Arc<Mutex<Snapshot>>,
 }
@@ -97,6 +102,7 @@ struct Snapshot {
     signs: Vec<([i32; 3], Vec<String>)>,
     beds: Vec<(String, [i32; 3])>,
     rules: Vec<(String, bool)>,
+    animals: Vec<SavedAnimal>,
 }
 
 /// Columns encoded for sending, so several players near the same place
@@ -213,7 +219,12 @@ fn open_world(
         signs: Vec::new(),
         beds: Vec::new(),
         rules: Vec::new(),
+        animals: Vec::new(),
     };
+    let animals = storage.load_animals().unwrap_or_else(|e| {
+        error!("Can't read animals ({e})");
+        Vec::new()
+    });
     let peaceful = storage
         .load_rules()
         .unwrap_or_default()
@@ -232,6 +243,7 @@ fn open_world(
         signs,
         beds,
         peaceful,
+        animals,
     };
     // The save guard must never write an empty furnace list over real ones.
     open.update_snapshot();
@@ -290,6 +302,7 @@ impl OpenWorld {
                 .map(|(n, p)| (n.clone(), p.to_array()))
                 .collect(),
             rules: vec![("peaceful".into(), self.peaceful)],
+            animals: self.animals.clone(),
         };
     }
 }
@@ -430,6 +443,9 @@ fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
     }
     if let Err(e) = storage.save_rules(snapshot.rules) {
         error!("Saving world rules failed: {e}");
+    }
+    if let Err(e) = storage.save_animals(snapshot.animals) {
+        error!("Saving animals failed: {e}");
     }
     match storage.flush() {
         Ok(n) if n > 0 => info!("Saved {n} column(s)"),

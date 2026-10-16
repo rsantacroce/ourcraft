@@ -510,8 +510,44 @@ pub fn item_icon(name: &str) -> Option<Vec<u8>> {
                 ('G', [110, 190, 70, 255]),
             ],
         ),
+        "bucket" => bucket(None),
+        "water_bucket" => bucket(Some(([60, 110, 230, 255], [120, 170, 255, 255]))),
+        "lava_bucket" => bucket(Some(([230, 100, 20, 255], [255, 200, 60, 255]))),
         _ => return None,
     })
+}
+
+/// An iron bucket, empty or full (`fill` is the liquid's dark and light
+/// colour).
+fn bucket(fill: Option<(Rgba, Rgba)>) -> Vec<u8> {
+    let (dark, light) = fill.unwrap_or(([70, 72, 80, 255], [90, 92, 100, 255]));
+    draw(
+        &[
+            "................",
+            "................",
+            "................",
+            "...bbbbbbbbbb...",
+            "..bLWWWWWWWWLb..",
+            "..bLWwwwwwwWLb..",
+            "..bLLWWWWWWLLb..",
+            "...bLLLLLLLLb...",
+            "...bLLLLLLLDb...",
+            "...bLLLLLLLDb...",
+            "....bLLLLLDb....",
+            "....bLLLLLDb....",
+            "....bLLLLDDb....",
+            ".....bbbbbb.....",
+            "................",
+            "................",
+        ],
+        &[
+            ('b', [70, 72, 80, 255]),
+            ('L', [200, 204, 212, 255]),
+            ('D', [150, 154, 162, 255]),
+            ('W', dark),
+            ('w', light),
+        ],
+    )
 }
 
 #[cfg(test)]

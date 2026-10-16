@@ -30,10 +30,13 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Time::<Fixed>::from_hz(TICK_RATE))
             .init_resource::<GameMode>()
+            .init_resource::<Asleep>()
             .add_systems(Startup, spawn_player)
             .add_systems(
                 PreUpdate,
-                (handle_welcome, reconcile).chain().after(NetReceiveSet),
+                (handle_welcome, reconcile, hear_sleeping)
+                    .chain()
+                    .after(NetReceiveSet),
             )
             .add_systems(
                 PreUpdate,
@@ -42,7 +45,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(FixedUpdate, player_physics.in_set(PlayerPhysicsSet))
             .add_systems(
                 Update,
-                (look, toggle_fly, toggle_game_mode, follow_camera)
+                (look, toggle_fly, toggle_game_mode, get_up, follow_camera)
                     .chain()
                     .in_set(PlayerUpdateSet),
             )
@@ -378,6 +381,31 @@ fn toggle_game_mode(
     }
 }
 
+/// Asleep in the bed at this block: the view lies down in it.
+#[derive(Resource, Default, Debug)]
+pub struct Asleep(pub Option<IVec3>);
+
+fn hear_sleeping(mut messages: MessageReader<FromServer>, mut asleep: ResMut<Asleep>) {
+    for FromServer(msg) in messages.read() {
+        match msg {
+            ServerMessage::Sleeping { bed } => asleep.0 = bed.map(IVec3::from_array),
+            // A new world: awake.
+            ServerMessage::Welcome { .. } => asleep.0 = None,
+            _ => {}
+        }
+    }
+}
+
+/// Moving or jumping gets you out of bed.
+fn get_up(actions: Res<Actions>, mut asleep: ResMut<Asleep>, conn: Option<ResMut<Connection>>) {
+    if asleep.0.is_some() && (actions.movement != Vec2::ZERO || actions.jump) {
+        asleep.0 = None;
+        if let Some(mut conn) = conn {
+            conn.send(Channel::Reliable, &ClientMessage::LeaveBed);
+        }
+    }
+}
+
 /// Place the camera at the player's eyes. Physics runs at 60 steps per
 /// second but the screen may refresh at 120+, so we blend between the last
 /// two physics positions according to how far we are into the next step.
@@ -386,7 +414,14 @@ fn follow_camera(
     fixed: Res<Time<Fixed>>,
     mut player: Single<&mut Player>,
     mut camera: Single<&mut Transform, With<PlayerCamera>>,
+    asleep: Res<Asleep>,
 ) {
+    // In bed: lying on the pillow, looking up.
+    if let Some(bed) = asleep.0 {
+        camera.translation = bed.as_vec3() + Vec3::new(0.5, 0.75, 0.5);
+        camera.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, 1.2, 0.0);
+        return;
+    }
     // Fade out any correction offset smoothly.
     let fade = (-SMOOTHING_RATE * time.delta_secs()).exp();
     player.visual_offset *= fade;

@@ -113,6 +113,24 @@ impl Inventory {
         Some(item)
     }
 
+    /// Swap one of the selected items for one `into` (an empty bucket for
+    /// a full one). False, and nothing changes, if there's no room for it.
+    pub fn exchange_selected(&mut self, items: &ItemRegistry, into: ItemId) -> bool {
+        let Some(stack) = self.slots[self.selected] else {
+            return false;
+        };
+        if stack.count == 1 {
+            self.slots[self.selected] = Some(ItemStack::new(into, 1));
+            return true;
+        }
+        if self.room_for(items, into) == 0 {
+            return false;
+        }
+        self.take_selected();
+        self.add(items, into, 1);
+        true
+    }
+
     /// Wear down the tool in hand by one use. Returns true if it broke.
     pub fn wear_selected(&mut self, items: &ItemRegistry) -> bool {
         let slot = &mut self.slots[self.selected];

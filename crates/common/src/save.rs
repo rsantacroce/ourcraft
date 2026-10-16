@@ -47,7 +47,7 @@ const COLUMN_FORMAT: u8 = 1;
 /// Version of `world.dat`.
 pub const META_VERSION: u32 = 2;
 /// Version of player files. 3: inventories by item name (milestone 11).
-pub const PLAYER_VERSION: u32 = 3;
+pub const PLAYER_VERSION: u32 = 4;
 
 fn invalid(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
@@ -334,12 +334,27 @@ pub struct PlayerSave {
     pub selected: usize,
     /// Playing in creative mode (players can switch in any world).
     pub creative: bool,
+    /// Health, food and breath in survival (`None`: fresh and full).
+    pub vitals: Option<[f32; 3]>,
+}
+
+/// A player file as saved by version 3 (no health and food yet).
+#[derive(Deserialize)]
+struct PlayerSaveV3 {
+    _version: u32,
+    position: [f32; 3],
+    yaw: f32,
+    pitch: f32,
+    flying: bool,
+    inventory: Vec<Option<SavedStack>>,
+    selected: usize,
+    creative: bool,
 }
 
 /// A player file as saved by version 2 (block ids, no items yet).
 #[derive(Deserialize)]
 struct PlayerSaveV2 {
-    version: u32,
+    _version: u32,
     position: [f32; 3],
     yaw: f32,
     pitch: f32,
@@ -380,6 +395,19 @@ impl PlayerSave {
         self.inventory.resize(INVENTORY_SLOTS, None);
         self.selected = inv.selected;
     }
+}
+
+/// An animal someone looked after (petted, fed, sheared, bred or
+/// summoned), saved with the world. Wild ones come and go.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct SavedAnimal {
+    /// `"core:sheep"`, `"yourmod:thing"`.
+    pub kind: String,
+    pub position: [f32; 3],
+    pub yaw: f32,
+    /// Seconds left as a baby, and until the wool grows back.
+    pub baby_for: f32,
+    pub sheared_for: f32,
 }
 
 /// A saved furnace (or other container) and where it is.
@@ -609,15 +637,28 @@ impl WorldStorage {
             return Ok(None);
         }
         let bytes = fs::read(path)?;
-        if let Ok(p) = postcard::from_bytes::<PlayerSave>(&bytes)
-            && p.version == PLAYER_VERSION
-        {
-            return Ok(Some(p));
+        let bad = |e: postcard::Error| invalid(e.to_string());
+        let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(bad)?;
+        match version {
+            PLAYER_VERSION => return postcard::from_bytes(&bytes).map(Some).map_err(bad),
+            3 => {
+                let old: PlayerSaveV3 = postcard::from_bytes(&bytes).map_err(bad)?;
+                return Ok(Some(PlayerSave {
+                    version: PLAYER_VERSION,
+                    position: old.position,
+                    yaw: old.yaw,
+                    pitch: old.pitch,
+                    flying: old.flying,
+                    inventory: old.inventory,
+                    selected: old.selected,
+                    creative: old.creative,
+                    vitals: None,
+                }));
+            }
+            2 => {}
+            v => return Err(invalid(format!("unknown player version {v}"))),
         }
-        let old: PlayerSaveV2 = postcard::from_bytes(&bytes).map_err(|e| invalid(e.to_string()))?;
-        if old.version != 2 {
-            return Err(invalid(format!("unknown player version {}", old.version)));
-        }
+        let old: PlayerSaveV2 = postcard::from_bytes(&bytes).map_err(bad)?;
         Ok(Some(PlayerSave {
             version: PLAYER_VERSION,
             position: old.position,
@@ -638,6 +679,7 @@ impl WorldStorage {
                 .collect(),
             selected: old.selected,
             creative: true,
+            vitals: None,
         }))
     }
 
@@ -691,6 +733,15 @@ impl WorldStorage {
 
     pub fn save_beds(&self, beds: Vec<(String, [i32; 3])>) -> io::Result<()> {
         self.save_list("beds.dat", beds)
+    }
+
+    /// Animals players look after (`animals.dat`).
+    pub fn load_animals(&self) -> io::Result<Vec<SavedAnimal>> {
+        self.load_list("animals.dat")
+    }
+
+    pub fn save_animals(&self, animals: Vec<SavedAnimal>) -> io::Result<()> {
+        self.save_list("animals.dat", animals)
     }
 
     /// World rules such as peaceful (`rules.dat`).
@@ -861,6 +912,7 @@ mod tests {
             inventory: vec![],
             selected: 0,
             creative: false,
+            vitals: Some([12.0, 15.5, 12.0]),
         };
         player.store_inventory(&inv, &items);
         storage.save_player("Alex/../evil", &player).unwrap();
@@ -887,6 +939,16 @@ mod tests {
         let beds = vec![("Kim".to_string(), [5, 70, 5])];
         storage.save_beds(beds.clone()).unwrap();
         assert_eq!(storage.load_beds().unwrap(), beds);
+        assert!(storage.load_animals().unwrap().is_empty());
+        let animals = vec![SavedAnimal {
+            kind: "core:sheep".into(),
+            position: [1.5, 65.0, 2.5],
+            yaw: 0.3,
+            baby_for: 100.0,
+            sheared_for: 0.0,
+        }];
+        storage.save_animals(animals.clone()).unwrap();
+        assert_eq!(storage.load_animals().unwrap(), animals);
         fs::remove_dir_all(dir).unwrap();
     }
 

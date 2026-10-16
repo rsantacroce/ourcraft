@@ -78,6 +78,22 @@ impl Default for Needs {
 }
 
 impl Needs {
+    /// Health, food and breath, for the player's save file.
+    pub fn saved(&self) -> [f32; 3] {
+        [self.health, self.food, self.air]
+    }
+
+    /// Back as saved. Someone who left fainted wakes up with a little
+    /// health.
+    pub fn restore([health, food, air]: [f32; 3]) -> Self {
+        Self {
+            health: health.clamp(1.0, MAX_HEALTH),
+            food: food.clamp(0.0, MAX_FOOD),
+            air: air.clamp(0.0, MAX_AIR),
+            ..Self::default()
+        }
+    }
+
     pub fn hurt(&mut self, amount: f32) {
         self.health = (self.health - amount).max(0.0);
     }
@@ -163,7 +179,13 @@ fn update_needs(
     let peaceful = open.peaceful;
     for mut p in &mut players {
         if !applies(&p, &open) {
-            p.needs = Needs::default();
+            // Back to full, but remember what the client was told (so
+            // `send_vitals` doesn't tell it again every tick).
+            let sent = p.needs.sent;
+            p.needs = Needs {
+                sent,
+                ..Needs::default()
+            };
             continue;
         }
         let p = &mut *p;
@@ -356,5 +378,16 @@ mod tests {
         assert_eq!(n.health, 15.0);
         n.hurt(100.0);
         assert_eq!(n.health, 0.0);
+    }
+
+    #[test]
+    fn needs_come_back_as_saved() {
+        let mut n = Needs::default();
+        n.hurt(7.0);
+        n.food = 9.0;
+        let back = Needs::restore(n.saved());
+        assert_eq!((back.health, back.food), (13.0, 9.0));
+        assert_eq!(Needs::restore([0.0, 30.0, 5.0]).health, 1.0);
+        assert_eq!(Needs::restore([0.0, 30.0, 5.0]).food, MAX_FOOD);
     }
 }

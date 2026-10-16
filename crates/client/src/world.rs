@@ -130,6 +130,13 @@ impl ChunkStreaming {
         }
     }
 
+    /// The highest non-air block at `x, z`, if that column is loaded (-1
+    /// for an empty column).
+    pub fn top(&self, x: i32, z: i32) -> Option<i16> {
+        let h = self.heights.get(&ColumnPos::from_block(x, z))?;
+        Some(h[(x.rem_euclid(16) + z.rem_euclid(16) * 16) as usize])
+    }
+
     pub fn pending_decodes(&self) -> usize {
         self.decoding.len()
     }

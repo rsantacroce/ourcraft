@@ -4,7 +4,8 @@
 //! (<https://rsantacroce.github.io/ourcraft-site/modding.html>):
 //!
 //! 1. Say hello when a player joins.
-//! 2. Add two blocks: Snow Bricks and a glowing Ice Lantern.
+//! 2. Add two blocks: Snow Bricks and a glowing Ice Lantern, plus a snow
+//!    cone to eat, and recipes for survival.
 //! 3. Add a `/snowman` chat command that builds a snowman.
 //! 4. Add a snowball thrower: `/snowballs` puts it in your hotbar, and
 //!    snowballs leave snow bricks where they land.
@@ -16,7 +17,7 @@ use std::collections::BTreeSet;
 use ourcraft_mod_api::guest::{self, Mod};
 use ourcraft_mod_api::{
     BlockPos, BlockSpec, EffectKind, EntityId, EntityMotion, EntitySpec, Event, EventReply, Hit,
-    ModelBox, ModelSpec, PlayerId, RecipeSpec, ToolSpec, Vec3, pixel_art, speckled,
+    ItemSpec, ModelBox, ModelSpec, PlayerId, RecipeSpec, ToolSpec, Vec3, pixel_art, speckled,
 };
 
 const SNOW_WHITE: [u8; 4] = [240, 248, 255, 255];
@@ -183,6 +184,44 @@ fn register_content() {
         ],
         result: "snow_fun:ice_lantern".into(),
         count: 1,
+    });
+
+    // Something to eat: a snow cone, drawn like the bricks.
+    let cone = [
+        "................",
+        "......AAAA......",
+        ".....ABBBBA.....",
+        "....ABBRBBBA....",
+        "....ABRRRBBA....",
+        "....ABBRBBBA....",
+        "....CCCCCCCC....",
+        ".....CDCDCDC....",
+        ".....CCDCDC.....",
+        "......CDCDC.....",
+        "......CCDC......",
+        ".......CDC......",
+        ".......CC.......",
+        "........C.......",
+        "................",
+        "................",
+    ];
+    let cone_colours = [
+        ('A', [190, 210, 230, 255]),
+        ('B', SNOW_WHITE),
+        ('R', [235, 80, 110, 255]),
+        ('C', [214, 160, 90, 255]),
+        ('D', [170, 115, 55, 255]),
+    ];
+    guest::register_texture("snow_cone", pixel_art(&cone, &cone_colours));
+    guest::register_item(ItemSpec {
+        food: 3,
+        ..ItemSpec::simple("snow_fun:snow_cone", "Snow Cone", "snow_cone")
+    });
+    // Any arrangement: a snow brick and an apple make two snow cones.
+    guest::register_recipe(RecipeSpec::Shapeless {
+        ingredients: vec!["snow_fun:snow_bricks".into(), "core:apple".into()],
+        result: "snow_fun:snow_cone".into(),
+        count: 2,
     });
 
     // What a snowball looks like in the air: one small white box.

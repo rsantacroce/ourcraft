@@ -481,6 +481,8 @@ impl BlockRegistry {
         for b in [blocks::SAND, blocks::GRAVEL] {
             reg.defs_mut(b).falls = true;
         }
+        // ---- Later additions go last, so earlier block numbers stay put ----
+        crate::shapes::register_fence_gates(&mut reg);
         reg
     }
 

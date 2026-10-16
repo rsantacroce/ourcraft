@@ -76,6 +76,8 @@ enum TouchButton {
     Inventory,
     /// Opens the pause menu (top left).
     Menu,
+    /// Hold to eat (only shown with food in hand, in survival).
+    Eat,
 }
 
 const JOYSTICK_RADIUS: f32 = 70.0;
@@ -97,6 +99,8 @@ struct TouchState {
     fingers: Vec<(u64, Finger)>,
     /// Current joystick vector, for drawing the knob.
     joystick: Option<(Vec2, Vec2)>,
+    /// Holding food in survival: the Eat button is showing.
+    can_eat: bool,
 }
 
 /// Button positions, as (centre offset from the bottom-right corner, radius)
@@ -108,15 +112,17 @@ fn button_layout(button: TouchButton) -> (Vec2, f32) {
         TouchButton::Fly => (Vec2::new(-95.0, -225.0), 34.0),
         TouchButton::Inventory => (Vec2::new(-60.0, 0.0), 32.0), // placed at the top
         TouchButton::Menu => (Vec2::ZERO, 30.0),                 // top left
+        TouchButton::Eat => (Vec2::new(-215.0, -105.0), 36.0),
     }
 }
 
-const BUTTONS: [TouchButton; 5] = [
+const BUTTONS: [TouchButton; 6] = [
     TouchButton::Jump,
     TouchButton::Down,
     TouchButton::Fly,
     TouchButton::Inventory,
     TouchButton::Menu,
+    TouchButton::Eat,
 ];
 
 /// Screen-space centre of a button for a window of `size`.
@@ -177,7 +183,11 @@ fn touch_actions(
         } else if focus.gameplay_blocked() {
             Role::Ui
         } else if let Some(b) = BUTTONS.iter().copied().find(|b| {
-            let visible = *b != TouchButton::Fly || *mode == GameMode::Creative;
+            let visible = match b {
+                TouchButton::Fly => *mode == GameMode::Creative,
+                TouchButton::Eat => state.can_eat,
+                _ => true,
+            };
             visible && p.distance(button_center(*b, size)) <= button_layout(*b).1 * 1.2
         }) {
             Role::Button(b)
@@ -196,7 +206,7 @@ fn touch_actions(
                 TouchButton::Fly => actions.toggle_fly = true,
                 TouchButton::Inventory => actions.toggle_inventory = true,
                 TouchButton::Menu => actions.open_menu = true,
-                TouchButton::Down => {}
+                TouchButton::Down | TouchButton::Eat => {}
             }
         }
         state.fingers.push((
@@ -253,6 +263,7 @@ fn touch_actions(
             }
             Role::Button(TouchButton::Jump) => actions.jump = true,
             Role::Button(TouchButton::Down) => actions.descend = true,
+            Role::Button(TouchButton::Eat) => actions.eat = true,
             Role::Button(_) | Role::Ui => {}
         }
         if let Some(slot) = state.fingers.iter_mut().find(|(i, _)| *i == id) {
@@ -316,6 +327,7 @@ fn spawn_touch_ui(mut commands: Commands) {
                 TouchButton::Fly => "Fly",
                 TouchButton::Inventory => "Bag",
                 TouchButton::Menu => "Menu",
+                TouchButton::Eat => "Eat",
             };
             ui.spawn((
                 circle(r, Color::srgba(0.0, 0.0, 0.0, 0.3)),
@@ -339,11 +351,17 @@ fn spawn_touch_ui(mut commands: Commands) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_touch_ui(
     controls: Res<TouchControls>,
-    state: Res<TouchState>,
+    mut state: ResMut<TouchState>,
     focus: Res<UiFocus>,
     mode: Res<GameMode>,
+    (vitals, items, inventory): (
+        Res<crate::vitals::Vitals>,
+        Res<crate::items::Items>,
+        Res<PlayerInventory>,
+    ),
     window: Single<&Window, With<PrimaryWindow>>,
     mut root: Single<&mut Visibility, With<TouchUi>>,
     mut buttons: Query<(&TouchButtonUi, &mut Node, &mut Visibility), Without<TouchUi>>,
@@ -364,6 +382,11 @@ fn update_touch_ui(
         ),
     >,
 ) {
+    state.can_eat = vitals.shown()
+        && inventory
+            .held()
+            .and_then(|i| items.get(i))
+            .is_some_and(|d| d.food > 0 || d.heals > 0);
     let show = controls.enabled && !focus.menu_open;
     **root = if show {
         Visibility::Inherited
@@ -382,6 +405,7 @@ fn update_touch_ui(
         let visible = match b.0 {
             TouchButton::Fly => *mode == GameMode::Creative && !focus.inventory_open,
             TouchButton::Inventory => true,
+            TouchButton::Eat => state.can_eat && !focus.inventory_open,
             _ => !focus.inventory_open,
         };
         *vis = if visible {

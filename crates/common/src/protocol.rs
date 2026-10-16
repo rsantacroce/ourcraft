@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 9;
+pub const PROTOCOL_VERSION: u64 = 10;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -246,6 +246,8 @@ pub enum ClientMessage {
         id: u64,
         held: u16,
     },
+    /// Got out of bed (moved while sleeping).
+    LeaveBed,
 }
 
 /// Lines on a sign, and characters per line.
@@ -398,6 +400,10 @@ pub enum ServerMessage {
     /// Is it raining? (Snowing, where it's snowy.)
     Weather {
         raining: bool,
+    },
+    /// You're asleep in the bed at this block (lie down), or awake again.
+    Sleeping {
+        bed: Option<[i32; 3]>,
     },
 }
 

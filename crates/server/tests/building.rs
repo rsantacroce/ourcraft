@@ -264,6 +264,9 @@ fn doors_signs_chests_and_beds() {
         )),
         "the night didn't end"
     );
+    // Lee lay down in the bed, and got up in the morning.
+    assert!(lee.has(|m| matches!(m, ServerMessage::Sleeping { bed: Some(b) } if *b == foot)));
+    assert!(lee.has(|m| matches!(m, ServerMessage::Sleeping { bed: None })));
 
     // ---- Breaking the door's bottom takes its top too.
     lee.received.clear();

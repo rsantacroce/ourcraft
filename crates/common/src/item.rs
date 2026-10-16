@@ -83,6 +83,18 @@ impl ItemDef {
         }
     }
 
+    /// An item from a mod.
+    pub fn from_spec(spec: &ourcraft_mod_api::ItemSpec) -> Self {
+        Self {
+            max_stack: spec.max_stack.clamp(1, 64),
+            food: spec.food.min(20),
+            heals: spec.heals.min(20),
+            fuel: spec.fuel.clamp(0.0, 600.0),
+            smelts_into: spec.smelts_into.clone(),
+            ..Self::material(&spec.name, &spec.display_name)
+        }
+    }
+
     pub fn block(&self) -> Option<BlockId> {
         match self.kind {
             ItemKind::Block(b) if !b.is_air() => Some(b),
@@ -142,6 +154,18 @@ fn builtin_items() -> Vec<ItemDef> {
         ItemDef {
             food: 4,
             ..ItemDef::material("core:apple", "Apple")
+        },
+        ItemDef {
+            max_stack: 16,
+            ..ItemDef::material("core:bucket", "Bucket")
+        },
+        ItemDef {
+            max_stack: 1,
+            ..ItemDef::material("core:water_bucket", "Water Bucket")
+        },
+        ItemDef {
+            max_stack: 1,
+            ..ItemDef::material("core:lava_bucket", "Lava Bucket")
         },
         // ---- Milestone 15: food ----
         ItemDef {

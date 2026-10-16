@@ -41,6 +41,7 @@ impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<BlockEditRequest>()
             .init_resource::<Target>()
+            .init_resource::<SourceTarget>()
             .init_resource::<TargetMob>()
             .init_resource::<BreakProgress>()
             .insert_resource(PlayerInventory(creative_hotbar()))
@@ -75,6 +76,10 @@ pub struct BlockEditRequest {
 /// The block under the crosshair, if any.
 #[derive(Resource, Default, Debug)]
 pub struct Target(pub Option<RayHit>);
+
+/// Like [`Target`], but still water and lava count too (for buckets).
+#[derive(Resource, Default, Debug)]
+pub struct SourceTarget(pub Option<RayHit>);
 
 /// The animal under the crosshair (when it's nearer than any block), and
 /// where its feet are.
@@ -131,6 +136,7 @@ fn update_target(
     player: Single<&Player>,
     mobs: Query<(&crate::entities::Mob, &Transform)>,
     mut target: ResMut<Target>,
+    mut source: ResMut<SourceTarget>,
     mut target_mob: ResMut<TargetMob>,
 ) {
     // Use the up-to-date look direction (the camera transform may lag a
@@ -138,6 +144,8 @@ fn update_target(
     let origin = camera.translation();
     let dir = player.look_direction();
     target.0 = raycast(&world.0, &blocks.0, origin, dir, REACH);
+    source.0 = ourcraft_common::raycast::raycast_sources(&world.0, &blocks.0, origin, dir, REACH)
+        .filter(|h| blocks.0.is_fluid_source(h.id));
     let block_dist = target
         .0
         .and_then(|h| Aabb::block(h.block).ray_hit(origin, dir, REACH))
@@ -225,7 +233,15 @@ fn use_blocks(
     use ourcraft_common::shapes::VariantKind;
     let opened = match (usable(&registry.0, hit.id), registry.0.variant_kind(hit.id)) {
         (false, _) => return,
-        (_, Some(VariantKind::Door | VariantKind::Trapdoor | VariantKind::Bed)) => {
+        (
+            _,
+            Some(
+                VariantKind::Door
+                | VariantKind::Trapdoor
+                | VariantKind::FenceGate
+                | VariantKind::Bed,
+            ),
+        ) => {
             conn.send(Channel::Reliable, &ClientMessage::UseBlock { pos });
             return;
         }
@@ -251,7 +267,7 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
         || registry.get(id).name == "core:chest"
         || matches!(
             registry.variant_kind(id),
-            Some(K::Door | K::Trapdoor | K::Bed | K::Sign | K::WallSign)
+            Some(K::Door | K::Trapdoor | K::FenceGate | K::Bed | K::Sign | K::WallSign)
         )
 }
 
@@ -260,13 +276,16 @@ fn break_and_place(
     time: Res<Time>,
     actions: Res<Actions>,
     target: Res<Target>,
+    source: Res<SourceTarget>,
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
     items: Res<Items>,
     mode: Res<GameMode>,
-    rules: Res<crate::gamemode::Rules>,
-    tools: Res<crate::gamemode::ToolHotbar>,
-    focus: Res<UiFocus>,
+    (rules, tools, focus): (
+        Res<crate::gamemode::Rules>,
+        Res<crate::gamemode::ToolHotbar>,
+        Res<UiFocus>,
+    ),
     player: Single<&Player>,
     mut inventory: ResMut<PlayerInventory>,
     mut progress: ResMut<BreakProgress>,
@@ -290,8 +309,33 @@ fn break_and_place(
         *cooldown = 0.0; // releasing the button allows an instant next click
         return;
     }
-    let Some(hit) = target.0 else { return };
     let held = inventory.held();
+    if actions.place_block && !actions.break_block && *cooldown <= 0.0 {
+        let bucket = use_bucket(
+            held.map(|h| items.name(h)).unwrap_or(""),
+            target.0,
+            source.0,
+            &world,
+            &blocks.0,
+            &items,
+            &mut inventory,
+            survival,
+        );
+        if let Some(edit) = bucket {
+            edits.write(BlockEditRequest {
+                pos: edit.0,
+                block: edit.1,
+                held: held.unwrap_or(ItemId::NONE),
+            });
+            sounds.write(crate::audio::PlaySound {
+                name: "splat".into(),
+                at: Some(edit.0.as_vec3() + Vec3::splat(0.5)),
+            });
+            *cooldown = REPEAT_DELAY;
+            return;
+        }
+    }
+    let Some(hit) = target.0 else { return };
 
     if actions.pick_block && !survival {
         let selected = inventory.selected;
@@ -373,6 +417,54 @@ fn break_and_place(
             *cooldown = REPEAT_DELAY;
         }
     }
+}
+
+/// Scooping up water or lava with a bucket, or pouring it out: the block
+/// to change, if the held item is a bucket and there's something to do.
+#[allow(clippy::too_many_arguments)]
+fn use_bucket(
+    held: &str,
+    target: Option<RayHit>,
+    source: Option<RayHit>,
+    world: &ClientWorld,
+    blocks: &ourcraft_common::block::BlockRegistry,
+    items: &Items,
+    inventory: &mut PlayerInventory,
+    survival: bool,
+) -> Option<(IVec3, BlockId)> {
+    let filled = |family: &str| match family {
+        "core:water" => Some("core:water_bucket"),
+        "core:lava" => Some("core:lava_bucket"),
+        _ => None,
+    };
+    if held == "core:bucket" {
+        let hit = source?;
+        let full = filled(&blocks.fluid(hit.id)?.family).and_then(|n| items.by_name(n))?;
+        if survival && !inventory.exchange_selected(items, full) {
+            return None;
+        }
+        return Some((hit.block, BlockId::AIR));
+    }
+    let family = match held {
+        "core:water_bucket" => "core:water",
+        "core:lava_bucket" => "core:lava",
+        _ => return None,
+    };
+    let hit = target?;
+    if usable(blocks, hit.id) {
+        return None;
+    }
+    let pos = hit.block + hit.normal;
+    let existing = world.block(pos.x, pos.y, pos.z);
+    if !(existing.is_air() || blocks.is_replaceable(existing)) {
+        return None;
+    }
+    let block = blocks.fluid_source(family)?;
+    if survival {
+        let empty = items.by_name("core:bucket")?;
+        inventory.exchange_selected(items, empty);
+    }
+    Some((pos, block))
 }
 
 /// Holding a game-mode tool: clicking uses it (left = main, right =

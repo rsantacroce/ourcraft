@@ -5,7 +5,9 @@
 //! The client draws it from its kind's definition.
 //!
 //! Animals appear on their own on grass around players, and quietly go
-//! away when everyone is far off; they aren't saved.
+//! away when everyone is far off. Once a player looks after one (pets,
+//! feeds or shears it), or it's born or summoned, it's *kept*: it stays,
+//! and it's saved with the world.
 
 use std::collections::HashMap;
 
@@ -15,6 +17,7 @@ use ourcraft_common::inventory::ItemStack;
 use ourcraft_common::item::ItemId;
 use ourcraft_common::mobs::{MobDef, mob_model, parse_mob_model};
 use ourcraft_common::protocol::{Channel, ClientMessage, NetStack, ServerMessage};
+use ourcraft_common::save::SavedAnimal;
 use ourcraft_common::world::WORLD_HEIGHT;
 use ourcraft_mod_api::{EffectKind, EntityMotion};
 
@@ -26,8 +29,10 @@ use crate::world::{OpenWorld, Registry, ServerWorld};
 /// Animals wanted within [`NEAR`] blocks of each player.
 const WANTED_NEAR_PLAYER: usize = 8;
 const NEAR: f32 = 48.0;
-/// At most this many animals in the whole world.
+/// At most this many wild animals in the whole world.
 const MAX_MOBS: usize = 60;
+/// Kept animals stop having babies beyond this (so the server stays quick).
+const MAX_KEPT: usize = 200;
 /// Natural animals further than this from everyone go away.
 const DESPAWN: f32 = 96.0;
 const GRAVITY: f32 = 20.0;
@@ -63,6 +68,7 @@ impl Plugin for MobsPlugin {
                     monsters,
                     life_events,
                     despawn_far,
+                    remember_kept,
                 )
                     .chain()
                     .after(crate::players::PlayersSet),
@@ -149,6 +155,12 @@ impl MobState {
 
     fn model(&self) -> String {
         mob_model(&self.kind, self.baby_for > 0.0, self.sheared_for > 0.0)
+    }
+
+    /// Saved with the world: looked after by a player (not wild), and not
+    /// a monster.
+    fn kept(&self, open: &OpenWorld) -> bool {
+        !self.natural && def(open, &self.kind).is_some_and(|d| d.hostile.is_none())
     }
 }
 
@@ -263,6 +275,9 @@ fn use_mobs(
         let Some(kind) = def(&open, &state.kind) else {
             continue;
         };
+        if kind.hostile.is_none() {
+            state.natural = false;
+        }
         let held = ItemId(*held);
         let held_name = open.items.name(held);
         let mut sound = None;
@@ -348,6 +363,51 @@ fn ground(world: &ServerWorld, registry: &Registry, x: i32, z: i32) -> Option<(i
         .filter(|(_, b)| registry.0.is_solid(*b))
 }
 
+/// Monsters only appear where the light from torches and lamps is below
+/// this (0–15).
+const DARK_ENOUGH: u8 = 7;
+
+/// About how much light torches, lamps and lava give a spot: the
+/// brightest one nearby, one level less per block away (walls aren't
+/// counted, so it's never darker than the player sees).
+fn block_light(world: &ServerWorld, registry: &Registry, at: IVec3) -> u8 {
+    const R: i32 = 14;
+    let mut best = 0u8;
+    for dy in -R..=R {
+        for dz in -R..=R {
+            let left = R - dy.abs() - dz.abs();
+            if left < 0 {
+                continue;
+            }
+            for dx in -left..=left {
+                let p = at + IVec3::new(dx, dy, dz);
+                let Some(b) = world.get_block(p.x, p.y, p.z) else {
+                    continue;
+                };
+                let emit = registry.0.get(b).light;
+                let dist = (dx.abs() + dy.abs() + dz.abs()) as u8;
+                best = best.max(emit.saturating_sub(dist));
+            }
+        }
+    }
+    best
+}
+
+/// Somewhere to stand in a cave near height `y`: air with room for a
+/// monster, solid floor, and rock overhead. Returns the y of the feet.
+fn cave_floor(world: &ServerWorld, registry: &Registry, x: i32, y: i32, z: i32) -> Option<i32> {
+    let solid = |y: i32| {
+        world
+            .get_block(x, y, z)
+            .is_some_and(|b| registry.0.is_solid(b))
+    };
+    let air = |y: i32| world.get_block(x, y, z).is_some_and(|b| b.is_air());
+    let top = ground(world, registry, x, z)?.0;
+    (y - 10..=y + 6)
+        .rev()
+        .find(|&f| f < top && solid(f - 1) && air(f) && air(f + 1))
+}
+
 /// Keep a few animals around every player.
 #[allow(clippy::too_many_arguments)]
 fn spawn_naturally(
@@ -381,7 +441,7 @@ fn spawn_naturally(
             .0
             .insert(id, MobState::new(&name, false, baby, &mut rng));
     }
-    if states.0.len() >= MAX_MOBS {
+    if states.0.values().filter(|s| s.natural).count() >= MAX_MOBS {
         return;
     }
     for p in players.iter().filter(|p| p.name.is_some()) {
@@ -548,7 +608,8 @@ fn think(
         }
     }
 
-    for (kind, at, a, b) in babies {
+    let kept = states.0.values().filter(|s| !s.natural).count();
+    for (kind, at, a, b) in babies.into_iter().take(MAX_KEPT.saturating_sub(kept)) {
         for parent in [a, b] {
             if let Some(s) = states.0.get_mut(&parent) {
                 s.love = 0.0;
@@ -558,7 +619,7 @@ fn think(
         let id = spawn_mob(&mut entities, &kind, at, true);
         states
             .0
-            .insert(id, MobState::new(&kind, true, true, &mut rng));
+            .insert(id, MobState::new(&kind, false, true, &mut rng));
         net.broadcast(
             Channel::Reliable,
             &ServerMessage::Effect {
@@ -802,7 +863,7 @@ fn monsters(
 ) {
     let dt = time.delta_secs();
     let night = crate::building::is_night(open.time_of_day());
-    let allowed = night && !open.peaceful && open.meta.game_mode.is_none();
+    let allowed = !open.peaceful && open.meta.game_mode.is_none();
     let is_monster = |s: &MobState| def(&open, &s.kind).is_some_and(|d| d.hostile.is_some());
 
     // Bonks.
@@ -845,12 +906,20 @@ fn monsters(
     }
     *timer = 0.0;
 
-    // Morning (or peaceful): monsters puff away, a few at a time.
-    if !allowed {
+    // Morning: monsters under the open sky puff away, a few at a time
+    // (in peaceful, all of them). Cave monsters stay in their caves.
+    let open_sky = |p: Vec3| {
+        let b = p.floor().as_ivec3();
+        ground(&world, &registry, b.x, b.z).is_none_or(|(y, _)| y < b.y)
+    };
+    if !allowed || !night {
         let leaving: Vec<u64> = states
             .0
             .iter()
             .filter(|(_, s)| is_monster(s))
+            .filter(|(id, _)| {
+                !allowed || entities.list.get(id).is_none_or(|e| open_sky(e.position))
+            })
             .map(|(id, _)| *id)
             .collect();
         for id in leaving {
@@ -870,10 +939,13 @@ fn monsters(
             }
             entities.remove(id);
         }
-        return;
+        if !allowed {
+            return;
+        }
     }
 
-    // Night: a few around each survival player.
+    // A few around each survival player: on the surface at night, and in
+    // dark caves any time. Never where torches or lamps light things up.
     let kinds: Vec<String> = open
         .mobs
         .iter()
@@ -896,19 +968,35 @@ fn monsters(
             .filter_map(|(id, _)| entities.list.get(id))
             .filter(|e| e.position.distance(me) < NEAR)
             .count();
-        if near >= MONSTERS_NEAR_PLAYER || states.0.len() >= MAX_MOBS {
+        let wild = states.0.values().filter(|s| s.natural).count();
+        if near >= MONSTERS_NEAR_PLAYER || wild >= MAX_MOBS {
             continue;
         }
         let angle = rng.range(0.0, std::f32::consts::TAU);
-        let dist = rng.range(16.0, 30.0);
+        let in_cave = !open_sky(me + Vec3::Y);
+        let dist = if in_cave {
+            rng.range(10.0, 22.0)
+        } else {
+            rng.range(16.0, 30.0)
+        };
         let x = (me.x + angle.cos() * dist).floor() as i32;
         let z = (me.z + angle.sin() * dist).floor() as i32;
-        let Some((y, top)) = ground(&world, &registry, x, z) else {
+        let spot = if in_cave {
+            cave_floor(&world, &registry, x, me.y.floor() as i32, z)
+        } else if night {
+            ground(&world, &registry, x, z)
+                .filter(|(_, top)| !registry.0.is_liquid(*top))
+                .map(|(y, _)| y + 1)
+        } else {
+            None
+        };
+        let Some(y) = spot else {
             continue;
         };
-        if registry.0.is_liquid(top) {
+        if block_light(&world, &registry, IVec3::new(x, y, z)) >= DARK_ENOUGH {
             continue;
         }
+        let y = y - 1;
         let kind = kinds[rng.next() as usize % kinds.len()].clone();
         let at = Vec3::new(x as f32 + 0.5, y as f32 + 1.0, z as f32 + 0.5);
         let id = spawn_mob(&mut entities, &kind, at, false);
@@ -968,7 +1056,13 @@ fn life_events(
             s.egg_in -= dt;
             if s.egg_in <= 0.0 {
                 s.egg_in = rng.range(60.0, 150.0);
-                eggs.push((e.position, item));
+                // Only where someone might find them.
+                if players
+                    .iter()
+                    .any(|p| p.position().distance(e.position) < NEAR)
+                {
+                    eggs.push((e.position, item));
+                }
             }
         }
         s.noise_in -= dt;
@@ -997,6 +1091,68 @@ fn life_events(
             },
         );
     }
+}
+
+/// Bring back the animals saved with the world (once), then keep the list
+/// to save up to date.
+fn remember_kept(
+    mut open: ResMut<OpenWorld>,
+    mut entities: ResMut<Entities>,
+    mut states: ResMut<MobStates>,
+    mut rng: ResMut<Rng>,
+    mut loaded: Local<bool>,
+    mut missing: Local<Vec<SavedAnimal>>,
+    mut timer: Local<u32>,
+) {
+    if !*loaded {
+        *loaded = true;
+        for a in &open.animals {
+            // Kinds from a mod that's gone stay in the file, in case it
+            // comes back.
+            if def(&open, &a.kind).is_none() {
+                missing.push(a.clone());
+                continue;
+            }
+            let mut state = MobState::new(&a.kind, false, false, &mut rng);
+            state.baby_for = a.baby_for.max(0.0);
+            state.sheared_for = a.sheared_for.max(0.0);
+            let id = entities.spawn(ServerEntity {
+                model: state.model(),
+                position: Vec3::from_array(a.position),
+                velocity: Vec3::ZERO,
+                motion: EntityMotion::Fixed,
+                lifetime: 0.0,
+                age: 0.0,
+                owner: None,
+                moved: true,
+                item: None,
+                yaw: a.yaw,
+            });
+            states.0.insert(id, state);
+        }
+        return;
+    }
+    *timer += 1;
+    if !(*timer).is_multiple_of(10) {
+        return;
+    }
+    let mut list: Vec<SavedAnimal> = states
+        .0
+        .iter()
+        .filter(|(_, s)| s.kept(&open))
+        .filter_map(|(id, s)| {
+            let e = entities.list.get(id)?;
+            Some(SavedAnimal {
+                kind: s.kind.clone(),
+                position: e.position.to_array(),
+                yaw: e.yaw,
+                baby_for: s.baby_for,
+                sheared_for: s.sheared_for,
+            })
+        })
+        .collect();
+    list.extend(missing.iter().cloned());
+    open.bypass_change_detection().animals = list;
 }
 
 /// Animals that appeared on their own go away when nobody is near.

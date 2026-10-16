@@ -21,7 +21,7 @@ impl Plugin for EntitiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Models>()
             .init_resource::<EntityMap>()
-            .init_resource::<MobShading>()
+            .init_resource::<LitVariants>()
             .insert_resource(MobDefs(
                 ourcraft_common::mobs::builtin_mobs()
                     .into_iter()
@@ -37,7 +37,7 @@ impl Plugin for EntitiesPlugin {
                     animate_legs,
                     bob_items,
                     update_particles,
-                    shade_mobs,
+                    light_entities,
                 )
                     .chain(),
             )
@@ -105,33 +105,104 @@ struct PartLook {
     /// For legs: from the hip down to the box centre.
     hang: Vec3,
     swing: f32,
-    /// Colour in full daylight.
-    color: Color,
 }
 
-/// Animal materials and their daylight colours, darkened at night.
-#[derive(Resource, Default)]
-struct MobShading(Vec<(Handle<StandardMaterial>, Color)>);
+/// How brightly an entity is lit where it stands (like the terrain
+/// around it: darker at night, in caves and under roofs, warm near
+/// torches). Brightness steps go from 0 (darkest) to [`LIGHT_STEPS`].
+#[derive(Component, Default)]
+struct EntityLight {
+    step: Option<u8>,
+    /// Seconds until it's worked out again.
+    next: f32,
+}
 
-fn shade_mobs(
+const LIGHT_STEPS: u8 = 16;
+
+/// A box of an entity, drawn with `base` made brighter or darker.
+#[derive(Component)]
+struct Lit(Handle<StandardMaterial>);
+
+/// Darker and lighter copies of each entity material, by brightness step.
+#[derive(Resource, Default)]
+struct LitVariants(HashMap<(AssetId<StandardMaterial>, u8), Handle<StandardMaterial>>);
+
+/// Brightness (0–1) for sky and block light levels, like the terrain
+/// shader (`voxel.wgsl`).
+fn brightness(sky: u8, block: u8, daylight: f32) -> f32 {
+    let level = |l: u8| 0.82f32.powf(15.0 - l as f32);
+    (level(sky) * daylight.max(0.12))
+        .max(level(block))
+        .max(0.06)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn light_entities(
+    time: Res<Time>,
     tod: Res<crate::sky::TimeOfDay>,
-    shading: Res<MobShading>,
+    world: Res<crate::world::ClientWorld>,
+    streaming: Res<crate::world::ChunkStreaming>,
+    blocks: Res<crate::world::Blocks>,
+    mut roots: Query<(Entity, &Transform, &mut EntityLight)>,
+    mut parts: Query<(&Lit, &mut MeshMaterial3d<StandardMaterial>, &ChildOf)>,
+    parents: Query<&ChildOf>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut variants: ResMut<LitVariants>,
 ) {
-    if !tod.is_changed() && !shading.is_changed() {
+    let dt = time.delta_secs();
+    let mut changed: HashMap<Entity, u8> = HashMap::new();
+    for (e, t, mut light) in &mut roots {
+        light.next -= dt;
+        if light.next > 0.0 && light.step.is_some() {
+            continue;
+        }
+        light.next = 0.4;
+        let at = t.translation + Vec3::Y * 0.4;
+        let (sky, block) = crate::light::light_near(&world.0, &streaming, &blocks.0, at);
+        let b = brightness(sky, block, tod.daylight());
+        let step = (b * LIGHT_STEPS as f32).round() as u8;
+        if light.step != Some(step) {
+            light.step = Some(step);
+            changed.insert(e, step);
+        }
+    }
+    if changed.is_empty() {
         return;
     }
-    let light = tod.daylight().max(0.3);
-    for (handle, base) in &shading.0 {
-        if let Some(mut m) = materials.get_mut(handle) {
-            let c = base.to_linear();
-            m.base_color = Color::LinearRgba(LinearRgba::new(
-                c.red * light,
-                c.green * light,
-                c.blue * light,
-                1.0,
-            ));
+    for (lit, mut material, child_of) in &mut parts {
+        // Parts hang off the entity directly, or off a leg.
+        let mut up = child_of.parent();
+        let mut step = changed.get(&up);
+        if step.is_none()
+            && let Ok(c) = parents.get(up)
+        {
+            up = c.parent();
+            step = changed.get(&up);
         }
+        let Some(&step) = step else { continue };
+        let key = (lit.0.id(), step);
+        let handle = match variants.0.get(&key) {
+            Some(h) => h.clone(),
+            None => {
+                let Some(base) = materials.get(&lit.0).cloned() else {
+                    continue;
+                };
+                let f = step as f32 / LIGHT_STEPS as f32;
+                let c = base.base_color.to_linear();
+                let h = materials.add(StandardMaterial {
+                    base_color: Color::LinearRgba(LinearRgba::new(
+                        c.red * f,
+                        c.green * f,
+                        c.blue * f,
+                        c.alpha,
+                    )),
+                    ..base
+                });
+                variants.0.insert(key, h.clone());
+                h
+            }
+        };
+        material.0 = handle;
     }
 }
 
@@ -192,11 +263,11 @@ fn mob_look(
                 mesh: meshes.add(shaded_cuboid(size)),
                 material: materials.add(StandardMaterial {
                     base_color: color(rgba),
-                    // No lights in our world: shaded by hand (`shade_mobs`).
+                    // No lights in our world: shaded by hand
+                    // (`light_entities`).
                     unlit: true,
                     ..default()
                 }),
-                color: color(rgba),
                 at,
                 hang,
                 swing: p.leg,
@@ -303,7 +374,7 @@ struct ItemLooks<'w, 's> {
     cache: Local<'s, HashMap<ItemId, (Handle<Mesh>, Handle<StandardMaterial>)>>,
     mobs: ResMut<'w, MobDefs>,
     mob_cache: Local<'s, HashMap<(String, bool), Vec<PartLook>>>,
-    shading: ResMut<'w, MobShading>,
+    variants: ResMut<'w, LitVariants>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -330,7 +401,7 @@ fn handle_messages(
                 }
                 looks.cache.clear();
                 looks.mob_cache.clear();
-                looks.shading.0.clear();
+                looks.variants.0.clear();
                 looks.mobs.0 = content
                     .mobs
                     .iter()
@@ -370,19 +441,13 @@ fn handle_messages(
                     let parts = looks
                         .mob_cache
                         .entry((name.to_owned(), sheared))
-                        .or_insert_with(|| {
-                            let look = mob_look(&def, sheared, &mut meshes, &mut materials);
-                            looks
-                                .shading
-                                .0
-                                .extend(look.iter().map(|p| (p.material.clone(), p.color)));
-                            look
-                        })
+                        .or_insert_with(|| mob_look(&def, sheared, &mut meshes, &mut materials))
                         .clone();
                     let scale = if baby { BABY_SCALE } else { 1.0 };
                     let e = commands
                         .spawn((
                             new_net(None, Vec3::ZERO, false),
+                            EntityLight::default(),
                             Mob {
                                 id: *id,
                                 kind: name.to_owned(),
@@ -406,12 +471,14 @@ fn handle_messages(
                                         ))
                                         .with_child((
                                             Mesh3d(p.mesh),
+                                            Lit(p.material.clone()),
                                             MeshMaterial3d(p.material),
                                             Transform::from_translation(p.hang),
                                         ));
                                 } else {
                                     parent.spawn((
                                         Mesh3d(p.mesh),
+                                        Lit(p.material.clone()),
                                         MeshMaterial3d(p.material),
                                         Transform::from_translation(p.at),
                                     ));
@@ -450,11 +517,13 @@ fn handle_messages(
                     let e = commands
                         .spawn((
                             new_net(None, Vec3::ZERO, true),
+                            EntityLight::default(),
                             Transform::from_translation(pos),
                             Visibility::Inherited,
                         ))
                         .with_child((
                             Mesh3d(mesh),
+                            Lit(material.clone()),
                             MeshMaterial3d(material),
                             Transform::default(),
                             ItemBob,
@@ -473,6 +542,7 @@ fn handle_messages(
                             Vec3::from_array(*velocity),
                             spec.is_some_and(|s| s.spin),
                         ),
+                        EntityLight::default(),
                         Transform::from_translation(pos),
                         Visibility::Inherited,
                     ))
@@ -492,13 +562,15 @@ fn handle_messages(
                         for b in &spec.boxes {
                             let (min, max) = (Vec3::from_array(b.min), Vec3::from_array(b.max));
                             let size = (max - min).abs().max(Vec3::splat(0.01));
+                            let material = materials.add(StandardMaterial {
+                                base_color: color(b.color),
+                                unlit: true,
+                                ..default()
+                            });
                             parent.spawn((
                                 Mesh3d(meshes.add(Cuboid::from_size(size))),
-                                MeshMaterial3d(materials.add(StandardMaterial {
-                                    base_color: color(b.color),
-                                    unlit: true,
-                                    ..default()
-                                })),
+                                Lit(material.clone()),
+                                MeshMaterial3d(material),
                                 Transform::from_translation((min + max) / 2.0),
                             ));
                         }

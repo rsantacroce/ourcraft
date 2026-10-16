@@ -362,7 +362,9 @@ fn eat(
     let using = target
         .0
         .is_some_and(|h| crate::interaction::usable(&blocks.0, h.id));
-    let wants = actions.place_block && !focus.gameplay_blocked() && vitals.shown() && !using;
+    let wants = (actions.eat || actions.place_block && !using)
+        && !focus.gameplay_blocked()
+        && vitals.shown();
     let Some((item, nutrition, heals)) = food.filter(|_| wants) else {
         *held_for = 0.0;
         return;
