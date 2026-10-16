@@ -364,7 +364,11 @@ fn use_blocks(
             );
             return;
         }
-        _ if registry.0.get(hit.id).name == "core:note_block" => {
+        _ if matches!(
+            registry.0.get(hit.id).name.as_str(),
+            "core:note_block" | "core:wish_table"
+        ) =>
+        {
             conn.send(
                 Channel::Reliable,
                 &ClientMessage::UseBlock { pos, held: held.0 },
@@ -372,6 +376,8 @@ fn use_blocks(
             return;
         }
         _ if hit.id == blocks::CRAFTING_TABLE => OpenScreen::CraftingTable,
+        // A lectern's book is written like a sign.
+        _ if registry.0.get(hit.id).name == "core:lectern" => OpenScreen::Sign(hit.block),
         // Campfires only take food, pots plants (see above).
         _ if matches!(
             registry.0.get(hit.id).name.as_str(),
@@ -428,11 +434,20 @@ pub fn used_in_place(
         .variant
         .as_ref()
         .is_some_and(|v| v.family == "core:item_frame");
+    // A dye adds a pattern to a banner; shears snip them off.
+    let banner = matches!(
+        registry.variant_kind(id),
+        Some(
+            ourcraft_common::shapes::VariantKind::Banner
+                | ourcraft_common::shapes::VariantKind::WallBanner
+        )
+    ) && (ourcraft_common::colours::dye_colour(held).is_some()
+        || held == "core:shears");
     let honey = held == "core:bowl"
         && registry
             .stage(id)
             .is_some_and(|s| s.kind == StageKind::Hive && s.stage == s.max);
-    stepped || feeds || potting || frame || honey
+    stepped || feeds || potting || frame || honey || banner
 }
 
 /// Blocks that do something when you use them (instead of having a block
@@ -451,6 +466,7 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
                 | "core:flower_pot"
                 | "core:note_block"
                 | "core:wish_table"
+                | "core:lectern"
         )
         || registry
             .get(id)
@@ -469,6 +485,7 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
                     | K::Bed
                     | K::Sign
                     | K::WallSign
+                    | K::Dispenser
                     | K::Lever
                     | K::Button
             )

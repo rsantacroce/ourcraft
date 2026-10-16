@@ -960,6 +960,7 @@ fn rebuild_screen(
         OpenScreen::CraftingTable => "Crafting Table",
         OpenScreen::Container(_) => match furnace.0.as_ref().map(|v| v.kind) {
             Some(ContainerKind::Chest) => "Chest",
+            Some(ContainerKind::BigChest) => "Big Chest",
             _ => "Furnace",
         },
         OpenScreen::Sign(_) => "Sign",
@@ -1062,7 +1063,7 @@ fn rebuild_screen(
                             });
                     } else if let OpenScreen::Container(_) = *screen {
                         match furnace.0.as_ref().map(|v| v.kind) {
-                            Some(ContainerKind::Chest) => {
+                            Some(ContainerKind::Chest | ContainerKind::BigChest) => {
                                 spawn_chest(panel, &furnace, &icons, &items)
                             }
                             _ => spawn_furnace(panel, &furnace, &icons, &items),

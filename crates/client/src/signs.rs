@@ -46,6 +46,8 @@ struct SignTexts {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Writing {
     Sign(IVec3),
+    /// The book on a lectern.
+    Book(IVec3),
     Name(u64),
 }
 
@@ -53,6 +55,7 @@ impl Writing {
     fn lines(self) -> usize {
         match self {
             Writing::Sign(_) => SIGN_LINES,
+            Writing::Book(_) => ourcraft_common::protocol::BOOK_LINES,
             Writing::Name(_) => 1,
         }
     }
@@ -60,6 +63,7 @@ impl Writing {
     fn line_len(self) -> usize {
         match self {
             Writing::Sign(_) => SIGN_LINE_LEN,
+            Writing::Book(_) => ourcraft_common::protocol::BOOK_LINE_LEN,
             Writing::Name(_) => ourcraft_common::mobs::PET_NAME_LEN,
         }
     }
@@ -338,13 +342,20 @@ fn edit_signs(
     lines: Query<(&EditorLine, &ComputedNode, &UiGlobalTransform)>,
     mut focus: ResMut<UiFocus>,
     screen: Res<OpenScreen>,
-    signs: Res<SignTexts>,
+    (signs, world, blocks): (Res<SignTexts>, Res<ClientWorld>, Res<Blocks>),
     mobs: Query<&crate::entities::Mob>,
     mut editor: ResMut<SignEditor>,
     conn: Option<ResMut<Connection>>,
 ) {
     let open = match *screen {
-        OpenScreen::Sign(pos) if focus.inventory_open => Some(Writing::Sign(pos)),
+        OpenScreen::Sign(pos) if focus.inventory_open => {
+            let lectern = blocks.0.get(world.block(pos.x, pos.y, pos.z)).name == "core:lectern";
+            Some(if lectern {
+                Writing::Book(pos)
+            } else {
+                Writing::Sign(pos)
+            })
+        }
         OpenScreen::NameTag(id) if focus.inventory_open => Some(Writing::Name(id)),
         _ => None,
     };
@@ -352,7 +363,9 @@ fn edit_signs(
         // Just opened: start from what it says now.
         if let Some(w) = open {
             editor.lines = match w {
-                Writing::Sign(pos) => signs.lines.get(&pos).cloned().unwrap_or_default(),
+                Writing::Sign(pos) | Writing::Book(pos) => {
+                    signs.lines.get(&pos).cloned().unwrap_or_default()
+                }
                 Writing::Name(id) => mobs
                     .iter()
                     .find(|m| m.id == id)
@@ -412,7 +425,7 @@ fn edit_signs(
     if done {
         if let Some(mut conn) = conn {
             let msg = match writing {
-                Writing::Sign(pos) => ClientMessage::SetSign {
+                Writing::Sign(pos) | Writing::Book(pos) => ClientMessage::SetSign {
                     pos: pos.to_array(),
                     lines: editor.lines.clone(),
                 },
@@ -522,6 +535,7 @@ fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
                 .with_children(|board| {
                     let title = match editor.pos {
                         Some(Writing::Name(_)) => "Give your animal a name",
+                        Some(Writing::Book(_)) => "Write in the book",
                         _ => "Write on the sign",
                     };
                     board.spawn((Text::new(title), TextFont::from_font_size(18.0)));

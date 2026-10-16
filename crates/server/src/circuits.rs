@@ -227,7 +227,8 @@ fn pressure_plates(
 /// Work out the power around everything that changed, and switch things.
 #[allow(clippy::too_many_arguments)]
 fn recompute(
-    open: Res<OpenWorld>,
+    mut open: ResMut<OpenWorld>,
+    mut entities: ResMut<crate::entities::Entities>,
     registry: Res<Registry>,
     mut world: ResMut<ServerWorld>,
     mut cache: ResMut<ColumnCache>,
@@ -246,11 +247,15 @@ fn recompute(
     // ---- Trace the wire (and repeaters) touching the changes. ----
     let mut net_nodes: HashSet<IVec3> = HashSet::new();
     let mut queue: VecDeque<IVec3> = VecDeque::new();
+    // Wire up to two steps away: a lamp beside a moved piston head is
+    // powered by wire on its other side, and must see it.
     for s in &starts {
         for d in SIDES.iter().copied().chain([IVec3::ZERO]) {
-            let p = *s + d;
-            if carries(get(&world, p)) && net_nodes.insert(p) {
-                queue.push_back(p);
+            for e in SIDES.iter().copied().chain([IVec3::ZERO]) {
+                let p = *s + d + e;
+                if carries(get(&world, p)) && net_nodes.insert(p) {
+                    queue.push_back(p);
+                }
             }
         }
     }
@@ -405,6 +410,14 @@ fn recompute(
                     dirty.0.extend(moved);
                 }
             }
+            Some(VariantKind::Dispenser) => {
+                if let Some(new) = reg.powered(b, powered).filter(|n| *n != b) {
+                    change(&mut world, &mut cache, &open, &mut net, c, new);
+                }
+                if edge && powered {
+                    fire_dispenser(&mut open, &mut entities, &mut net, reg, c, b);
+                }
+            }
             _ if reg.get(b).name == "core:note_block" && edge && powered => {
                 net.broadcast(
                     Channel::Reliable,
@@ -417,6 +430,76 @@ fn recompute(
             _ => {}
         }
     }
+}
+
+/// How fast a dispenser throws things (and shoots arrows).
+const THROW_SPEED: f32 = 6.0;
+const SHOOT_SPEED: f32 = 24.0;
+
+/// A dispenser was powered: out comes the first thing inside, out of
+/// its front. Arrows fly like arrows; everything else is thrown.
+fn fire_dispenser(
+    open: &mut OpenWorld,
+    entities: &mut crate::entities::Entities,
+    net: &mut Network,
+    reg: &ourcraft_common::block::BlockRegistry,
+    at: IVec3,
+    b: BlockId,
+) {
+    let Some(v) = reg.get(b).variant.as_ref() else {
+        return;
+    };
+    let f = IVec3::from_array(v.facing.vector()).as_vec3();
+    let mouth = at.as_vec3() + Vec3::splat(0.5) + f * 0.75;
+    let Some(container) = open.containers.get_mut(&at) else {
+        return;
+    };
+    let Some(slot) = container.slots.iter_mut().find(|s| s.is_some()) else {
+        // Empty: just a click.
+        net.broadcast(
+            Channel::Reliable,
+            &ServerMessage::Sound {
+                name: "click".into(),
+                at: Some(mouth.to_array()),
+            },
+        );
+        return;
+    };
+    let mut stack = slot.expect("found");
+    stack.count -= 1;
+    *slot = (stack.count > 0).then_some(stack);
+    let one = ourcraft_common::inventory::ItemStack { count: 1, ..stack };
+    if open.items.name(one.item) == "core:arrow" {
+        let dir = (f + Vec3::Y * 0.05).normalize();
+        entities.spawn(crate::entities::ServerEntity {
+            model: "@arrow".into(),
+            position: mouth,
+            velocity: dir * SHOOT_SPEED,
+            motion: ourcraft_mod_api::EntityMotion::Projectile {
+                gravity: 16.0,
+                radius: 0.1,
+                hits_players: false,
+            },
+            lifetime: 20.0,
+            age: 0.0,
+            owner: None,
+            moved: true,
+            item: None,
+            yaw: dir.x.atan2(dir.z),
+        });
+    } else {
+        let id = crate::survival::spawn_item(entities, mouth, one);
+        if let Some(e) = entities.list.get_mut(&id) {
+            e.velocity = f * THROW_SPEED + Vec3::Y * 2.0;
+        }
+    }
+    net.broadcast(
+        Channel::Reliable,
+        &ServerMessage::Sound {
+            name: "pop".into(),
+            at: Some(mouth.to_array()),
+        },
+    );
 }
 
 /// Blocks a piston can't push: storage and things with data, and the
@@ -437,6 +520,7 @@ fn immovable(reg: &ourcraft_common::block::BlockRegistry, b: BlockId) -> bool {
                     | VariantKind::PistonHead
                     | VariantKind::Bed
                     | VariantKind::Door
+                    | VariantKind::Dispenser
             )
         )
 }
@@ -456,7 +540,7 @@ fn move_piston(
     let Some(v) = reg.get(piston).variant.clone() else {
         return Vec::new();
     };
-    let f = IVec3::from_array(v.facing.vector());
+    let f = IVec3::from_array(ourcraft_common::circuits::piston_push(&v));
     let get = |w: &ServerWorld, p: IVec3| w.get_block(p.x, p.y, p.z).unwrap_or_default();
     let empty = |b: BlockId| b.is_air() || reg.is_liquid(b) || reg.is_soft(b);
     let sticky = v.family.contains("sticky");
@@ -483,7 +567,7 @@ fn move_piston(
             change(world, cache, open, net, *p + f, *b);
             changed.push(*p + f);
         }
-        let Some(head) = reg.find_variant(head_family, v.facing, false, false) else {
+        let Some(head) = reg.find_variant(head_family, v.facing, false, v.upper) else {
             return changed;
         };
         change(world, cache, open, net, at + f, head);

@@ -176,6 +176,16 @@ pub fn builtin_recipes() -> Vec<Recipe> {
     // ---- Milestone 24: our own magic ----
     r.extend([
         shapeless(&["core:paper", "core:string"], "core:name_tag", 1),
+        shaped(
+            &["CCC", "CBC", "CDC"],
+            &[
+                ('C', "core:cobblestone"),
+                ('B', "core:bow"),
+                ('D', "core:spark_dust"),
+            ],
+            "core:dispenser",
+            1,
+        ),
         shaped(&["G G", " G "], &[('G', "core:glass")], "core:bottle", 3),
         shaped(
             &[" D ", "DGD", " D "],

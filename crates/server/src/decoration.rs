@@ -72,6 +72,42 @@ fn use_decoration(
             take(&mut net);
             continue;
         }
+        // ---- Banners: a dye adds the next pattern in its colour (up to
+        // four), shears snip them all off. ----
+        let banner = matches!(
+            registry.0.variant_kind(b),
+            Some(
+                ourcraft_common::shapes::VariantKind::Banner
+                    | ourcraft_common::shapes::VariantKind::WallBanner
+            )
+        );
+        if banner {
+            let layers = open.banners.entry(pos).or_default();
+            if let Some(colour) = ourcraft_common::colours::dye_colour(&held_name) {
+                if layers.len() >= ourcraft_common::decoration::MAX_LAYERS {
+                    continue;
+                }
+                let pattern = (layers.len() % ourcraft_common::decoration::PATTERNS.len()) as u8;
+                layers.push((pattern, colour));
+                take(&mut net);
+            } else if held_name == "core:shears" && !layers.is_empty() {
+                layers.clear();
+            } else {
+                continue;
+            }
+            let layers = layers.clone();
+            if layers.is_empty() {
+                open.banners.remove(&pos);
+            }
+            net.broadcast(
+                Channel::Reliable,
+                &ServerMessage::BannerPattern {
+                    pos: pos.to_array(),
+                    layers,
+                },
+            );
+            continue;
+        }
         // ---- Item frames: put something in, or take it out. ----
         if registry
             .0

@@ -143,6 +143,7 @@ impl ConnectedPlayer {
             selected: 0,
             creative: self.creative,
             vitals: Some(self.needs.saved()),
+            effects: self.effects,
         };
         save.store_inventory(&self.inventory, items);
         save
@@ -328,6 +329,7 @@ fn handle_messages(
                         if let Some(v) = s.vitals {
                             p.needs = crate::needs::Needs::restore(v);
                         }
+                        p.effects = s.effects.map(|e| e.clamp(0.0, 600.0));
                     }
                     None => {
                         p.creative = open.meta.creative;
@@ -365,6 +367,14 @@ fn handle_messages(
                         players: others,
                     },
                 );
+                // Potions still working from last time.
+                if p.effects != [0.0; 3] {
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Effects { seconds: p.effects },
+                    );
+                }
                 // Where their compass points.
                 let home = open.beds.get(&name).copied().unwrap_or(open.spawn);
                 net.send(
@@ -889,6 +899,21 @@ fn stream_columns(
                     &ServerMessage::SignText {
                         pos: pos.to_array(),
                         lines: lines.clone(),
+                    },
+                );
+            }
+            // And the patterns on its banners.
+            for (pos, layers) in open
+                .banners
+                .iter()
+                .filter(|(pos, _)| ColumnPos::from_block(pos.x, pos.z) == col)
+            {
+                net.send(
+                    p.client,
+                    Channel::Reliable,
+                    &ServerMessage::BannerPattern {
+                        pos: pos.to_array(),
+                        layers: layers.clone(),
                     },
                 );
             }

@@ -94,6 +94,25 @@ pub fn pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
                 planks(x, y)
             }
         }
+        // A dispenser: cobblestone with a dark round mouth.
+        "dispenser_front" => {
+            let d = ((x as f32 - 7.5).powi(2) + (y as f32 - 7.5).powi(2)).sqrt();
+            if d < 3.0 {
+                rgb(24, 24, 28)
+            } else if d < 4.0 {
+                rgb(70, 70, 76)
+            } else {
+                speckle(rgb(122, 122, 128), x, y, 160, 14.0)
+            }
+        }
+        "dispenser_top" => {
+            let edge = x == 0 || y == 0 || x == 15 || y == 15;
+            if edge {
+                rgb(80, 80, 86)
+            } else {
+                speckle(rgb(122, 122, 128), x, y, 161, 14.0)
+            }
+        }
         "note_block" => {
             let note =
                 (cx + 1).abs() <= 1 && (cy - 2).abs() <= 1 || (x == 8 && (3..=9).contains(&y));
@@ -171,6 +190,8 @@ mod tests {
             "spark_lamp_on",
             "piston_side",
             "piston_front",
+            "dispenser_front",
+            "dispenser_top",
             "sticky_piston_front",
             "note_block",
             "rail_ns",

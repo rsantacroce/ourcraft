@@ -176,6 +176,26 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
     set(&mut fay, at(4, y, 1), piston.0, 0);
     // The piston faces east; it pushes from (5, 1) — put a block there.
     set(&mut fay, at(5, y, 1), block("core:cobblestone"), 0);
+    // A dispenser beside the middle wire, facing south, with arrows in.
+    let dispenser = registry
+        .placement(BlockId(block("core:dispenser")), [0, 1, 0], [0.0, 0.0, 1.0])
+        .unwrap()
+        .block;
+    set(&mut fay, at(3, y, 1), dispenser.0, 0);
+    run_until(&mut [&mut fay], 0.5, |_| false);
+    fay.send(&ClientMessage::OpenContainer { pos: at(3, y, 1) });
+    run_until(&mut [&mut fay], 0.3, |_| false);
+    fay.send(&ClientMessage::ContainerClick {
+        slot: 0,
+        cursor: Some(ourcraft_common::protocol::NetStack {
+            item: item("core:arrow"),
+            count: 2,
+            wear: 0,
+        }),
+        secondary: false,
+    });
+    run_until(&mut [&mut fay], 0.3, |_| false);
+    fay.send(&ClientMessage::CloseContainer);
     run_until(&mut [&mut fay], 1.0, |_| false);
     let lit = registry.powered(BlockId(lamp), true).unwrap().0;
 
@@ -196,6 +216,12 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
             block("core:cobblestone")
         )),
         "the piston didn't push"
+    );
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| b[0].has(
+            |m| matches!(m, ServerMessage::EntitySpawned { model, .. } if model == "@arrow")
+        )),
+        "the dispenser didn't shoot"
     );
     // ---- And off again.
     fay.received.clear();
@@ -257,12 +283,23 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
         .unwrap()
         .block;
     set(&mut fay, at(2, y, -1), powered.0, 0);
-    for dx in 3..=8 {
-        let east = registry
-            .placement(BlockId(rail), [0, 1, 0], [1.0, 0.0, 0.0])
-            .unwrap()
-            .block;
+    let east = registry
+        .placement(BlockId(rail), [0, 1, 0], [1.0, 0.0, 0.0])
+        .unwrap()
+        .block;
+    for dx in 3..=6 {
         set(&mut fay, at(dx, y, -1), east.0, 0);
+    }
+    // Then a step up: a block, with the last rails on top.
+    set(&mut fay, at(7, y, -1), stone, 0);
+    set(&mut fay, at(8, y, -1), stone, 0);
+    run_until(&mut [&mut fay], 0.3, |_| false);
+    for dx in 7..=8 {
+        set(&mut fay, at(dx, y + 1, -1), 0, 0);
+    }
+    run_until(&mut [&mut fay], 0.3, |_| false);
+    for dx in 7..=8 {
+        set(&mut fay, at(dx, y + 1, -1), east.0, 0);
     }
     run_until(&mut [&mut fay], 1.0, |_| false);
     fay.received.clear();
@@ -296,6 +333,14 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
                 if list.iter().any(|(e, p, _)| *e == id && p[0] > start_x + 2.0)
         ))),
         "the cart didn't roll"
+    );
+    assert!(
+        run_until(&mut [&mut fay], 4.0, |b| b[0].has(|m| matches!(
+            m,
+            ServerMessage::EntitiesMoved(list)
+                if list.iter().any(|(e, p, _)| *e == id && p[1] > (feet[1] + y + 1) as f32)
+        ))),
+        "the cart didn't climb the step"
     );
 
     stop.0.store(true, Ordering::Relaxed);

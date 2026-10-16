@@ -248,6 +248,33 @@ pub fn register_decoration(reg: &mut BlockRegistry) {
     }
 }
 
+/// Banner patterns, added a layer at a time by using a dye on a banner
+/// (the next pattern each time): (key, display name).
+pub const PATTERNS: [(&str, &str); 6] = [
+    ("stripe", "Stripe"),
+    ("border", "Border"),
+    ("cross", "Cross"),
+    ("dots", "Dots"),
+    ("top", "Top Half"),
+    ("diagonal", "Diagonal"),
+];
+
+/// Most pattern layers on one banner.
+pub const MAX_LAYERS: usize = 4;
+
+/// Is pixel (`x` across, `y` down from the top, both 0–15) of the cloth
+/// painted by this pattern?
+pub fn pattern_covers(pattern: u8, x: usize, y: usize) -> bool {
+    match pattern as usize % PATTERNS.len() {
+        0 => (6..10).contains(&y),
+        1 => !(2..=13).contains(&x) || !(2..=13).contains(&y),
+        2 => (6..10).contains(&x) || (6..10).contains(&y),
+        3 => y % 4 == 1 && (1..=2).contains(&(x % 4)),
+        4 => y < 8,
+        _ => x + y < 16,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

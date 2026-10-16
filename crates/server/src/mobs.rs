@@ -566,7 +566,7 @@ const DARK_ENOUGH: u8 = 7;
 /// About how much light torches, lamps and lava give a spot: the
 /// brightest one nearby, one level less per block away (walls aren't
 /// counted, so it's never darker than the player sees).
-fn block_light(world: &ServerWorld, registry: &Registry, at: IVec3) -> u8 {
+pub(crate) fn block_light(world: &ServerWorld, registry: &Registry, at: IVec3) -> u8 {
     const R: i32 = 14;
     let mut best = 0u8;
     for dy in -R..=R {

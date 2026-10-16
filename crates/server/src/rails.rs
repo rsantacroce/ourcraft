@@ -25,6 +25,8 @@ const PUSH: f32 = 5.0;
 const FRICTION: f32 = 0.8;
 const BOOST: f32 = 14.0;
 const BRAKE: f32 = 12.0;
+/// Speed a cart loses climbing a step of rail (and gains going down).
+const STEP_SPEED: f32 = 1.5;
 
 pub struct RailsPlugin;
 
@@ -243,7 +245,9 @@ fn join_rails(
         if rail {
             todo.push(pos);
             for d in Dir4::ALL {
-                todo.push(pos + IVec3::from_array(d.vector()));
+                for dy in -1..=1 {
+                    todo.push(pos + IVec3::from_array(d.vector()) + IVec3::Y * dy);
+                }
             }
         }
     }
@@ -252,10 +256,15 @@ fn join_rails(
         let Some(v) = reg.get(b).variant.clone().filter(|_| reg.is_rail(b)) else {
             continue;
         };
-        // Which neighbours are rails?
+        // Which neighbours are rails (level, or a step up or down)?
         let near: Vec<Dir4> = Dir4::ALL
             .into_iter()
-            .filter(|d| reg.is_rail(get(&world, p + IVec3::from_array(d.vector()))))
+            .filter(|d| {
+                (-1..=1).any(|dy| {
+                    let q = p + IVec3::from_array(d.vector()) + IVec3::Y * dy;
+                    reg.is_rail(get(&world, q))
+                })
+            })
             .collect();
         let pair = match near.as_slice() {
             [] => continue,
@@ -357,7 +366,25 @@ fn roll_carts(
         }
         let before = e.position;
         let mut next = e.position + cart.dir * cart.speed * dt;
-        let next_cell = next.floor().as_ivec3();
+        let mut next_cell = next.floor().as_ivec3();
+        if next_cell != cell && rail_at(next_cell).is_none() {
+            // Rails a step up or down: up costs speed, down gives some.
+            if rail_at(next_cell + IVec3::Y).is_some() {
+                next_cell += IVec3::Y;
+                next.y += 1.0;
+                cart.speed -= STEP_SPEED;
+            } else if rail_at(next_cell - IVec3::Y).is_some() {
+                next_cell -= IVec3::Y;
+                next.y -= 1.0;
+                cart.speed = (cart.speed + STEP_SPEED).min(MAX_SPEED);
+            }
+            if cart.speed <= 0.0 {
+                // Not fast enough to climb: roll back down.
+                cart.speed = 0.5;
+                cart.dir *= -1.0;
+                continue;
+            }
+        }
         if next_cell != cell {
             match rail_at(next_cell).and_then(|r| reg.rail_ends(r)) {
                 Some(next_ends) => {

@@ -221,6 +221,15 @@ fn grow(
         let Some(stage) = reg.stage(b).cloned() else {
             continue;
         };
+        // Green plants need light: open sky (glass and leaves let it
+        // through), or a torch or lamp close by. Mushrooms don't mind.
+        let needs_light = matches!(
+            stage.kind,
+            StageKind::Crop | StageKind::Stem { .. } | StageKind::Cane | StageKind::Sapling { .. }
+        );
+        if needs_light && !lit(&world, &registry, p) {
+            continue;
+        }
         match stage.kind {
             StageKind::Crop | StageKind::Stem { .. } if stage.stage < stage.max => {
                 let wet = Some(get(&world, p - IVec3::Y)) == farmland_wet;
@@ -272,6 +281,19 @@ fn grow(
             _ => {}
         }
     }
+}
+
+/// Light a plant needs from torches and lamps when it can't see the sky.
+const PLANT_LIGHT: u8 = 9;
+
+/// Can a plant here see the sky, or is there a lamp close enough?
+fn lit(world: &ServerWorld, registry: &Registry, p: IVec3) -> bool {
+    let sky = (p.y + 1..ourcraft_common::world::WORLD_HEIGHT).all(|y| {
+        world
+            .get_block(p.x, y, p.z)
+            .is_none_or(|b| !registry.0.is_opaque(b))
+    });
+    sky || crate::mobs::block_light(world, registry, p) >= PLANT_LIGHT
 }
 
 /// What a composter takes, and one chance in how many it fills a level.

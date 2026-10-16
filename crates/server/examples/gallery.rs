@@ -159,6 +159,8 @@ fn main() {
             || name == "core:air"
     };
     let (mut walls, mut garden) = (0usize, 0usize);
+    // Banners get a few patterns painted on at the end.
+    let mut banners: Vec<[i32; 3]> = Vec::new();
     for (id, def) in reg.iter() {
         if id == BlockId(0) || skip(&def.name) {
             continue;
@@ -191,6 +193,9 @@ fn main() {
         } else {
             let at = sides(walls);
             queue.push((5 + (at[1] - fy) as u8, at, id.0));
+            if reg.variant_kind(id) == Some(ourcraft_common::shapes::VariantKind::Banner) {
+                banners.push(at);
+            }
             walls += 1;
         }
     }
@@ -236,6 +241,32 @@ fn main() {
         if n % 100 == 99 {
             run_until(&mut bot, 0.05, |_| false);
         }
+    }
+    run_until(&mut bot, 1.0, |_| false);
+    let dye = |n: &str| {
+        content
+            .items
+            .iter()
+            .position(|i| i.name == n)
+            .map(|i| i as u16)
+    };
+    let dyes: Vec<u16> = ["core:red_dye", "core:yellow_dye", "core:blue_dye"]
+        .iter()
+        .filter_map(|n| dye(n))
+        .collect();
+    for (i, at) in banners.iter().enumerate() {
+        bot.send(&ClientMessage::Chat {
+            text: format!(
+                "/tp {}.5 {} {}.5",
+                at[0] - (at[0] - fx).signum() * 2,
+                at[1] + 1,
+                at[2] - (at[2] - fz).signum() * 2
+            ),
+        });
+        for d in dyes.iter().cycle().skip(i).take(1 + i % 3) {
+            bot.send(&ClientMessage::UseBlock { pos: *at, held: *d });
+        }
+        run_until(&mut bot, 0.05, |_| false);
     }
     run_until(&mut bot, 2.0, |_| false);
     println!("Done; the gallery is round the spawn point at {fx} {fy} {fz}.");

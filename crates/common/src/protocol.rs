@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 16;
+pub const PROTOCOL_VERSION: u64 = 17;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -274,17 +274,22 @@ pub enum ClientMessage {
 pub const SIGN_LINES: usize = 4;
 pub const SIGN_LINE_LEN: usize = 15;
 
+/// Lines in the book on a lectern, and characters per line.
+pub const BOOK_LINES: usize = 8;
+pub const BOOK_LINE_LEN: usize = 22;
+
 /// Clean up sign text: at most 4 lines of 15 printable characters.
 pub fn sanitize_sign(lines: &[String]) -> Vec<String> {
+    sanitize_text(lines, SIGN_LINES, SIGN_LINE_LEN)
+}
+
+/// Clean up written text: at most `count` lines of `len` printable
+/// characters.
+pub fn sanitize_text(lines: &[String], count: usize, len: usize) -> Vec<String> {
     lines
         .iter()
-        .take(SIGN_LINES)
-        .map(|l| {
-            l.chars()
-                .filter(|c| !c.is_control())
-                .take(SIGN_LINE_LEN)
-                .collect()
-        })
+        .take(count)
+        .map(|l| l.chars().filter(|c| !c.is_control()).take(len).collect())
         .collect()
 }
 
@@ -442,6 +447,12 @@ pub enum ServerMessage {
     /// You're sitting in this mine cart (an entity), or not.
     InCart {
         cart: Option<u64>,
+    },
+    /// The pattern layers on a banner (pattern, colour), bottom first;
+    /// empty for a plain one.
+    BannerPattern {
+        pos: [i32; 3],
+        layers: Vec<(u8, u8)>,
     },
     /// What's in the item frame at a block (0 = nothing).
     FrameItem {

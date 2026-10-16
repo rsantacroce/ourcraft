@@ -8,6 +8,7 @@ pub mod frames;
 pub mod gadgets;
 pub mod gamemode;
 
+pub mod banners;
 pub mod hud;
 pub mod input;
 pub mod interaction;
@@ -68,6 +69,7 @@ impl Plugin for ClientPlugin {
                 atmosphere::AtmospherePlugin,
                 gadgets::GadgetsPlugin,
                 frames::FramesPlugin,
+                banners::BannersPlugin,
             ));
     }
 }

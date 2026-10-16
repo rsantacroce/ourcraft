@@ -47,7 +47,7 @@ const COLUMN_FORMAT: u8 = 1;
 /// Version of `world.dat`.
 pub const META_VERSION: u32 = 2;
 /// Version of player files. 3: inventories by item name (milestone 11).
-pub const PLAYER_VERSION: u32 = 4;
+pub const PLAYER_VERSION: u32 = 5;
 
 fn invalid(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
@@ -336,6 +336,22 @@ pub struct PlayerSave {
     pub creative: bool,
     /// Health, food and breath in survival (`None`: fresh and full).
     pub vitals: Option<[f32; 3]>,
+    /// Seconds left of each potion effect (hop, glow, swim).
+    pub effects: [f32; 3],
+}
+
+/// A player file as saved by version 4 (no potion effects yet).
+#[derive(Deserialize)]
+struct PlayerSaveV4 {
+    _version: u32,
+    position: [f32; 3],
+    yaw: f32,
+    pitch: f32,
+    flying: bool,
+    inventory: Vec<Option<SavedStack>>,
+    selected: usize,
+    creative: bool,
+    vitals: Option<[f32; 3]>,
 }
 
 /// A player file as saved by version 3 (no health and food yet).
@@ -688,6 +704,21 @@ impl WorldStorage {
         let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(bad)?;
         match version {
             PLAYER_VERSION => return postcard::from_bytes(&bytes).map(Some).map_err(bad),
+            4 => {
+                let old: PlayerSaveV4 = postcard::from_bytes(&bytes).map_err(bad)?;
+                return Ok(Some(PlayerSave {
+                    version: PLAYER_VERSION,
+                    position: old.position,
+                    yaw: old.yaw,
+                    pitch: old.pitch,
+                    flying: old.flying,
+                    inventory: old.inventory,
+                    selected: old.selected,
+                    creative: old.creative,
+                    vitals: old.vitals,
+                    effects: [0.0; 3],
+                }));
+            }
             3 => {
                 let old: PlayerSaveV3 = postcard::from_bytes(&bytes).map_err(bad)?;
                 return Ok(Some(PlayerSave {
@@ -700,6 +731,7 @@ impl WorldStorage {
                     selected: old.selected,
                     creative: old.creative,
                     vitals: None,
+                    effects: [0.0; 3],
                 }));
             }
             2 => {}
@@ -727,6 +759,7 @@ impl WorldStorage {
             selected: old.selected,
             creative: true,
             vitals: None,
+            effects: [0.0; 3],
         }))
     }
 
@@ -780,6 +813,15 @@ impl WorldStorage {
 
     pub fn save_frames(&self, frames: Vec<([i32; 3], String)>) -> io::Result<()> {
         self.save_list("frames.dat", frames)
+    }
+
+    /// The patterns on banners (`banners.dat`).
+    pub fn load_banners(&self) -> io::Result<Vec<([i32; 3], Vec<(u8, u8)>)>> {
+        self.load_list("banners.dat")
+    }
+
+    pub fn save_banners(&self, banners: Vec<([i32; 3], Vec<(u8, u8)>)>) -> io::Result<()> {
+        self.save_list("banners.dat", banners)
     }
 
     /// Boats and mine carts left about (`vehicles.dat`): the item each
@@ -1048,6 +1090,7 @@ mod tests {
             selected: 0,
             creative: false,
             vitals: Some([12.0, 15.5, 12.0]),
+            effects: [0.0, 40.0, 0.0],
         };
         player.store_inventory(&inv, &items);
         storage.save_player("Alex/../evil", &player).unwrap();

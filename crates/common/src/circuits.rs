@@ -215,6 +215,14 @@ pub fn register_circuits(reg: &mut BlockRegistry) {
         };
         let mut states = all_dirs(&[[0, 0, 0, 16, 16, 16]], false, false);
         states.extend(all_dirs(&[[0, 0, 4, 16, 16, 16]], true, false));
+        // Facing up and down: the "upper" states (north = up, south =
+        // down; see `piston_push`).
+        states.extend([
+            (Dir4::North, false, true, vec![[0, 0, 0, 16, 16, 16]]),
+            (Dir4::South, false, true, vec![[0, 0, 0, 16, 16, 16]]),
+            (Dir4::North, true, true, vec![[0, 0, 0, 16, 12, 16]]),
+            (Dir4::South, true, true, vec![[0, 4, 0, 16, 16, 16]]),
+        ]);
         register_family(
             reg,
             VariantKind::Piston,
@@ -235,10 +243,47 @@ pub fn register_circuits(reg: &mut BlockRegistry) {
             head,
             display,
             &head_def,
-            all_dirs(&[[0, 0, 0, 16, 16, 4], [6, 6, 4, 10, 10, 16]], false, false),
+            {
+                let mut heads =
+                    all_dirs(&[[0, 0, 0, 16, 16, 4], [6, 6, 4, 10, 10, 16]], false, false);
+                heads.extend([
+                    (
+                        Dir4::North,
+                        false,
+                        true,
+                        vec![[0, 12, 0, 16, 16, 16], [6, 0, 6, 10, 12, 10]],
+                    ),
+                    (
+                        Dir4::South,
+                        false,
+                        true,
+                        vec![[0, 0, 0, 16, 4, 16], [6, 4, 6, 10, 16, 10]],
+                    ),
+                ]);
+                heads
+            },
             false,
         );
     }
+    // A dispenser: throws out (or shoots) what's inside when powered.
+    let dispenser = |name: &str| {
+        cutout(
+            name,
+            T::top_bottom_side("dispenser_top", "dispenser_top", "dispenser_front"),
+        )
+        .mined(3.5, Some(ToolKind::Pickaxe), 0)
+    };
+    let mut states = all_dirs(&[[0, 0, 0, 16, 16, 16]], false, false);
+    states.extend(all_dirs(&[[0, 0, 0, 16, 16, 16]], true, false));
+    register_family(
+        reg,
+        VariantKind::Dispenser,
+        "core:dispenser",
+        "Dispenser",
+        &dispenser,
+        states,
+        false,
+    );
     reg.register(
         BlockDef::solid("core:note_block", "Note Block", T::all("note_block")).mined(
             0.8,
@@ -360,6 +405,7 @@ impl BlockRegistry {
                     | VariantKind::FenceGate
                     | VariantKind::Piston
                     | VariantKind::PoweredRail
+                    | VariantKind::Dispenser
             )
         ) || self.get(b).name == "core:note_block"
     }
@@ -415,9 +461,47 @@ impl Dir4 {
     }
 }
 
+/// Which way a piston (or its head) pushes. Pistons facing up or down
+/// are the "upper" states: north means up, south means down.
+pub fn piston_push(v: &crate::shapes::Variant) -> [i32; 3] {
+    match (v.upper, v.facing) {
+        (true, Dir4::North) => [0, 1, 0],
+        (true, _) => [0, -1, 0],
+        (false, d) => d.vector(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pistons_push_up_and_down() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        let piston = reg.by_name("core:piston").unwrap();
+        let push = |look: [f32; 3]| {
+            let b = reg.placement(piston, [0, 1, 0], look).unwrap().block;
+            piston_push(reg.get(b).variant.as_ref().unwrap())
+        };
+        assert_eq!(push([0.0, -1.0, 0.1]), [0, 1, 0], "looking at the floor");
+        assert_eq!(push([0.0, 1.0, 0.1]), [0, -1, 0], "looking at the ceiling");
+        assert_eq!(push([1.0, 0.0, 0.0]), [1, 0, 0]);
+        // Every way it can face has a head and an out state.
+        for (id, def) in reg.iter() {
+            let Some(v) = def
+                .variant
+                .as_ref()
+                .filter(|v| v.family == "core:sticky_piston")
+            else {
+                continue;
+            };
+            assert!(reg.powered(id, true).is_some(), "{}", def.name);
+            assert!(
+                reg.find_variant("core:sticky_piston_head", v.facing, false, v.upper)
+                    .is_some()
+            );
+        }
+    }
 
     #[test]
     fn levers_power_and_rails_turn() {

@@ -246,9 +246,35 @@ planned" bits from milestones 17–24 were filled in:
 - **`/tp x y z`** in creative.
 - Fixed on the way: pressing Enter to finish a sign also opened chat.
 
-Still left: plants grow in the dark, no dispenser, pistons only push
-sideways, rails don't go up slopes, banners have no patterns, no
-writable book or double chest, potion effects end when you leave.
+### Third gap fixes ✅ done
+
+The rest of the list:
+
+- **Plants need light:** crops, stems, sugar cane and saplings only grow
+  under the sky (glass and leaves let it through) or near a torch or
+  lamp. Mushrooms don't mind the dark.
+- **Potion effects are saved** with the player (player files version 5).
+- **Pistons push up and down:** put one down looking at the floor and it
+  lifts; looking at the ceiling, it pushes down.
+- **Dispenser** (cobblestone round a bow, with spark dust): fill it like a
+  chest; power throws out one thing at a time, and shoots arrows.
+- **Big chests:** two chests side by side open as one, 54 slots, the same
+  from either side.
+- **Writing in a book:** right click a lectern to write (or read) a page of
+  eight lines in its book.
+- **Banner patterns:** a dye on a banner adds the next pattern in its
+  colour (stripe, border, cross, dots, top half, diagonal; up to four);
+  shears snip them off.
+- **Rails up and down steps:** a cart rolls up onto rails a block higher
+  (losing some speed; too slow and it rolls back) and down again.
+- Fixed on the way: a lamp next to a piston head went out when the piston
+  moved; right clicking a wish table opened an empty screen instead of
+  making the wish.
+
+Still left: wire looks the same whichever way it joins; rails climb in
+steps rather than smooth slopes; maps don't remember where you've been;
+no ferns. (Not seen on screen yet: the dispenser, big chest screen,
+lectern book and banner patterns — the screen was locked.)
 
 ### The big item list (milestones 17–24)
 
@@ -279,8 +305,8 @@ pigs carrots, chickens seeds (apples still work). Crafting with a milk
 bucket gives the bucket back. The creative palette has tabs now
 (Building, Nature, Food, Tools, Items), with pages.
 
-Not quite as planned: plants grow by day and night alike, even in the
-dark (the server doesn't know light levels); no ferns yet. No trampling
+Not quite as planned: no ferns yet. (Plants need light since the third
+gap fixes.) No trampling
 of farmland, on purpose (squashed crops are no fun).
 
 What was planned:
@@ -406,8 +432,8 @@ colour, standing or on walls, lanterns, candles and chains, glass panes
 books and a lectern, barrels that hold things like chests, and scaffolding
 to climb.
 
-Not quite as planned: banners are plain colours (no patterns yet); there's
-no writable book and no double chest.
+Not quite as planned: banners had no patterns, no writable book and no
+double chest at first (all came with the third gap fixes).
 
 What was planned:
 
@@ -431,9 +457,9 @@ corner; mine carts ride on them, pushed by walking forward, sped up by
 powered rails with power (and braked by them without), and stop at the
 end of the line.
 
-Not quite as planned: no dispenser; pistons only push sideways; no rails
-up or down slopes; wire looks the same whichever way it joins. (Carts
-are saved with the world since the second gap fixes.)
+Not quite as planned: wire looks the same whichever way it joins. (Carts
+are saved since the second gap fixes; the dispenser, pistons pushing up
+and down and rails up steps came with the third.)
 
 What was planned:
 
@@ -476,7 +502,7 @@ night, 2 min) or swim (swim twice as fast and never run out of breath,
 2 min). Drinking gives the bottle back; the time left shows top right.
 
 Not quite as planned: the dreamy sky world through a cloud portal is
-left for later; effects aren't saved when you leave the world.
+left for later. (Effects are saved since the third gap fixes.)
 
 What was planned:
 

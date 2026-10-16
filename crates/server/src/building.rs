@@ -102,10 +102,20 @@ fn use_blocks(
 
         // Writing on a sign.
         if let Some(lines) = sign_lines {
-            if !matches!(kind, Some(VariantKind::Sign | VariantKind::WallSign)) {
+            // A lectern's book is written the same way, with more room.
+            let book = registry.0.get(block).name == "core:lectern";
+            if !book && !matches!(kind, Some(VariantKind::Sign | VariantKind::WallSign)) {
                 continue;
             }
-            let lines = sanitize_sign(lines);
+            let lines = if book {
+                ourcraft_common::protocol::sanitize_text(
+                    lines,
+                    ourcraft_common::protocol::BOOK_LINES,
+                    ourcraft_common::protocol::BOOK_LINE_LEN,
+                )
+            } else {
+                sanitize_sign(lines)
+            };
             net.broadcast(
                 Channel::Reliable,
                 &ServerMessage::SignText {

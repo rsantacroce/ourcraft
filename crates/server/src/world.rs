@@ -85,6 +85,8 @@ pub struct OpenWorld {
     pub signs: HashMap<IVec3, Vec<String>>,
     /// What's in item frames, by position.
     pub frames: HashMap<IVec3, ourcraft_common::item::ItemId>,
+    /// Pattern layers on banners (pattern, colour), by position.
+    pub banners: HashMap<IVec3, Vec<(u8, u8)>>,
     /// Where each player last slept (their respawn point).
     pub beds: HashMap<String, IVec3>,
     /// No monsters and no hunger.
@@ -107,6 +109,7 @@ struct Snapshot {
     containers: Vec<SavedContainer>,
     signs: Vec<([i32; 3], Vec<String>)>,
     frames: Vec<([i32; 3], String)>,
+    banners: Vec<([i32; 3], Vec<(u8, u8)>)>,
     beds: Vec<(String, [i32; 3])>,
     rules: Vec<(String, bool)>,
     animals: Vec<SavedAnimal>,
@@ -221,6 +224,15 @@ fn open_world(
         .into_iter()
         .filter_map(|(p, item)| Some((IVec3::from_array(p), items.by_name(&item)?)))
         .collect();
+    let banners = storage
+        .load_banners()
+        .unwrap_or_else(|e| {
+            error!("Can't read banners ({e})");
+            Vec::new()
+        })
+        .into_iter()
+        .map(|(p, l)| (IVec3::from_array(p), l))
+        .collect();
     let beds = storage
         .load_beds()
         .unwrap_or_else(|e| {
@@ -235,6 +247,7 @@ fn open_world(
         containers: Vec::new(),
         signs: Vec::new(),
         frames: Vec::new(),
+        banners: Vec::new(),
         beds: Vec::new(),
         rules: Vec::new(),
         animals: Vec::new(),
@@ -269,6 +282,7 @@ fn open_world(
         mobs: Arc::new(content.mobs.clone()),
         signs,
         frames,
+        banners,
         beds,
         peaceful,
         animals,
@@ -330,6 +344,11 @@ impl OpenWorld {
                 .frames
                 .iter()
                 .map(|(p, i)| (p.to_array(), self.items.name(*i).to_owned()))
+                .collect(),
+            banners: self
+                .banners
+                .iter()
+                .map(|(p, l)| (p.to_array(), l.clone()))
                 .collect(),
             beds: self
                 .beds
@@ -476,6 +495,9 @@ fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
     }
     if let Err(e) = storage.save_frames(snapshot.frames) {
         error!("Saving item frames failed: {e}");
+    }
+    if let Err(e) = storage.save_banners(snapshot.banners) {
+        error!("Saving banners failed: {e}");
     }
     if let Err(e) = storage.save_beds(snapshot.beds) {
         error!("Saving beds failed: {e}");

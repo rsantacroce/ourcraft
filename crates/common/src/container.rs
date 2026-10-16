@@ -17,6 +17,9 @@ pub enum ContainerKind {
     Furnace,
     /// 27 slots for anything.
     Chest,
+    /// Two chests side by side, seen as one (54 slots). Only ever a
+    /// view: each chest keeps its own 27.
+    BigChest,
 }
 
 impl ContainerKind {
@@ -24,6 +27,7 @@ impl ContainerKind {
         match self {
             ContainerKind::Furnace => 3,
             ContainerKind::Chest => 27,
+            ContainerKind::BigChest => 54,
         }
     }
 
@@ -36,6 +40,7 @@ impl ContainerKind {
                 _ => false, // the output is take-only
             },
             ContainerKind::Chest => slot < 27,
+            ContainerKind::BigChest => slot < 54,
         }
     }
 }

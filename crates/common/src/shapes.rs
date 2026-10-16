@@ -123,6 +123,8 @@ pub enum VariantKind {
     PistonHead,
     Rail,
     PoweredRail,
+    /// Throws out what's inside when powered (`open` = powered).
+    Dispenser,
 }
 
 /// Which family a block belongs to and its state in it.
@@ -191,8 +193,20 @@ impl BlockRegistry {
                 }
                 None => None,
             },
-            VariantKind::Repeater | VariantKind::Piston => {
+            VariantKind::Repeater | VariantKind::Dispenser => {
                 single(self.find_variant(fam, looking, false, false)?)
+            }
+            // A piston pushes the way you look; but put down looking at
+            // the floor it pushes up (to lift things), and looking at
+            // the ceiling it pushes down.
+            VariantKind::Piston => {
+                if look[1] < -0.7 {
+                    single(self.find_variant(fam, Dir4::North, false, true)?)
+                } else if look[1] > 0.7 {
+                    single(self.find_variant(fam, Dir4::South, false, true)?)
+                } else {
+                    single(self.find_variant(fam, looking, false, false)?)
+                }
             }
             // Rails start along the way you look (the server joins them up).
             VariantKind::Rail | VariantKind::PoweredRail => {

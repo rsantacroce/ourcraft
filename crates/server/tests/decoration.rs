@@ -227,6 +227,101 @@ fn pots_frames_and_barrels() {
         "the barrel didn't open"
     );
 
+    // ---- Two chests side by side open as one big chest, the same from
+    // either side.
+    fay.send(&ClientMessage::GameMode { creative: true });
+    for dx in 1..=2 {
+        set(&mut fay, at(dx, 1, 2), 0, 0);
+        set(&mut fay, at(dx, 2, 2), 0, 0);
+    }
+    run_until(&mut [&mut fay], 0.4, |_| false);
+    set(&mut fay, at(1, 1, 2), block("core:chest"), 0);
+    set(&mut fay, at(2, 1, 2), block("core:chest"), 0);
+    run_until(&mut [&mut fay], 0.5, |_| false);
+    fay.received.clear();
+    fay.send(&ClientMessage::OpenContainer { pos: at(2, 1, 2) });
+    let big = |b: &Bot, apple_at: Option<usize>| {
+        b.has(|m| matches!(m, ServerMessage::Container(v)
+            if v.kind == ourcraft_common::container::ContainerKind::BigChest
+                && v.slots.len() == 54
+                && apple_at.is_none_or(|i| v.slots[i].is_some_and(|s| s.item == item("core:apple")))))
+    };
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| big(b[0], None)),
+        "not a big chest"
+    );
+    fay.received.clear();
+    fay.send(&ClientMessage::ContainerClick {
+        slot: 40,
+        cursor: Some(ourcraft_common::protocol::NetStack {
+            item: item("core:apple"),
+            count: 1,
+            wear: 0,
+        }),
+        secondary: false,
+    });
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| big(b[0], Some(40))),
+        "the apple didn't go in"
+    );
+    fay.send(&ClientMessage::CloseContainer);
+    fay.received.clear();
+    fay.send(&ClientMessage::OpenContainer { pos: at(1, 1, 2) });
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| big(b[0], Some(40))),
+        "the other half doesn't show the same big chest"
+    );
+
+    // ---- A lectern's book holds eight lines.
+    set(&mut fay, at(1, 2, 2), 0, 0);
+    run_until(&mut [&mut fay], 0.3, |_| false);
+    set(&mut fay, at(1, 2, 2), block("core:lectern"), 0);
+    run_until(&mut [&mut fay], 0.4, |_| false);
+    fay.received.clear();
+    let page: Vec<String> = (1..=10).map(|i| format!("Line {i} of my story")).collect();
+    fay.send(&ClientMessage::SetSign {
+        pos: at(1, 2, 2),
+        lines: page,
+    });
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| {
+            b[0].has(
+            |m| matches!(m, ServerMessage::SignText { lines, .. } if lines.len() == 8 && lines[7] == "Line 8 of my story")
+        )
+        }),
+        "the book wasn't written in"
+    );
+
+    // ---- A dye puts a stripe on a banner; shears snip it off.
+    set(&mut fay, at(2, 2, 2), 0, 0);
+    run_until(&mut [&mut fay], 0.3, |_| false);
+    set(&mut fay, at(2, 2, 2), block("core:white_banner"), 0);
+    run_until(&mut [&mut fay], 0.4, |_| false);
+    fay.received.clear();
+    fay.send(&ClientMessage::UseBlock {
+        pos: at(2, 2, 2),
+        held: item("core:red_dye"),
+    });
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| {
+            b[0].has(
+            |m| matches!(m, ServerMessage::BannerPattern { layers, .. } if layers.len() == 1 && layers[0].0 == 0)
+        )
+        }),
+        "no stripe on the banner"
+    );
+    fay.received.clear();
+    fay.send(&ClientMessage::UseBlock {
+        pos: at(2, 2, 2),
+        held: item("core:shears"),
+    });
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| b[0].has(
+            |m| matches!(m, ServerMessage::BannerPattern { layers, .. } if layers.is_empty())
+        )),
+        "the shears didn't clear the banner"
+    );
+
     stop.0.store(true, Ordering::Relaxed);
     let _ = server.join();
     let _ = std::fs::remove_dir_all(&dir);

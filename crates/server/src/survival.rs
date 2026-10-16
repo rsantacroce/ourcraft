@@ -88,6 +88,80 @@ fn container_message(pos: IVec3, c: &Container) -> ServerMessage {
 }
 
 /// Tell everyone looking at the container at `pos` what's in it now.
+/// Two chests side by side open as one big chest. Each chest pairs with
+/// its first chest neighbour (west, east, north, south), and only if
+/// that one pairs back, so three in a row don't share. The pair comes
+/// west/north one first, whichever you open.
+fn chest_pair(world: &ServerWorld, registry: &Registry, pos: IVec3) -> Option<(IVec3, IVec3)> {
+    let is_chest = |p: IVec3| {
+        world
+            .get_block(p.x, p.y, p.z)
+            .is_some_and(|b| registry.0.get(b).name == "core:chest")
+    };
+    let first = |p: IVec3| {
+        [IVec3::NEG_X, IVec3::X, IVec3::NEG_Z, IVec3::Z]
+            .into_iter()
+            .map(|d| p + d)
+            .find(|q| is_chest(*q))
+    };
+    if !is_chest(pos) {
+        return None;
+    }
+    let other = first(pos)?;
+    (first(other) == Some(pos)).then(|| {
+        if (other.x, other.z) < (pos.x, pos.z) {
+            (other, pos)
+        } else {
+            (pos, other)
+        }
+    })
+}
+
+/// What a player who opened `pos` sees: one container, or a big chest.
+fn view_message(
+    open: &OpenWorld,
+    world: &ServerWorld,
+    registry: &Registry,
+    pos: IVec3,
+) -> Option<ServerMessage> {
+    if let Some((a, b)) = chest_pair(world, registry, pos) {
+        let empty = Container::new(ContainerKind::Chest);
+        let slots = [a, b]
+            .iter()
+            .flat_map(|p| open.containers.get(p).unwrap_or(&empty).slots.clone())
+            .map(|s| s.map(NetStack::from))
+            .collect();
+        return Some(ServerMessage::Container(NetContainer {
+            pos: pos.to_array(),
+            kind: ContainerKind::BigChest,
+            slots,
+            burn: 0.0,
+            smelt: 0.0,
+        }));
+    }
+    open.containers.get(&pos).map(|c| container_message(pos, c))
+}
+
+/// Tell everyone looking at `changed` (alone, or as half of a big
+/// chest) what it holds now.
+fn refresh_views(
+    net: &mut Network,
+    players: &Query<&mut ConnectedPlayer>,
+    open: &OpenWorld,
+    world: &ServerWorld,
+    registry: &Registry,
+    changed: IVec3,
+) {
+    for p in players.iter() {
+        let Some(q) = p.open_container else { continue };
+        let pair = chest_pair(world, registry, q);
+        let sees = q == changed || pair.is_some_and(|(a, b)| a == changed || b == changed);
+        if sees && let Some(msg) = view_message(open, world, registry, q) {
+            net.send(p.client, Channel::Reliable, &msg);
+        }
+    }
+}
+
 fn show_container(
     net: &mut Network,
     players: &Query<&mut ConnectedPlayer>,
@@ -109,7 +183,9 @@ fn container_kind(
     } else if matches!(
         registry.get(block).name.as_str(),
         "core:chest" | "core:barrel"
-    ) {
+    ) || registry.variant_kind(block)
+        == Some(ourcraft_common::shapes::VariantKind::Dispenser)
+    {
         Some(ContainerKind::Chest)
     } else {
         None
@@ -146,12 +222,20 @@ fn handle_container_messages(
                 let (Some(kind), true, true) = (kind, near, p.name.is_some()) else {
                     continue;
                 };
-                let c = open
-                    .containers
+                open.containers
                     .entry(pos)
                     .or_insert_with(|| Container::new(kind));
+                if let Some((a, b)) = chest_pair(&world, &registry, pos) {
+                    for q in [a, b] {
+                        open.containers
+                            .entry(q)
+                            .or_insert_with(|| Container::new(ContainerKind::Chest));
+                    }
+                }
                 p.open_container = Some(pos);
-                net.send(*client, Channel::Reliable, &container_message(pos, c));
+                if let Some(msg) = view_message(open, &world, &registry, pos) {
+                    net.send(*client, Channel::Reliable, &msg);
+                }
             }
             ClientMessage::CloseContainer => {
                 if let Ok(mut p) = players.get_mut(entity) {
@@ -174,18 +258,23 @@ fn handle_container_messages(
                 let cursor_stack = cursor
                     .map(ItemStack::from)
                     .filter(|s| s.count > 0 && (s.item.0 as usize) < open.items.len());
-                let Some(pos) = p.open_container else {
+                let Some(opened) = p.open_container else {
                     reply(&mut net, *cursor);
                     continue;
                 };
                 let near =
-                    p.position().distance(pos.as_vec3() + Vec3::splat(0.5)) <= CONTAINER_REACH;
+                    p.position().distance(opened.as_vec3() + Vec3::splat(0.5)) <= CONTAINER_REACH;
+                // A big chest: the second 27 slots are the other chest's.
+                let (pos, slot) = match chest_pair(&world, &registry, opened) {
+                    Some((a, _)) if (*slot as usize) < 27 => (a, *slot as usize),
+                    Some((_, b)) => (b, *slot as usize - 27),
+                    None => (opened, *slot as usize),
+                };
                 let items = open.items.clone();
                 let Some(c) = open.containers.get_mut(&pos).filter(|_| near) else {
                     reply(&mut net, *cursor);
                     continue;
                 };
-                let slot = *slot as usize;
                 if slot >= c.slots.len() {
                     reply(&mut net, *cursor);
                     continue;
@@ -217,8 +306,7 @@ fn handle_container_messages(
                 };
                 c.slots[slot] = new_slot;
                 reply(&mut net, new_cursor.map(NetStack::from));
-                let c = c.clone();
-                show_container(&mut net, &players, pos, &c);
+                refresh_views(&mut net, &players, open, &world, &registry, pos);
             }
             ClientMessage::DropItems(stack) => {
                 let Ok(p) = players.get(entity) else { continue };
@@ -280,7 +368,7 @@ fn drop_broken_blocks(
             && let Some(v) = registry.0.get(edit.old).variant.clone()
         {
             use ourcraft_common::shapes::VariantKind;
-            let f = IVec3::from_array(v.facing.vector());
+            let f = IVec3::from_array(ourcraft_common::circuits::piston_push(&v));
             let partner = match v.kind {
                 VariantKind::Piston if v.open => Some(edit.pos + f),
                 VariantKind::PistonHead => Some(edit.pos - f),
@@ -316,6 +404,16 @@ fn drop_broken_blocks(
                 },
             );
             spawn_item(&mut entities, center, ItemStack::new(item, 1));
+        }
+        // So does a banner's pattern.
+        if open.banners.remove(&edit.pos).is_some() {
+            net.broadcast(
+                Channel::Reliable,
+                &ServerMessage::BannerPattern {
+                    pos: edit.pos.to_array(),
+                    layers: Vec::new(),
+                },
+            );
         }
         // A sign's words go with it.
         if open.signs.remove(&edit.pos).is_some() {
