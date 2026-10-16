@@ -228,6 +228,8 @@ pub struct Connection {
     pub status: Status,
     /// Shown while connecting.
     pub target: String,
+    /// Where the map remembers the land seen in this world.
+    pub map_file: std::path::PathBuf,
     hello_sent: bool,
     pub lag: LagSettings,
     outgoing: VecDeque<Delayed<Vec<u8>>>,
@@ -269,6 +271,7 @@ impl Connection {
                 Ok(mut conn) => {
                     conn.embedded = Some(server);
                     conn.target = world.to_owned();
+                    conn.map_file = saves_dir().join(&opts.folder).join("map_seen.dat");
                     return conn;
                 }
                 Err(e) => error!("Couldn't connect to our own server: {e}"),
@@ -286,6 +289,7 @@ impl Connection {
             my_id: None,
             status: Status::Connecting,
             target: world.to_owned(),
+            map_file: saves_dir().join(&opts.folder).join("map_seen.dat"),
             hello_sent: false,
             lag: LagSettings::default(),
             outgoing: VecDeque::new(),
@@ -333,6 +337,22 @@ impl Connection {
             my_id: None,
             status: Status::Connecting,
             target: address.to_owned(),
+            map_file: {
+                let safe: String = with_port
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '.' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                saves_dir()
+                    .parent()
+                    .map_or_else(|| "maps".into(), |p| p.join("maps"))
+                    .join(format!("{safe}.dat"))
+            },
             hello_sent: false,
             lag: LagSettings::default(),
             outgoing: VecDeque::new(),

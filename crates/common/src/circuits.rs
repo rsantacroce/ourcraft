@@ -294,9 +294,16 @@ pub fn register_circuits(reg: &mut BlockRegistry) {
 
     // ---- Rails: straight north–south (the first), east–west, and the
     // four corners ("upper", from `facing` round to the next way
-    // clockwise). ----
+    // clockwise), and four slopes ("open", going up towards `facing`).
+    // Powered rails don't turn corners, so for them "upper" is a slope.
     let rail = |name: &str| {
-        let tex = if name.ends_with("_upper") {
+        let tex = if name.ends_with("_open") {
+            if name.contains("_east") || name.contains("_west") {
+                "rail_ew".to_owned()
+            } else {
+                "rail_ns".to_owned()
+            }
+        } else if name.ends_with("_upper") {
             let corner = name
                 .trim_end_matches("_upper")
                 .rsplit('_')
@@ -321,6 +328,11 @@ pub fn register_circuits(reg: &mut BlockRegistry) {
     for d in Dir4::ALL {
         states.push((d, false, true, vec![flat_rail]));
     }
+    // Slopes are drawn as a ramp; this box is for clicking on them.
+    let slope: ShapeBox = [0, 0, 0, 16, 8, 16];
+    for d in Dir4::ALL {
+        states.push((d, true, false, vec![slope]));
+    }
     register_family(
         reg,
         VariantKind::Rail,
@@ -332,7 +344,7 @@ pub fn register_circuits(reg: &mut BlockRegistry) {
     );
     let powered = |name: &str| {
         let on = name.contains("_open");
-        let ew = name.contains("_east");
+        let ew = name.contains("_east") || name.contains("_west");
         let tex = match (ew, on) {
             (false, false) => "powered_rail_ns",
             (true, false) => "powered_rail_ew",
@@ -356,7 +368,14 @@ pub fn register_circuits(reg: &mut BlockRegistry) {
             (Dir4::East, false, false, vec![flat_rail]),
             (Dir4::North, true, false, vec![flat_rail]),
             (Dir4::East, true, false, vec![flat_rail]),
-        ],
+        ]
+        .into_iter()
+        .chain(
+            Dir4::ALL
+                .into_iter()
+                .flat_map(|d| [(d, false, true, vec![slope]), (d, true, true, vec![slope])]),
+        )
+        .collect(),
         false,
     );
 }
@@ -423,6 +442,9 @@ impl BlockRegistry {
         if !self.is_rail(b) {
             return None;
         }
+        if let Some(up) = self.rail_slope(b) {
+            return Some([up, up.opposite()]);
+        }
         Some(if v.upper {
             [v.facing, v.facing.clockwise()]
         } else if v.facing == Dir4::North {
@@ -430,6 +452,26 @@ impl BlockRegistry {
         } else {
             [Dir4::East, Dir4::West]
         })
+    }
+
+    /// Which way a sloping rail goes up, if it slopes.
+    pub fn rail_slope(&self, b: BlockId) -> Option<Dir4> {
+        let v = self.get(b).variant.as_ref()?;
+        match v.kind {
+            VariantKind::Rail if v.open => Some(v.facing),
+            VariantKind::PoweredRail if v.upper => Some(v.facing),
+            _ => None,
+        }
+    }
+
+    /// The rail of `family` sloping up towards `up` (powered rails keep
+    /// whether they're on).
+    pub fn rail_sloping(&self, family: &str, up: Dir4, on: bool) -> Option<BlockId> {
+        if family == "core:rail" {
+            self.find_variant(family, up, true, false)
+        } else {
+            self.find_variant(family, up, on, true)
+        }
     }
 
     /// The rail of `family` going these two ways (plain rails can turn
@@ -523,6 +565,20 @@ mod tests {
             .unwrap();
         let ends = r.rail_ends(corner).unwrap();
         assert!(ends.contains(&Dir4::South) && ends.contains(&Dir4::East));
+        // Slopes, plain and powered (which stay on or off).
+        for up in Dir4::ALL {
+            let s = r.rail_sloping("core:rail", up, false).unwrap();
+            assert_eq!(r.rail_slope(s), Some(up));
+            assert_eq!(r.rail_ends(s), Some([up, up.opposite()]));
+            let p = r.rail_sloping("core:powered_rail", up, true).unwrap();
+            assert_eq!(r.rail_slope(p), Some(up));
+            assert!(r.is_on(p));
+            let off = r.powered(p, false).unwrap();
+            assert_eq!(r.rail_slope(off), Some(up));
+            assert_eq!(r.get(s).drops, Drops::Block(ns));
+        }
+        assert_eq!(r.rail_slope(ns), None);
+        assert_eq!(r.rail_slope(corner), None);
         assert!(
             r.rail_joining("core:powered_rail", Dir4::North, Dir4::East)
                 .is_none()

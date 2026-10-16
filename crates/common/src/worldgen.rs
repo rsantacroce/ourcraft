@@ -53,6 +53,7 @@ pub struct WorldGenerator {
 /// blocks always get the same numbers, before any mod's).
 struct Plants {
     tall_grass: BlockId,
+    fern: BlockId,
     sugar_cane: BlockId,
     mushrooms: [BlockId; 2],
     pumpkin: BlockId,
@@ -84,6 +85,7 @@ impl Plants {
         };
         Self {
             tall_grass: id("core:tall_grass"),
+            fern: id("core:fern"),
             sugar_cane: id("core:sugar_cane"),
             mushrooms: [id("core:red_mushroom"), id("core:brown_mushroom")],
             pumpkin: id("core:pumpkin"),
@@ -506,7 +508,8 @@ impl WorldGenerator {
                             Some(p.flowers[self.flower_kind(wx, wz) % p.flowers.len()])
                         }
                         Biome::Plains | Biome::Forest if roll >= 9_990 => Some(p.pumpkin),
-                        Biome::Forest if roll < 600 => Some(p.tall_grass),
+                        Biome::Forest if roll < 400 => Some(p.tall_grass),
+                        Biome::Forest if roll < 600 => Some(p.fern),
                         Biome::Forest if roll < 640 => Some(p.mushrooms[(r >> 20) as usize % 2]),
                         Biome::Forest if roll >= 9_984 => Some(p.melon),
                         _ => None,
@@ -706,6 +709,13 @@ mod tests {
                 .any(|c| c.palette().contains(&grass))
         });
         assert!(found, "no tall grass anywhere");
+        let fern = g.plants.fern;
+        let found = (0..64).any(|i| {
+            g.generate_column(ColumnPos::new(i % 8, i / 8))
+                .iter()
+                .any(|c| c.palette().contains(&fern))
+        });
+        assert!(found, "no ferns in the forests");
     }
 
     #[test]

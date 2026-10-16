@@ -27,19 +27,14 @@ pub fn pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
                 speckle(SPARK, x, y, 142, 18.0)
             }
         }
-        // Wire: a cross of dust, so it looks joined whichever way it goes.
+        // Wire: dust all over (its shape follows the way it joins).
         "spark_wire" | "spark_wire_on" => {
-            let line = (6..=9).contains(&x) || (6..=9).contains(&y);
             let c = if name.ends_with("_on") {
                 SPARK
             } else {
                 SPARK_DIM
             };
-            if line {
-                speckle(c, x, y, 143, 14.0)
-            } else {
-                CLEAR
-            }
+            speckle(c, x, y, 143, 14.0)
         }
         "lever" | "lever_on" => {
             let knob = cx.abs() <= 1

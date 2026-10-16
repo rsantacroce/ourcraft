@@ -100,8 +100,13 @@ fn cast(
                         .get_block(block.x + o[0], block.y + o[1], block.z + o[2])
                         .unwrap_or(BlockId::AIR)
                 };
-                let hit = reg
-                    .boxes_at(id, near)
+                // Wire is easy to hit anywhere in its square.
+                let boxes = if reg.is_wire(id) {
+                    reg.shape(id).boxes()
+                } else {
+                    reg.boxes_at(id, near)
+                };
+                let hit = boxes
                     .into_iter()
                     .filter_map(|(min, max)| {
                         let b = block.as_vec3();

@@ -338,6 +338,9 @@ impl BlockRegistry {
         block: BlockId,
         neighbour: impl Fn([i32; 3]) -> BlockId,
     ) -> Vec<([f32; 3], [f32; 3])> {
+        if self.is_wire(block) {
+            return self.wire_boxes(neighbour);
+        }
         let shape = self.shape(block);
         let wall = *shape == BlockShape::Wall;
         let pane = *shape == BlockShape::Pane;
@@ -374,6 +377,43 @@ impl BlockRegistry {
                 // Two rails towards the neighbour.
                 boxes.extend(facing(&[[7, 6, 0, 9, 9, 6], [7, 12, 0, 9, 15, 6]], d));
             }
+        }
+        BlockShape::Boxes(boxes).boxes()
+    }
+}
+
+impl BlockRegistry {
+    /// Does wire reach out to `n` (more wire, or something with power in
+    /// it or worked by it)?
+    pub fn wire_joins(&self, n: BlockId) -> bool {
+        matches!(
+            self.variant_kind(n),
+            Some(
+                VariantKind::Wire
+                    | VariantKind::Lever
+                    | VariantKind::Button
+                    | VariantKind::PressurePlate
+                    | VariantKind::Repeater
+            )
+        ) || self.reacts_to_power(n)
+            || self.get(n).name == "core:spark_block"
+    }
+
+    /// Wire lying flat: a dot, with a strip out to each neighbour it joins.
+    /// One neighbour: a straight line right across; none: a little cross.
+    fn wire_boxes(&self, neighbour: impl Fn([i32; 3]) -> BlockId) -> Vec<([f32; 3], [f32; 3])> {
+        let joined: Vec<Dir4> = Dir4::ALL
+            .into_iter()
+            .filter(|d| self.wire_joins(neighbour(d.vector())))
+            .collect();
+        let arms: Vec<Dir4> = match joined.as_slice() {
+            [] => Dir4::ALL.to_vec(),
+            [one] => vec![*one, one.opposite()],
+            more => more.to_vec(),
+        };
+        let mut boxes: Vec<ShapeBox> = vec![[6, 0, 6, 10, 1, 10]];
+        for d in arms {
+            boxes.extend(facing(&[[6, 0, 0, 10, 1, 6]], d));
         }
         BlockShape::Boxes(boxes).boxes()
     }
@@ -886,6 +926,33 @@ mod tests {
         assert_eq!(alone.len(), 1, "just the post");
         let joined = r.boxes_at(fence, |o| if o == [1, 0, 0] { fence } else { BlockId::AIR });
         assert_eq!(joined.len(), 3, "post and two rails");
+    }
+
+    #[test]
+    fn wire_shows_its_joins() {
+        let r = reg();
+        let wire = r.by_name("core:spark_wire").unwrap();
+        let lamp = r.by_name("core:spark_lamp").unwrap();
+        // Alone: a dot and four arms.
+        assert_eq!(r.boxes_at(wire, |_| BlockId::AIR).len(), 5);
+        // One neighbour: a straight line through (dot and two arms).
+        let line = r.boxes_at(wire, |o| if o == [1, 0, 0] { wire } else { BlockId::AIR });
+        assert_eq!(line.len(), 3);
+        assert!(
+            line.iter().any(|(min, _)| min[0] == 0.0),
+            "reaches west too"
+        );
+        // A corner: wire to the east, a lamp to the north.
+        let corner = r.boxes_at(wire, |o| match o {
+            [1, 0, 0] => wire,
+            [0, 0, -1] => lamp,
+            _ => BlockId::AIR,
+        });
+        assert_eq!(corner.len(), 3);
+        assert!(corner.iter().all(|(min, max)| min[0] > 0.0 || max[2] < 1.0));
+        // Stone doesn't count.
+        let stone = r.by_name("core:stone").unwrap();
+        assert_eq!(r.boxes_at(wire, |_| stone).len(), 5);
     }
 
     #[test]

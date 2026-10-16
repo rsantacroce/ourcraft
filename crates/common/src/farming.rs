@@ -235,6 +235,12 @@ pub fn register_farming(reg: &mut BlockRegistry) {
         stage: one("core:tall_grass", StageKind::Grass),
         ..plant_def("core:tall_grass", "Tall Grass", "tall_grass", cross(13))
     });
+    reg.register(BlockDef {
+        drops: Drops::Nothing,
+        bonus_drop: vec![("core:wheat_seeds".into(), 8)],
+        stage: one("core:fern", StageKind::Grass),
+        ..plant_def("core:fern", "Fern", "fern", cross(12))
+    });
     for (name, display) in [
         ("core:red_mushroom", "Red Mushroom"),
         ("core:brown_mushroom", "Brown Mushroom"),

@@ -199,6 +199,36 @@ fn main() {
             walls += 1;
         }
     }
+    // A little scene in the middle, for the things that join up: wire
+    // from a spark block round a corner to a lamp (and a wire on its own),
+    // rails up a ramp onto a step, ferns, a big chest and a dispenser.
+    let mut scene = |phase: u8, dx: i32, dy: i32, dz: i32, name: &str| {
+        queue.push((phase, [fx + dx, fy + dy, fz + dz], by(name)));
+    };
+    scene(5, -5, 0, -3, "core:spark_block");
+    for dx in -4..=0 {
+        scene(5, dx, 0, -3, "core:spark_wire");
+    }
+    scene(5, 0, 0, -2, "core:spark_wire");
+    scene(5, 0, 0, -1, "core:spark_wire");
+    scene(5, 1, 0, -1, "core:spark_lamp");
+    scene(5, -3, 0, 1, "core:spark_wire");
+    for dx in -4..=-1 {
+        scene(5, dx, 0, 3, "core:rail");
+    }
+    scene(5, 0, 0, 3, "core:stone");
+    scene(5, 1, 0, 3, "core:stone");
+    scene(6, 0, 1, 3, "core:rail");
+    scene(6, 1, 1, 3, "core:rail");
+    for dx in 3..=5 {
+        scene(2, dx, -1, -4, "core:air");
+        scene(3, dx, -1, -4, "core:grass");
+        scene(5, dx, 0, -4, "core:fern");
+    }
+    scene(5, 3, 0, 0, "core:chest");
+    scene(5, 4, 0, 0, "core:chest");
+    scene(5, 3, 0, 2, "core:dispenser");
+    scene(5, 4, 0, 2, "core:lectern");
     println!(
         "{} blocks in the walls, {} in the garden, {} changes",
         walls,

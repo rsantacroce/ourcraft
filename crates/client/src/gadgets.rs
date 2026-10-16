@@ -1,6 +1,9 @@
 //! Gadgets you hold (milestone 20): the compass points home, the clock
 //! tells the time of day, the map shows the land around you, and the
 //! spyglass zooms in while you hold "place".
+//!
+//! The map remembers the land you've seen (every column that was loaded),
+//! saved per world, so it fills in as you explore.
 
 use std::collections::HashMap;
 
@@ -10,11 +13,12 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use ourcraft_common::block::BlockId;
 use ourcraft_common::protocol::ServerMessage;
+use ourcraft_common::world::ColumnPos;
 
 use crate::input::{Actions, UiFocus};
 use crate::interaction::PlayerInventory;
 use crate::items::Items;
-use crate::net::{FromServer, NetReceiveSet};
+use crate::net::{Connection, FromServer, NetReceiveSet};
 use crate::player::{Player, PlayerCamera};
 use crate::world::{Blocks, ChunkStreaming, ClientWorld};
 
@@ -22,21 +26,203 @@ use crate::world::{Blocks, ChunkStreaming, ClientWorld};
 const MAP_SIZE: u32 = 96;
 const NORMAL_FOV: f32 = 70.0;
 const ZOOM_FOV: f32 = 14.0;
+/// Parchment: land not seen yet.
+const PARCHMENT: [u8; 3] = [214, 196, 150];
+/// The most columns a map remembers (about 3 MB on disk).
+const MAP_MEMORY_MAX: usize = 4096;
 
 pub struct GadgetsPlugin;
 
 impl Plugin for GadgetsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Home>()
+            .init_resource::<MapMemory>()
             .add_systems(Startup, spawn_panel)
             .add_systems(PreUpdate, hear_home.after(NetReceiveSet))
-            .add_systems(Update, (show_gadgets, spyglass));
+            .add_systems(
+                Update,
+                (open_map_memory, remember_land, show_gadgets, spyglass).chain(),
+            )
+            .add_systems(Last, save_map_memory.run_if(on_message::<AppExit>));
     }
 }
 
 /// Where the compass points (from the server).
 #[derive(Resource, Default)]
 struct Home(Option<IVec3>);
+
+/// The land seen in this world: one colour per block, a column at a time.
+#[derive(Resource, Default)]
+pub struct MapMemory {
+    file: Option<std::path::PathBuf>,
+    columns: HashMap<ColumnPos, Box<[[u8; 3]; 256]>>,
+    /// The order columns were first seen (the oldest are forgotten first).
+    order: std::collections::VecDeque<ColumnPos>,
+    unsaved: bool,
+    since_save: f32,
+}
+
+impl MapMemory {
+    /// What the map shows at `x, z`, if that land has been seen.
+    pub fn colour(&self, x: i32, z: i32) -> Option<[u8; 3]> {
+        let c = self.columns.get(&ColumnPos::from_block(x, z))?;
+        Some(c[(x.rem_euclid(16) + z.rem_euclid(16) * 16) as usize])
+    }
+
+    pub fn remember(&mut self, pos: ColumnPos, colours: [[u8; 3]; 256]) {
+        match self.columns.get_mut(&pos) {
+            Some(old) if **old == colours => return,
+            Some(old) => **old = colours,
+            None => {
+                self.columns.insert(pos, Box::new(colours));
+                self.order.push_back(pos);
+                while self.order.len() > MAP_MEMORY_MAX {
+                    if let Some(gone) = self.order.pop_front() {
+                        self.columns.remove(&gone);
+                    }
+                }
+            }
+        }
+        self.unsaved = true;
+    }
+
+    /// Columns as bytes: x, z (little-endian i32s), then 768 colour bytes.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.order.len() * 776 + 4);
+        out.extend_from_slice(b"MAP1");
+        for pos in &self.order {
+            let Some(c) = self.columns.get(pos) else {
+                continue;
+            };
+            out.extend_from_slice(&pos.x.to_le_bytes());
+            out.extend_from_slice(&pos.z.to_le_bytes());
+            out.extend(c.iter().flatten());
+        }
+        out
+    }
+
+    /// Read what `to_bytes` wrote (anything broken reads as nothing).
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let mut m = Self::default();
+        let Some(rest) = bytes.strip_prefix(b"MAP1") else {
+            return m;
+        };
+        for entry in rest.chunks_exact(776) {
+            let x = i32::from_le_bytes(entry[0..4].try_into().unwrap());
+            let z = i32::from_le_bytes(entry[4..8].try_into().unwrap());
+            let mut c = [[0u8; 3]; 256];
+            for (i, px) in c.iter_mut().enumerate() {
+                px.copy_from_slice(&entry[8 + i * 3..11 + i * 3]);
+            }
+            m.remember(ColumnPos::new(x, z), c);
+        }
+        m.unsaved = false;
+        m
+    }
+}
+
+/// Load the world's map memory when we join it.
+fn open_map_memory(conn: Option<Res<Connection>>, mut memory: ResMut<MapMemory>) {
+    let file = conn.map(|c| c.map_file.clone());
+    if memory.file == file {
+        return;
+    }
+    // Leaving a world: keep what was seen there first.
+    write_map_memory(&mut memory);
+    let mut fresh = file
+        .as_ref()
+        .and_then(|f| std::fs::read(f).ok())
+        .map(|b| MapMemory::from_bytes(&b))
+        .unwrap_or_default();
+    fresh.file = file;
+    *memory = fresh;
+}
+
+fn save_map_memory(mut memory: ResMut<MapMemory>) {
+    write_map_memory(&mut memory);
+}
+
+fn write_map_memory(memory: &mut MapMemory) {
+    if !memory.unsaved {
+        return;
+    }
+    let Some(file) = memory.file.clone() else {
+        return;
+    };
+    if let Some(dir) = file.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let tmp = file.with_extension("tmp");
+    match std::fs::write(&tmp, memory.to_bytes()).and_then(|_| std::fs::rename(&tmp, &file)) {
+        Ok(()) => memory.unsaved = false,
+        Err(e) => warn!("Couldn't save the map: {e}"),
+    }
+}
+
+/// What the map shows for the top block `b` at height `top`.
+fn land_colour(c: [u8; 4], top: i16) -> [u8; 3] {
+    // Higher ground a little lighter.
+    let lift = ((top as i32 - 64) * 2).clamp(-40, 40);
+    let f = |v: u8| (v as i32 + lift).clamp(0, 255) as u8;
+    [f(c[0]), f(c[1]), f(c[2])]
+}
+
+/// Every so often, remember the loaded land (new columns first; the ones
+/// nearby again, since things get built and dug).
+#[allow(clippy::too_many_arguments)]
+fn remember_land(
+    time: Res<Time>,
+    world: Res<ClientWorld>,
+    streaming: Res<ChunkStreaming>,
+    blocks: Res<Blocks>,
+    textures: Option<Res<crate::render::ModTextures>>,
+    mut memory: ResMut<MapMemory>,
+    mut colours: Local<HashMap<BlockId, [u8; 4]>>,
+    mut wait: Local<f32>,
+) {
+    if memory.file.is_none() {
+        return;
+    }
+    *wait -= time.delta_secs();
+    if *wait > 0.0 {
+        return;
+    }
+    *wait = 2.0;
+    let near = streaming.center;
+    let columns: Vec<ColumnPos> = streaming
+        .loaded_columns()
+        .filter(|c| {
+            !memory.columns.contains_key(c)
+                || ((c.x - near.x).abs() <= 2 && (c.z - near.z).abs() <= 2)
+        })
+        .collect();
+    for col in columns {
+        let mut out = [PARCHMENT; 256];
+        let mut complete = true;
+        for (i, px) in out.iter_mut().enumerate() {
+            let (x, z) = (col.x * 16 + (i % 16) as i32, col.z * 16 + (i / 16) as i32);
+            match streaming.top(x, z) {
+                Some(top) if top >= 0 => {
+                    let b = world.0.block(x, top as i32, z);
+                    let c = *colours
+                        .entry(b)
+                        .or_insert_with(|| average_colour(&blocks.0, textures.as_deref(), b));
+                    *px = land_colour(c, top);
+                }
+                Some(_) => {}
+                None => complete = false,
+            }
+        }
+        if complete {
+            memory.remember(col, out);
+        }
+    }
+    memory.since_save += 2.0;
+    if memory.since_save >= 30.0 {
+        memory.since_save = 0.0;
+        write_map_memory(&mut memory);
+    }
+}
 
 #[derive(Component)]
 struct GadgetPanel;
@@ -199,11 +385,17 @@ fn show_gadgets(
             Has<ClockText>,
             Has<MapImage>,
         ),
-        Without<GadgetPanel>,
+        (
+            Without<GadgetPanel>,
+            Or<(With<Needle>, With<ClockText>, With<MapImage>)>,
+        ),
     >,
     mut images: ResMut<Assets<Image>>,
-    mut colours: Local<HashMap<BlockId, [u8; 4]>>,
-    mut redraw: Local<f32>,
+    (memory, mut colours, mut redraw): (
+        Res<MapMemory>,
+        Local<HashMap<BlockId, [u8; 4]>>,
+        Local<f32>,
+    ),
 ) {
     let held = inventory.held().map(|h| items.name(h)).unwrap_or("");
     let shown =
@@ -257,20 +449,18 @@ fn show_gadgets(
             for py in 0..MAP_SIZE as i32 {
                 for px_ in 0..MAP_SIZE as i32 {
                     let (x, z) = (cx + px_ - half, cz + py - half);
-                    let rgba = match streaming.top(x, z) {
+                    let rgb = match streaming.top(x, z) {
                         Some(top) if top >= 0 => {
                             let b = world.0.block(x, top as i32, z);
                             let c = *colours.entry(b).or_insert_with(|| {
                                 average_colour(&blocks.0, textures.as_deref(), b)
                             });
-                            // Higher ground a little lighter.
-                            let lift = ((top as i32 - 64) * 2).clamp(-40, 40);
-                            let f = |v: u8| (v as i32 + lift).clamp(0, 255) as u8;
-                            [f(c[0]), f(c[1]), f(c[2]), 255]
+                            land_colour(c, top)
                         }
-                        // Not explored (not loaded): parchment.
-                        _ => [214, 196, 150, 255],
+                        // Not loaded now: what we saw before, or parchment.
+                        _ => memory.colour(x, z).unwrap_or(PARCHMENT),
                     };
+                    let rgba = [rgb[0], rgb[1], rgb[2], 255];
                     let i = ((py as u32 * MAP_SIZE + px_ as u32) * 4) as usize;
                     data[i..i + 4].copy_from_slice(&rgba);
                 }
@@ -339,6 +529,24 @@ fn spyglass(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_map_remembers() {
+        let mut m = MapMemory::default();
+        let mut c = [PARCHMENT; 256];
+        c[17] = [1, 2, 3];
+        m.remember(ColumnPos::new(-2, 5), c);
+        let back = MapMemory::from_bytes(&m.to_bytes());
+        assert_eq!(back.colour(-32 + 1, 80 + 1), Some([1, 2, 3]));
+        assert_eq!(back.colour(-32, 80), Some(PARCHMENT));
+        assert_eq!(back.colour(0, 0), None);
+        // Only so much is kept: the oldest is forgotten.
+        for i in 0..MAP_MEMORY_MAX as i32 {
+            m.remember(ColumnPos::new(i, 100), c);
+        }
+        assert_eq!(m.colour(-32, 80), None);
+        assert_eq!(MapMemory::from_bytes(b"junk").columns.len(), 0);
+    }
 
     #[test]
     fn the_needle_points_home() {

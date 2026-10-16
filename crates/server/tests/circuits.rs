@@ -301,7 +301,20 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
     for dx in 7..=8 {
         set(&mut fay, at(dx, y + 1, -1), east.0, 0);
     }
-    run_until(&mut [&mut fay], 1.0, |_| false);
+    // The rail before the step slopes up to it.
+    let ramp = registry
+        .rail_sloping("core:rail", ourcraft_common::shapes::Dir4::East, false)
+        .unwrap()
+        .0;
+    assert!(
+        run_until(&mut [&mut fay], 2.0, |b| changed_to(
+            b[0],
+            at(6, y, -1),
+            ramp
+        )),
+        "no slope up the step"
+    );
+    run_until(&mut [&mut fay], 0.5, |_| false);
     fay.received.clear();
     fay.send(&ClientMessage::UseBlock {
         pos: at(2, y, -1),
@@ -341,6 +354,16 @@ fn levers_wire_lamps_pistons_rails_and_carts() {
                 if list.iter().any(|(e, p, _)| *e == id && p[1] > (feet[1] + y + 1) as f32)
         ))),
         "the cart didn't climb the step"
+    );
+    // Smoothly: it was seen partway up the ramp.
+    let base = (feet[1] + y) as f32;
+    assert!(
+        fay.has(|m| matches!(
+            m,
+            ServerMessage::EntitiesMoved(list)
+                if list.iter().any(|(e, p, _)| *e == id && p[1] > base + 0.2 && p[1] < base + 0.9)
+        )),
+        "the cart jumped up instead of rolling up the slope"
     );
 
     stop.0.store(true, Ordering::Relaxed);

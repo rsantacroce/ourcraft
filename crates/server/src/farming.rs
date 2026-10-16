@@ -304,6 +304,7 @@ fn compost_chance(item: &str) -> Option<u32> {
         | "core:pumpkin_seeds"
         | "core:melon_seeds"
         | "core:tall_grass"
+        | "core:fern"
         | "core:leaves" => Some(3),
         "core:wheat"
         | "core:carrot"

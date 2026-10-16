@@ -271,10 +271,29 @@ The rest of the list:
   moved; right clicking a wish table opened an empty screen instead of
   making the wish.
 
-Still left: wire looks the same whichever way it joins; rails climb in
-steps rather than smooth slopes; maps don't remember where you've been;
-no ferns. (Not seen on screen yet: the dispenser, big chest screen,
-lectern book and banner patterns — the screen was locked.)
+The last few left from that list came with the fourth gap fixes, below.
+
+### Fourth gap fixes ✅ done
+
+- **Wire shows which way it joins:** a dot with a strip out to each wire,
+  lever, lamp, door or other spark thing next to it (a straight line
+  with one neighbour, a little cross on its own).
+- **Rail slopes:** rails laid up a step make the bottom one a slope, drawn
+  as a ramp. Carts roll smoothly up it (slowing down, and rolling back if
+  too slow) and down it (speeding up); a cart left on a slope rolls off.
+  Powered rails slope too.
+- **Maps remember where you've been:** every bit of land you've loaded is
+  kept (up to 4096 columns, a few MB) in `map_seen.dat` in the world's
+  folder (or `maps/` for servers), so the map fills in as you explore.
+- **Ferns** grow wild in forests (sometimes seeds, like tall grass).
+- Fixed on the way: holding a compass, clock or map hid the whole world
+  and the HUD (since milestone 20). The gallery now builds a small scene
+  in the middle, with wire, a rail slope, ferns, a big chest, a dispenser
+  and a lectern.
+
+Seen on screen: the wire, slope, ferns, dispenser, a pair of chests and the
+map (which is how the hidden-world bug turned up). Not yet seen: the map
+filling in, the big chest and lectern screens, and banner patterns.
 
 ### The big item list (milestones 17–24)
 

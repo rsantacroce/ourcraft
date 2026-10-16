@@ -538,6 +538,30 @@ pub fn icon(name: &str) -> Option<Vec<u8>> {
             ],
             &[('G', GREEN), ('g', darker(GREEN, 30))],
         ),
+        "fern" => draw(
+            &[
+                "................",
+                ".......F........",
+                "......FfF.......",
+                "..F...FfF...F...",
+                ".FfF..FfF..FfF..",
+                "..FfF.FfF.FfF...",
+                "...FfFFfFFfF....",
+                "F...FfFfFfF...F.",
+                "FfF..FFfFF..FfF.",
+                ".FfF..FfF..FfF..",
+                "..FfFFFfFFFfF...",
+                "....FFFfFFF.....",
+                ".......f........",
+                ".......f........",
+                "................",
+                "................",
+            ],
+            &[
+                ('F', [70, 140, 60, 255]),
+                ('f', darker([70, 140, 60, 255], 35)),
+            ],
+        ),
         "red_mushroom" | "brown_mushroom" => {
             let cap: Rgba = if name == "red_mushroom" {
                 [214, 44, 40, 255]

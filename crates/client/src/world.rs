@@ -137,6 +137,11 @@ impl ChunkStreaming {
         Some(h[(x.rem_euclid(16) + z.rem_euclid(16) * 16) as usize])
     }
 
+    /// The columns loaded now.
+    pub fn loaded_columns(&self) -> impl Iterator<Item = ColumnPos> + '_ {
+        self.heights.keys().copied()
+    }
+
     pub fn pending_decodes(&self) -> usize {
         self.decoding.len()
     }

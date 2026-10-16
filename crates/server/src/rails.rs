@@ -27,6 +27,8 @@ const BOOST: f32 = 14.0;
 const BRAKE: f32 = 12.0;
 /// Speed a cart loses climbing a step of rail (and gains going down).
 const STEP_SPEED: f32 = 1.5;
+/// How hard a slope pulls a cart down it (blocks per second, per second).
+const SLOPE_PULL: f32 = 2.5;
 
 pub struct RailsPlugin;
 
@@ -278,13 +280,35 @@ fn join_rails(
                 }
             }
         };
-        let joined = reg
-            .rail_joining(&v.family, pair.0, pair.1)
-            .or_else(|| reg.rail_joining(&v.family, pair.0, pair.0.opposite()));
-        if let Some(new) = joined
-            .and_then(|n| reg.powered(n, v.open))
-            .filter(|n| *n != b)
-        {
+        // Going straight with the rail ahead a block up (and none level
+        // there): a slope up to it.
+        let on = reg.variant_kind(b) == Some(VariantKind::PoweredRail) && reg.is_on(b);
+        let rail_off = |d: Dir4, dy: i32| {
+            reg.is_rail(get(
+                &world,
+                p + IVec3::from_array(d.vector()) + IVec3::Y * dy,
+            ))
+        };
+        let up = (pair.0 == pair.1.opposite())
+            .then_some([pair.0, pair.1])
+            .and_then(|ends| {
+                ends.into_iter()
+                    .find(|d| rail_off(*d, 1) && !rail_off(*d, 0))
+            });
+        let joined = match up {
+            Some(up) => reg.rail_sloping(&v.family, up, on),
+            None => reg
+                .rail_joining(&v.family, pair.0, pair.1)
+                .or_else(|| reg.rail_joining(&v.family, pair.0, pair.0.opposite()))
+                .and_then(|n| {
+                    if reg.variant_kind(n) == Some(VariantKind::PoweredRail) {
+                        reg.powered(n, on)
+                    } else {
+                        Some(n)
+                    }
+                }),
+        };
+        if let Some(new) = joined.filter(|n| *n != b) {
             crate::building::change(&mut world, &mut cache, &open, &mut net, p, new);
         }
     }
@@ -313,7 +337,13 @@ fn roll_carts(
         let Some(e) = entities.list.get_mut(id) else {
             continue;
         };
-        let cell = e.position.floor().as_ivec3();
+        let mut cell = e.position.floor().as_ivec3();
+        // Near the top of a slope a cart is higher than its block.
+        if rail_at(cell).is_none()
+            && rail_at(cell - IVec3::Y).is_some_and(|r| reg.rail_slope(r).is_some())
+        {
+            cell -= IVec3::Y;
+        }
         let Some(rail) = rail_at(cell) else {
             cart.speed = 0.0;
             continue;
@@ -337,6 +367,24 @@ fn roll_carts(
             }
             if cart.dir.dot(along) > 0.0 {
                 cart.speed = (cart.speed + PUSH * dt).min(MAX_SPEED * 0.6);
+            }
+        }
+        // Slopes pull carts down them (and a cart left on one rolls).
+        let slope = reg.rail_slope(rail).map(dir_vec);
+        if let Some(up) = slope {
+            if cart.speed < 0.2 && riders.get(id).is_none_or(|(w, _)| w.y <= 0.1) {
+                cart.dir = -up;
+                cart.speed = cart.speed.max(0.3);
+            }
+            if cart.dir.dot(up) > 0.5 {
+                cart.speed -= SLOPE_PULL * dt;
+                if cart.speed <= 0.0 {
+                    // Not fast enough to get up: roll back down.
+                    cart.dir = -up;
+                    cart.speed = 0.3;
+                }
+            } else {
+                cart.speed = (cart.speed + SLOPE_PULL * dt).min(MAX_SPEED);
             }
         }
         // Powered rails speed up (or brake), other rails slow down a bit.
@@ -366,7 +414,21 @@ fn roll_carts(
         }
         let before = e.position;
         let mut next = e.position + cart.dir * cart.speed * dt;
+        // On a slope the height follows the ramp (so it carries on into
+        // the rail at the top, or the one at the bottom).
+        if let Some(up) = slope {
+            next.y = ramp_height(cell, next, up);
+        }
         let mut next_cell = next.floor().as_ivec3();
+        if next_cell != cell
+            && rail_at(next_cell).is_none()
+            && let Some(below) = rail_at(next_cell - IVec3::Y)
+            && let Some(up) = reg.rail_slope(below)
+        {
+            // Over the top of a slope going down: onto the ramp.
+            next_cell -= IVec3::Y;
+            next.y = ramp_height(next_cell, next, dir_vec(up));
+        }
         if next_cell != cell && rail_at(next_cell).is_none() {
             // Rails a step up or down: up costs speed, down gives some.
             if rail_at(next_cell + IVec3::Y).is_some() {
@@ -395,6 +457,9 @@ fn roll_carts(
                     match (came_from.filter(|c| next_ends.contains(c)), exit) {
                         (Some(_), Some(out)) => {
                             cart.dir = dir_vec(out);
+                            if let Some(up) = rail_at(next_cell).and_then(|r| reg.rail_slope(r)) {
+                                next.y = ramp_height(next_cell, next, dir_vec(up));
+                            }
                             // Keep to the middle of the rail.
                             let c = next_cell.as_vec3() + Vec3::splat(0.5);
                             if cart.dir.x != 0.0 {
@@ -442,9 +507,27 @@ fn roll_carts(
     }
 }
 
+/// How high a cart at `at` sits on the slope in `cell` going up towards
+/// `up`: from the bottom edge to a block higher at the top edge.
+fn ramp_height(cell: IVec3, at: Vec3, up: Vec3) -> f32 {
+    let centre = cell.as_vec3() + Vec3::splat(0.5);
+    let along = ((at - centre).dot(up) + 0.5).clamp(0.0, 1.0);
+    cell.y as f32 + 0.05 + along
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn carts_ride_up_ramps() {
+        let cell = IVec3::new(4, 10, -3);
+        let up = Vec3::new(0.0, 0.0, -1.0); // up to the north
+        let h = |z: f32| ramp_height(cell, Vec3::new(4.5, 0.0, z), up);
+        assert!((h(-2.0) - 10.05).abs() < 1e-4, "bottom (south edge)");
+        assert!((h(-2.5) - 10.55).abs() < 1e-4, "middle");
+        assert!((h(-3.0) - 11.05).abs() < 1e-4, "top (north edge)");
+    }
 
     #[test]
     fn directions_from_vectors() {

@@ -42,6 +42,7 @@ pub fn pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
         "melon_top" => melon_top(x, y),
         "sugar_cane" => sugar_cane(x, y),
         "tall_grass" => tall_grass(x, y),
+        "fern" => fern(x, y),
         "red_mushroom" => mushroom(x, y, rgb(214, 44, 40), true),
         "brown_mushroom" => mushroom(x, y, rgb(150, 108, 76), false),
         "cake_top" => cake_top(x, y),
@@ -195,6 +196,29 @@ fn tall_grass(x: usize, y: usize) -> Rgba {
         return CLEAR;
     }
     speckle(rgb(90, 160, 52), x, y, 54, 20.0)
+}
+
+fn fern(x: usize, y: usize) -> Rgba {
+    // Fronds fanning out from the middle, leaflets on each side.
+    let (dx, h) = (x as i32 - 8, 16 - y as i32);
+    let frond = [(-6, 9), (-3, 13), (0, 15), (3, 12), (6, 8)]
+        .iter()
+        .any(|&(end, top)| {
+            if h < 1 || h > top {
+                return false;
+            }
+            let along = end * h / top;
+            let leaf = if h % 2 == 0 && h > 2 && h < top - 1 {
+                2
+            } else {
+                0
+            };
+            (dx - along).abs() <= leaf / 2 + if h % 2 == 0 { 1 } else { 0 }
+        });
+    if !frond {
+        return CLEAR;
+    }
+    speckle(rgb(70, 140, 60), x, y, 57, 18.0)
 }
 
 /// A little mushroom in the bottom half of the texture.

@@ -345,6 +345,13 @@ fn mesh_shapes(
                 let (sky, glow) = chunk.light(x, y, z);
                 let at = [x as f32, y as f32, z as f32];
                 let near = |o: [i32; 3]| chunk.get(x + o[0], y + o[1], z + o[2]);
+                if let Some(up) = registry.rail_slope(block) {
+                    let layer = layers
+                        .get(block.0 as usize)
+                        .map_or(0, |l| l[Face::PosY as usize]);
+                    push_ramp(&mut mesh.solid, at, up.vector(), layer, [sky, glow]);
+                    continue;
+                }
                 for (min, max) in registry.boxes_at(block, near) {
                     for face in Face::ALL {
                         let axes = face_axes(face);
@@ -575,6 +582,24 @@ fn push_face(
     mesh.indices.extend(tris.iter().map(|t| base + t));
 }
 
+/// A sloping rail: a slanted square from the bottom edge up to a block
+/// higher at the `up` edge, seen from both sides.
+fn push_ramp(mesh: &mut ChunkMeshData, at: [f32; 3], up: [i32; 3], layer: u32, light: [u8; 2]) {
+    let base = mesh.positions.len() as u32;
+    for (cx, cz) in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+        let along = ((cx - 0.5) * up[0] as f32 + (cz - 0.5) * up[2] as f32 + 0.5).clamp(0.0, 1.0);
+        let p = [at[0] + cx, at[1] + 1.0 / 16.0 + along, at[2] + cz];
+        mesh.positions.push(p);
+        mesh.uvs.push([p[0], p[2]]);
+        mesh.layers.push(layer);
+        mesh.shades.push(face_shade(Face::PosY));
+        mesh.lights
+            .push([light[0] as f32 / 15.0, light[1] as f32 / 15.0]);
+    }
+    mesh.indices
+        .extend([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2].map(|t| base + t));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -724,6 +749,26 @@ mod tests {
         // The stone's top face is drawn (seen through the water).
         assert_eq!(m.solid.face_count(), 6);
         check_lengths(&m.translucent);
+    }
+
+    #[test]
+    fn sloping_rails_are_ramps() {
+        let (reg, _) = setup();
+        let up = ourcraft_common::shapes::Dir4::North;
+        let ramp = reg.rail_sloping("core:rail", up, false).unwrap();
+        let mut c = Chunk::empty();
+        c.set(5, 5, 5, ramp);
+        let m = mesh(&c);
+        assert_eq!(m.positions.len(), 4, "one slanted square");
+        assert_eq!(m.indices.len(), 12, "seen from both sides");
+        // High at the north (-z) edge, low at the south.
+        for p in &m.positions {
+            let high = p[2] < 5.5;
+            assert!(
+                (p[1] - if high { 6.0625 } else { 5.0625 }).abs() < 1e-4,
+                "{p:?}"
+            );
+        }
     }
 
     #[test]
