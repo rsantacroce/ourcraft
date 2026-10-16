@@ -22,6 +22,7 @@ picks up from there.
 | Multiplayer | Dedicated server, single player through the same server, LAN discovery, direct connect, chat with commands, avatars with name tags, client prediction |
 | Platform | macOS, Windows, Linux, iPad/iPhone, Android; touch and gamepad controls |
 | Atmosphere | Drifting clouds; rain (snow where it's snowy) that greys the sky and stays outside; footsteps that sound like the ground; birds, water and wind; three calm music pieces now and then (can be switched off); bits flying off broken blocks |
+| Magic | A wish table that makes tools and armour sparkly; hop, glow and swim potions |
 | Extras | WebAssembly mods, main menu, settings, sound effects, chat filter |
 
 ## Partly done
@@ -29,7 +30,7 @@ picks up from there.
 
 ## Missing
 
-See milestones 17–24 for the full item list. Also still missing:
+Milestones 17–24 brought in the big item list. Still missing:
 
 - Villages and other generated structures
 - Experience points and achievements
@@ -442,7 +443,21 @@ What was planned:
   you can befriend, fish in the water, frogs, bees with hives and honey.
 - A few more gentle monsters at night, all original.
 
-### 24. Our own magic
+### 24. Our own magic ✅ done
+
+A wish table (a book, two diamonds, a wish star and obsidian) turns a
+tool or a piece of armour into a sparkly one for a wish star (spark dust
+round a gold ingot): sparkly tools dig half as fast again and last twice
+as long, sparkly armour gives one more point. Glass makes bottles, and a
+bottle with spark dust and a feather, a carrot or a fish makes a potion:
+hop (jump about two and a half blocks, 90 s), glow (see in caves and at
+night, 2 min) or swim (swim twice as fast and never run out of breath,
+2 min). Drinking gives the bottle back; the time left shows top right.
+
+Not quite as planned: the dreamy sky world through a cloud portal is
+left for later; effects aren't saved when you leave the world.
+
+What was planned:
 
 Minecraft's magic (enchanting tables, other dimensions, its special
 gems and metals, its creatures) is its own invention, so we don't copy
@@ -457,6 +472,7 @@ get new names and art, never copied ones.
 
 ### Later ideas
 
+- A dreamy sky world reached through a cloud portal.
 - Villages and other structures in world generation.
 - Achievements to guide new players ("Make a crafting table!").
 - More game modes as mods: a racing course, hide and seek, a building

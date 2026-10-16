@@ -46,6 +46,24 @@ const FLY_ACCEL: f32 = 40.0;
 /// never leaves the box overlapping a block.
 const SKIN: f32 = 1e-3;
 
+/// A hop potion makes jumps higher (about two blocks instead of one).
+fn jump_boost(input: &PlayerInput) -> f32 {
+    if input.effects & crate::magic::Effect::Hop.bit() != 0 {
+        1.4
+    } else {
+        1.0
+    }
+}
+
+/// A swim potion makes swimming much quicker.
+fn swim_boost(input: &PlayerInput) -> f32 {
+    if input.effects & crate::magic::Effect::Swim.bit() != 0 {
+        2.2
+    } else {
+        1.0
+    }
+}
+
 /// What the player is asking to do this step.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlayerInput {
@@ -64,6 +82,8 @@ pub struct PlayerInput {
     pub speed: f32,
     /// Sitting in a boat: float on water and row quickly.
     pub boat: bool,
+    /// Potion effects working right now (bits of [`crate::magic::Effect`]).
+    pub effects: u8,
 }
 
 impl Default for PlayerInput {
@@ -77,6 +97,7 @@ impl Default for PlayerInput {
             auto_jump: false,
             speed: 1.0,
             boat: false,
+            effects: 0,
         }
     }
 }
@@ -306,7 +327,7 @@ pub fn step(
             (state.velocity.y - GRAVITY * dt).max(-TERMINAL_SPEED)
         };
     } else if state.in_water {
-        let target = wish * SWIM_SPEED;
+        let target = wish * SWIM_SPEED * swim_boost(input);
         let a = GROUND_ACCEL * 0.5 * dt;
         state.velocity.x = approach(state.velocity.x, target.x, a);
         state.velocity.z = approach(state.velocity.z, target.z, a);
@@ -334,7 +355,7 @@ pub fn step(
         state.velocity.x = approach(state.velocity.x, target.x, a);
         state.velocity.z = approach(state.velocity.z, target.z, a);
         if input.jump && state.on_ground && can_jump {
-            state.velocity.y = JUMP_SPEED;
+            state.velocity.y = JUMP_SPEED * jump_boost(input);
         }
         state.velocity.y = (state.velocity.y - GRAVITY * dt).max(-TERMINAL_SPEED);
         // Ladders: hold jump to climb, "down" to go down, otherwise slide
@@ -494,6 +515,30 @@ mod tests {
         }
         assert!(peak > 1.1 && peak < 1.6, "jump height {peak}");
         assert!(s.on_ground);
+    }
+
+    #[test]
+    fn hop_potion_jumps_higher() {
+        let w = flat_world();
+        let reg = BlockRegistry::with_builtin_blocks();
+        let peak = |effects: u8| {
+            let mut s = PlayerState::new(Vec3::new(0.5, 10.0, 0.5));
+            run(&mut s, PlayerInput::default(), &w, 2);
+            let jump = PlayerInput {
+                jump: true,
+                effects,
+                ..default_input()
+            };
+            step(&mut s, &jump, &w, &reg);
+            let mut top: f32 = 0.0;
+            for _ in 0..90 {
+                step(&mut s, &PlayerInput::default(), &w, &reg);
+                top = top.max(s.position.y - 10.0);
+            }
+            top
+        };
+        let (plain, hop) = (peak(0), peak(crate::magic::Effect::Hop.bit()));
+        assert!(plain < 1.6 && hop > 2.2, "plain {plain}, hop {hop}");
     }
 
     fn default_input() -> PlayerInput {

@@ -79,8 +79,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let sky = level(in.light.x) * max(params.daylight, params.min_light);
         // Torches and lamps give a warm light.
         let glow = level(in.light.y) * vec3<f32>(1.0, 0.88, 0.7);
-        // Never pitch black, even deep in a cave.
-        light = max(max(vec3<f32>(sky), glow), vec3<f32>(0.06)) * in.shade;
+        // Never pitch black, even deep in a cave (0.06 normally; a glow
+        // potion raises `min_light`, which lights caves up too).
+        let darkest = params.min_light * params.min_light * 0.67;
+        light = max(max(vec3<f32>(sky), glow), vec3<f32>(darkest)) * in.shade;
     }
     let lit = color.rgb * light;
 

@@ -17,7 +17,10 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(Startup, spawn_hud)
-            .add_systems(Update, (toggle_debug, update_debug_text, update_status));
+            .add_systems(
+                Update,
+                (toggle_debug, update_debug_text, update_status, show_effects),
+            );
     }
 }
 
@@ -27,7 +30,27 @@ struct DebugText;
 #[derive(Component)]
 struct HelpText;
 
+/// The potions working right now, top right.
+#[derive(Component)]
+struct EffectsText;
+
 fn spawn_hud(mut commands: Commands) {
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(10),
+            right: px(16),
+            ..default()
+        },
+        Text::new(""),
+        TextFont::from_font_size(18.0),
+        TextColor(Color::srgb(0.95, 0.85, 1.0)),
+        TextShadow {
+            offset: Vec2::splat(1.5),
+            color: Color::linear_rgba(0.0, 0.0, 0.0, 0.8),
+        },
+        EffectsText,
+    ));
     commands
         .spawn(Node {
             position_type: PositionType::Absolute,
@@ -71,6 +94,26 @@ fn spawn_hud(mut commands: Commands) {
                 },
             ));
         });
+}
+
+fn show_effects(
+    effects: Res<crate::player::Effects>,
+    mut text: Single<&mut Text, With<EffectsText>>,
+) {
+    let names = ["Hop", "Glow", "Swim"];
+    let lines: Vec<String> = names
+        .iter()
+        .zip(effects.0)
+        .filter(|(_, s)| *s > 0.0)
+        .map(|(n, s)| {
+            let s = s.ceil() as u32;
+            format!("{n} potion {}:{:02}", s / 60, s % 60)
+        })
+        .collect();
+    let joined = lines.join("\n");
+    if text.0 != joined {
+        text.0 = joined;
+    }
 }
 
 #[derive(Component)]

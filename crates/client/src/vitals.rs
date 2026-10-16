@@ -354,23 +354,28 @@ fn eat(
     mut sounds: MessageWriter<crate::audio::PlaySound>,
     mut held_for: Local<f32>,
 ) {
+    // Potions count as food here (drunk the same way), in any game mode.
+    let potion = inventory
+        .held()
+        .and_then(|i| items.get(i))
+        .is_some_and(|d| ourcraft_common::magic::potion_effect(&d.name).is_some());
     let food = inventory
         .held()
         .and_then(|i| items.get(i).map(|d| (i, d.food, d.heals)))
-        .filter(|(_, f, h)| *f > 0 || *h > 0);
+        .filter(|(_, f, h)| *f > 0 || *h > 0 || potion);
     // Using a door or chest wins over eating.
     let using = target
         .0
         .is_some_and(|h| crate::interaction::usable(&blocks.0, h.id));
     let wants = (actions.eat || actions.place_block && !using)
         && !focus.gameplay_blocked()
-        && vitals.shown();
+        && (vitals.shown() || potion);
     let Some((item, nutrition, heals)) = food.filter(|_| wants) else {
         *held_for = 0.0;
         return;
     };
-    let hungry = vitals.food < 20.0 || heals > 0;
-    if !hungry || nutrition == 0 && heals == 0 {
+    let hungry = vitals.food < 20.0 || heals > 0 || potion;
+    if !hungry || nutrition == 0 && heals == 0 && !potion {
         return;
     }
     let before = *held_for;

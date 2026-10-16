@@ -382,11 +382,9 @@ fn update_touch_ui(
         ),
     >,
 ) {
-    state.can_eat = vitals.shown()
-        && inventory
-            .held()
-            .and_then(|i| items.get(i))
-            .is_some_and(|d| d.food > 0 || d.heals > 0);
+    let held = inventory.held().and_then(|i| items.get(i));
+    state.can_eat = vitals.shown() && held.is_some_and(|d| d.food > 0 || d.heals > 0)
+        || held.is_some_and(|d| ourcraft_common::magic::potion_effect(&d.name).is_some());
     let show = controls.enabled && !focus.menu_open;
     **root = if show {
         Visibility::Inherited

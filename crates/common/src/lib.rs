@@ -11,6 +11,7 @@ pub mod farming;
 pub mod fluids;
 pub mod inventory;
 pub mod item;
+pub mod magic;
 pub mod mobs;
 pub mod physics;
 pub mod prediction;

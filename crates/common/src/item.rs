@@ -62,6 +62,8 @@ pub struct ItemDef {
     /// What's left after eating it or crafting with it (a bowl, an empty
     /// bucket).
     pub leaves: Option<String>,
+    /// Given a sparkle at a wish table (faster tools, see `magic`).
+    pub sparkly: bool,
 }
 
 impl ItemDef {
@@ -77,6 +79,7 @@ impl ItemDef {
             food: 0,
             heals: 0,
             leaves: None,
+            sparkly: false,
         }
     }
 
@@ -319,6 +322,11 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
             &format!("{display} Dye"),
         ));
     }
+    // ---- Milestone 24: magic (sparkly tools and armour come last, made
+    // from everything above) ----
+    items.extend(crate::magic::items());
+    let shiny = crate::magic::sparkly_items(&items);
+    items.extend(shiny);
     items
 }
 
@@ -384,6 +392,7 @@ impl ItemRegistry {
                     food: 0,
                     heals: 0,
                     leaves: None,
+                    sparkly: false,
                 }
             })
             .collect();
@@ -476,7 +485,15 @@ impl ItemRegistry {
     pub fn break_time(&self, blocks: &BlockRegistry, block: BlockId, held: Option<ItemId>) -> f32 {
         let def = blocks.get(block);
         let speed = match (self.tool_of(held), def.tool) {
-            (Some((kind, tier)), Some(best)) if kind == best => TOOL_SPEED[tier as usize - 1],
+            (Some((kind, tier)), Some(best)) if kind == best => {
+                let sparkle = held.and_then(|h| self.get(h)).is_some_and(|d| d.sparkly);
+                TOOL_SPEED[tier as usize - 1]
+                    * if sparkle {
+                        crate::magic::SPARKLE_SPEED
+                    } else {
+                        1.0
+                    }
+            }
             _ => 1.0,
         };
         let penalty = if self.can_harvest(blocks, block, held) {

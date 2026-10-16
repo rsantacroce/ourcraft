@@ -126,7 +126,8 @@ pub fn pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
             }
         }
         "beehive_top" => {
-            let ring = ((x as f32 - 7.5).abs().max((y as f32 - 7.5).abs()) as usize).is_multiple_of(3);
+            let ring =
+                ((x as f32 - 7.5).abs().max((y as f32 - 7.5).abs()) as usize).is_multiple_of(3);
             let c = speckle(rgb(222, 180, 90), x, y, 132, 8.0);
             if ring { shift(c, -30.0) } else { c }
         }
@@ -143,7 +144,35 @@ pub fn pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
                 rgb(250, 190, 40) // honey oozing
             } else {
                 let c = speckle(rgb(214, 170, 84), x, y, 134, 8.0);
-                if y.is_multiple_of(4) { shift(c, -25.0) } else { c }
+                if y.is_multiple_of(4) {
+                    shift(c, -25.0)
+                } else {
+                    c
+                }
+            }
+        }
+        // A wish table: a purple cloth with a gold star on top, and
+        // dark stone with glinting runes round the sides.
+        "wish_table_top" => {
+            let (fx, fy) = (x as f32 - 7.5, y as f32 - 7.5);
+            let r = (fx * fx + fy * fy).sqrt();
+            let a = fy.atan2(fx);
+            let star = r < 2.0 + 2.5 * (a * 5.0).cos().max(0.0).powi(3);
+            if x == 0 || y == 0 || x == 15 || y == 15 {
+                rgb(36, 26, 48)
+            } else if star {
+                rgb(255, 214, 70)
+            } else {
+                speckle(rgb(120, 60, 170), x, y, 135, 10.0)
+            }
+        }
+        "wish_table_side" => {
+            if y <= 2 {
+                speckle(rgb(120, 60, 170), x, y, 136, 10.0)
+            } else if y > 4 && y < 10 && x % 4 == 1 && one_in(x, y, 137, 2) {
+                rgb(200, 150, 255) // a glowing rune
+            } else {
+                speckle(rgb(36, 26, 48), x, y, 138, 8.0)
             }
         }
         "scaffolding" => {

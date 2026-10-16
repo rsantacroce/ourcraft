@@ -20,6 +20,7 @@ pub mod circuits;
 pub mod decoration;
 pub mod entities;
 pub mod farming;
+pub mod magic;
 pub mod mobs;
 pub mod mods;
 pub mod needs;
@@ -158,7 +159,11 @@ impl Plugin for ServerPlugin {
             decoration::DecorationPlugin,
         ))
         // (Bevy takes at most 15 plugins at once.)
-        .add_plugins((circuits::CircuitsPlugin, rails::RailsPlugin))
+        .add_plugins((
+            circuits::CircuitsPlugin,
+            rails::RailsPlugin,
+            magic::MagicPlugin,
+        ))
         .add_systems(Update, check_stop_flag);
     }
 }

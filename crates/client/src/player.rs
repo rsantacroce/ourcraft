@@ -35,6 +35,8 @@ impl Plugin for PlayerPlugin {
             .init_resource::<Riding>()
             .init_resource::<InCart>()
             .init_resource::<CartSeat>()
+            .init_resource::<Effects>()
+            .add_systems(Update, count_down_effects)
             .add_systems(Startup, spawn_player)
             .add_systems(
                 PreUpdate,
@@ -262,6 +264,7 @@ fn player_physics(
     blocks: Res<Blocks>,
     conn: Option<ResMut<Connection>>,
     (boating, seat, riding): (Res<Boating>, Res<CartSeat>, Res<Riding>),
+    effects: Res<Effects>,
     mut player: Single<&mut Player>,
 ) {
     if player.frozen {
@@ -285,6 +288,7 @@ fn player_physics(
             rules.0.speed
         },
         boat: boating.0.is_some(),
+        effects: ourcraft_common::magic::Effect::bits(&effects.0),
     };
     player.prev_position = player.state.position;
     // In a mine cart, the cart carries us (the server moves it).
@@ -413,6 +417,25 @@ pub struct InCart(pub Option<u64>);
 #[derive(Resource, Default, Debug)]
 pub struct CartSeat(pub Option<Vec3>);
 
+/// Seconds left of each potion effect (hop, glow, swim), as the server
+/// told us, counting down.
+#[derive(Resource, Default, Debug)]
+pub struct Effects(pub [f32; 3]);
+
+impl Effects {
+    pub fn has(&self, e: ourcraft_common::magic::Effect) -> bool {
+        self.0[e as usize] > 0.0
+    }
+}
+
+fn count_down_effects(time: Res<Time>, mut effects: ResMut<Effects>) {
+    if effects.0 != [0.0; 3] {
+        for s in &mut effects.0 {
+            *s = (*s - time.delta_secs()).max(0.0);
+        }
+    }
+}
+
 /// Asleep in the bed at this block: the view lies down in it.
 #[derive(Resource, Default, Debug)]
 pub struct Asleep(pub Option<IVec3>);
@@ -423,6 +446,7 @@ fn hear_sleeping(
     mut boating: ResMut<Boating>,
     mut riding: ResMut<Riding>,
     mut cart: ResMut<InCart>,
+    mut effects: ResMut<Effects>,
 ) {
     for FromServer(msg) in messages.read() {
         match msg {
@@ -433,12 +457,14 @@ fn hear_sleeping(
                 riding.1 = *speed;
             }
             ServerMessage::InCart { cart: c } => cart.0 = *c,
+            ServerMessage::Effects { seconds } => effects.0 = *seconds,
             // A new world: awake, and on foot.
             ServerMessage::Welcome { .. } => {
                 asleep.0 = None;
                 boating.0 = None;
                 riding.0 = None;
                 cart.0 = None;
+                effects.0 = [0.0; 3];
             }
             _ => {}
         }

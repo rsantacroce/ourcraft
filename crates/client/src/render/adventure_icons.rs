@@ -411,6 +411,6 @@ pub fn icon(name: &str) -> Option<Vec<u8>> {
                 ('b', [96, 64, 34, 255]),
             ],
         ),
-        _ => return None,
+        _ => return super::magic_icons::icon(name),
     })
 }

@@ -521,6 +521,8 @@ impl BlockRegistry {
         crate::decoration::register_decoration(&mut reg);
         // ---- Milestone 22: circuits and transport ----
         crate::circuits::register_circuits(&mut reg);
+        // ---- Milestone 24: our own magic ----
+        crate::magic::register_blocks(&mut reg);
         reg
     }
 

@@ -439,7 +439,11 @@ pub fn usable(registry: &ourcraft_common::block::BlockRegistry, id: BlockId) -> 
     stepped
         || matches!(
             registry.get(id).name.as_str(),
-            "core:campfire" | "core:barrel" | "core:flower_pot" | "core:note_block"
+            "core:campfire"
+                | "core:barrel"
+                | "core:flower_pot"
+                | "core:note_block"
+                | "core:wish_table"
         )
         || registry
             .get(id)

@@ -109,6 +109,8 @@ pub struct ConnectedPlayer {
     pub cart: Option<u64>,
     /// Which way they last wanted to go (`x` right, `y` forward).
     pub last_move: Vec2,
+    /// Seconds left of each potion effect ([`ourcraft_common::magic::Effect`]).
+    pub effects: [f32; 3],
     /// What armour everyone was last told they wear.
     pub armour_sent: Option<[u16; 4]>,
     /// Columns this client has been sent and (as far as we know) still has.
@@ -177,6 +179,7 @@ fn on_connect(
                 ride_speed: 1.0,
                 cart: None,
                 last_move: Vec2::ZERO,
+                effects: [0.0; 3],
                 armour_sent: None,
                 sent: HashSet::new(),
                 connected_for: 0.0,
@@ -657,6 +660,7 @@ fn simulate_players(
             };
             input.fly &= can_fly;
             input.boat = p.boat.is_some();
+            input.effects = ourcraft_common::magic::Effect::bits(&p.effects);
             p.last_move = Vec2::from_array(input.movement);
             apply_input(&mut p.physics, &input, &world.0, &registry.0);
             p.state.yaw = input.yaw;

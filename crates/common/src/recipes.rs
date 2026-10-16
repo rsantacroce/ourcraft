@@ -173,6 +173,42 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             1,
         ));
     }
+    // ---- Milestone 24: our own magic ----
+    r.extend([
+        shaped(&["G G", " G "], &[('G', "core:glass")], "core:bottle", 3),
+        shaped(
+            &[" D ", "DGD", " D "],
+            &[('D', "core:spark_dust"), ('G', "core:gold_ingot")],
+            "core:wish_star",
+            1,
+        ),
+        shaped(
+            &[" B ", "DWD", "OOO"],
+            &[
+                ('B', "core:book"),
+                ('D', "core:diamond"),
+                ('W', "core:wish_star"),
+                ('O', "core:obsidian"),
+            ],
+            "core:wish_table",
+            1,
+        ),
+        shapeless(
+            &["core:bottle", "core:feather", "core:spark_dust"],
+            "core:hop_potion",
+            1,
+        ),
+        shapeless(
+            &["core:bottle", "core:carrot", "core:spark_dust"],
+            "core:glow_potion",
+            1,
+        ),
+        shapeless(
+            &["core:bottle", "core:fish", "core:spark_dust"],
+            "core:swim_potion",
+            1,
+        ),
+    ]);
     // ---- Milestone 23: a bee hive ----
     r.push(shaped(
         &["PPP", "H H", "PPP"],

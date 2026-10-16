@@ -462,7 +462,8 @@ impl PaletteKind {
         let plant = def
             .block()
             .is_some_and(|b| blocks.sits_on_ground(b) || blocks.grows(b));
-        if def.food > 0 || def.heals > 0 || def.name == "core:cake" {
+        if def.food > 0 || def.heals > 0 || def.name == "core:cake" || def.name.ends_with("_potion")
+        {
             PaletteKind::Food
         } else if def.tool().is_some()
             || TOOLS.contains(&def.name.as_str())

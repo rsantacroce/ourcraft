@@ -151,6 +151,7 @@ fn update_sky(
     world: Res<ClientWorld>,
     camera: Single<&Transform, With<PlayerCamera>>,
     handles: Option<Res<VoxelMaterialHandle>>,
+    effects: Res<crate::player::Effects>,
     mut materials: ResMut<Assets<VoxelMaterial>>,
     mut clear: ResMut<ClearColor>,
     mut sun: Single<&mut Transform, (With<Sun>, Without<PlayerCamera>, Without<Moon>)>,
@@ -208,7 +209,12 @@ fn update_sky(
             mat.params.fog_start = fog_start;
             mat.params.fog_end = fog_end;
             mat.params.daylight = daylight;
-            mat.params.min_light = 0.3;
+            // A glow potion: see in the dark.
+            mat.params.min_light = if effects.has(ourcraft_common::magic::Effect::Glow) {
+                0.85
+            } else {
+                0.3
+            };
         }
     }
 }
