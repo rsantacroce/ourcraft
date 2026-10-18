@@ -42,7 +42,12 @@ impl Plugin for WorldPlugin {
             .add_systems(PreUpdate, handle_world_messages.after(NetReceiveSet))
             .add_systems(
                 PreUpdate,
-                reset_world.run_if(on_message::<crate::net::SessionEnded>),
+                reset_world
+                    .run_if(
+                        on_message::<crate::net::SessionEnded>
+                            .or_eager(on_message::<crate::net::DimensionChanged>),
+                    )
+                    .after(crate::net::NetReceiveSet),
             )
             .add_systems(
                 Update,

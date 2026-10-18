@@ -30,6 +30,8 @@ const ZOOM_FOV: f32 = 14.0;
 const MAP_ZOOMS: [i32; 3] = [1, 2, 4];
 /// Parchment: land not seen yet.
 const PARCHMENT: [u8; 3] = [214, 196, 150];
+/// Open sky (in the Cloud Isles, where there's no land below).
+const SKY_BLUE: [u8; 3] = [196, 206, 245];
 /// The most columns a map remembers (about 3 MB on disk).
 const MAP_MEMORY_MAX: usize = 4096;
 
@@ -178,11 +180,15 @@ fn remember_land(
     streaming: Res<ChunkStreaming>,
     blocks: Res<Blocks>,
     textures: Option<Res<crate::render::ModTextures>>,
+    dimension: Res<crate::net::CurrentDimension>,
     mut memory: ResMut<MapMemory>,
     mut colours: Local<HashMap<BlockId, [u8; 4]>>,
     mut wait: Local<f32>,
 ) {
-    if memory.file.is_none() {
+    // The map only remembers the overworld (the Cloud Isles are mostly
+    // empty sky, and would draw over it).
+    let home = dimension.0 == ourcraft_common::dimension::Dimension::Overworld;
+    if memory.file.is_none() || !home {
         return;
     }
     *wait -= time.delta_secs();
@@ -370,11 +376,12 @@ fn show_gadgets(
     home: Res<Home>,
     tod: Res<crate::sky::TimeOfDay>,
     player: Single<&Player>,
-    (world, streaming, blocks, textures): (
+    (world, streaming, blocks, textures, dimension): (
         Res<ClientWorld>,
         Res<ChunkStreaming>,
         Res<Blocks>,
         Option<Res<crate::render::ModTextures>>,
+        Res<crate::net::CurrentDimension>,
     ),
     mut panel: Single<&mut Visibility, With<GadgetPanel>>,
     mut parts: Query<
@@ -427,6 +434,7 @@ fn show_gadgets(
         *redraw = 0.5;
     }
     let me = player.state.position;
+    let in_overworld = dimension.0 == ourcraft_common::dimension::Dimension::Overworld;
     for (mut vis, transform, text, image_node, needle, clock, map) in &mut parts {
         let on = (needle && held == "core:compass")
             || (clock && held == "core:clock")
@@ -469,8 +477,11 @@ fn show_gadgets(
                             });
                             land_colour(c, top)
                         }
+                        // Empty sky in the Cloud Isles.
+                        Some(_) if !in_overworld => SKY_BLUE,
                         // Not loaded now: what we saw before, or parchment.
-                        _ => memory.colour(x, z).unwrap_or(PARCHMENT),
+                        _ if in_overworld => memory.colour(x, z).unwrap_or(PARCHMENT),
+                        _ => PARCHMENT,
                     };
                     let rgba = [rgb[0], rgb[1], rgb[2], 255];
                     let i = ((py as u32 * MAP_SIZE + px_ as u32) * 4) as usize;

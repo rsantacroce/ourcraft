@@ -12,6 +12,7 @@
 //! like Splat Squad have their own health).
 
 use bevy::prelude::*;
+use ourcraft_common::dimension::Dimension;
 use ourcraft_common::item::ItemId;
 use ourcraft_common::physics::EYE_HEIGHT;
 use ourcraft_common::protocol::{Channel, ClientMessage, NetStack, ServerMessage};
@@ -189,6 +190,7 @@ fn update_needs(
 ) {
     let dt = time.delta_secs();
     let peaceful = open.peaceful;
+    let cloud = registry.0.by_name("core:cloud");
     for mut p in &mut players {
         if !applies(&p, &open) {
             // Back to full, but remember what the client was told (so
@@ -215,8 +217,14 @@ fn update_needs(
         let needs = &mut p.needs;
 
         // Falling: remember the top, and on landing hurt by the distance.
-        let soft = p.physics.flying || in_fluid(pos + Vec3::Y * 0.2, "core:water");
-        if soft {
+        // Water and clouds break any fall, and a fall that started in
+        // another dimension (through a portal, say) doesn't count.
+        let on_cloud = cloud.is_some_and(|c| block_at(pos - Vec3::Y * 0.2) == c);
+        let soft = p.physics.flying || on_cloud || in_fluid(pos + Vec3::Y * 0.2, "core:water");
+        let elsewhere = needs
+            .fall_from
+            .is_some_and(|top| Dimension::of_y(top) != Dimension::of_y(pos.y));
+        if soft || elsewhere {
             needs.fall_from = None;
         } else if p.physics.on_ground {
             if let Some(top) = needs.fall_from.take() {

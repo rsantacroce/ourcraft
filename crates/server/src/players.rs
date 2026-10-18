@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use ourcraft_common::block::BlockId;
+use ourcraft_common::dimension::Dimension;
 use ourcraft_common::inventory::{INVENTORY_SLOTS, Inventory, ItemStack};
 use ourcraft_common::item::{ItemId, ItemRegistry};
 use ourcraft_common::physics::{Aabb, EYE_HEIGHT, PlayerState};
@@ -56,10 +57,12 @@ impl Plugin for PlayersPlugin {
             .add_systems(
                 Update,
                 (
+                    crate::dimensions::follow_dimension_changes,
                     stream_columns,
                     broadcast_states,
                     broadcast_time,
                     autosave_players,
+                    crate::dimensions::remove_fallen,
                 )
                     .chain()
                     .after(WorldSet),
@@ -113,7 +116,18 @@ pub struct ConnectedPlayer {
     pub effects: [f32; 3],
     /// What armour everyone was last told they wear.
     pub armour_sent: Option<[u16; 4]>,
-    /// Columns this client has been sent and (as far as we know) still has.
+    /// The dimension their game is showing (they're moved when their
+    /// position says they're somewhere else; see `dimensions`).
+    pub dimension: Dimension,
+    /// On the way to another dimension (waiting for the land there).
+    pub travel: Option<crate::portals::Travel>,
+    /// Seconds stood in a portal so far.
+    pub portal_time: f32,
+    /// Just came out of a portal: it won't take them back until they've
+    /// stepped out of it.
+    pub portal_blocked: bool,
+    /// Columns of their dimension this client has been sent and (as far as
+    /// we know) still has.
     pub sent: HashSet<ColumnPos>,
     pub connected_for: f32,
     /// Set by game-mode mods.
@@ -133,9 +147,10 @@ impl ConnectedPlayer {
     }
 
     fn save(&self, items: &ItemRegistry) -> PlayerSave {
+        let dim = Dimension::of_y(self.state.position[1]);
         let mut save = PlayerSave {
             version: PLAYER_VERSION,
-            position: self.state.position,
+            position: dim.to_local(self.state.position),
             yaw: self.state.yaw,
             pitch: self.state.pitch,
             flying: self.state.flying,
@@ -144,6 +159,7 @@ impl ConnectedPlayer {
             creative: self.creative,
             vitals: Some(self.needs.saved()),
             effects: self.effects,
+            dimension: dim.save_name().to_owned(),
         };
         save.store_inventory(&self.inventory, items);
         save
@@ -152,6 +168,11 @@ impl ConnectedPlayer {
     /// Feet position.
     pub fn position(&self) -> Vec3 {
         self.feet()
+    }
+
+    /// The dimension they're in now.
+    pub fn dim(&self) -> Dimension {
+        Dimension::of_y(self.state.position[1])
     }
 }
 
@@ -182,6 +203,10 @@ fn on_connect(
                 last_move: Vec2::ZERO,
                 effects: [0.0; 3],
                 armour_sent: None,
+                dimension: Dimension::Overworld,
+                travel: None,
+                portal_time: 0.0,
+                portal_blocked: false,
                 sent: HashSet::new(),
                 connected_for: 0.0,
                 rules: ourcraft_mod_api::PlayerRules::default(),
@@ -320,7 +345,7 @@ fn handle_messages(
                     });
                 match &saved {
                     Some(s) => {
-                        p.state.position = s.position;
+                        p.state.position = s.dimension().to_server(s.position);
                         p.state.yaw = s.yaw;
                         p.state.pitch = s.pitch;
                         p.state.flying = s.flying;
@@ -350,7 +375,14 @@ fn handle_messages(
                 p.physics = PlayerState::new(Vec3::from_array(p.state.position));
                 p.physics.flying = p.state.flying;
                 p.name = Some(name.clone());
-                info!("{name} joined (client {client})");
+                // Only told about their own dimension from the start.
+                let dim = p.dim();
+                p.dimension = dim;
+                net.join_dimension(*client, dim);
+                // Someone who left standing in a portal isn't whisked away
+                // the moment they're back: they step out and in again.
+                p.portal_blocked = true;
+                info!("{name} joined (client {client}) in {}", dim.display_name());
 
                 net.send(
                     *client,
@@ -362,6 +394,7 @@ fn handle_messages(
                         creative: p.creative,
                         time_of_day: open.time_of_day(),
                         state: p.state,
+                        dimension: dim,
                         inventory,
                         content: content.0.clone(),
                         players: others,
@@ -567,7 +600,9 @@ fn handle_messages(
                     let reply = match (p.creative, to.as_slice()) {
                         (false, _) => "You can use /tp in creative mode (G)".to_owned(),
                         (true, [x, y, z]) if [x, y, z].iter().all(|v| v.abs() < 1.0e6) => {
-                            let at = Vec3::new(*x, y.clamp(0.0, WORLD_HEIGHT as f32), *z);
+                            // At the heights of the dimension they're in.
+                            let y = y.clamp(0.0, WORLD_HEIGHT as f32);
+                            let at = Vec3::from_array(p.dim().to_server([*x, y, *z]));
                             if let Ok(mut p) = query.get_mut(entity) {
                                 p.physics.position = at;
                                 p.physics.velocity = Vec3::ZERO;
@@ -690,6 +725,11 @@ fn simulate_players(
             continue;
         }
         let p = &mut *p;
+        // Held still on the way to another dimension.
+        if p.travel.is_some() {
+            p.inputs.take(usize::MAX).for_each(drop);
+            continue;
+        }
         let (speed, can_fly) = (p.rules.speed, p.rules.can_fly);
         for mut input in p.inputs.take(MAX_INPUTS_PER_TICK) {
             // The game mode's rules win over whatever the client assumed.
@@ -706,12 +746,9 @@ fn simulate_players(
             p.state.yaw = input.yaw;
             p.state.pitch = input.pitch;
         }
-        // Keep players inside the world.
-        p.physics.position.y = p
-            .physics
-            .position
-            .y
-            .clamp(-64.0, WORLD_HEIGHT as f32 + 64.0);
+        // Keep players inside their dimension.
+        let (low, high) = Dimension::of_y(p.physics.position.y).player_range();
+        p.physics.position.y = p.physics.position.y.clamp(low, high);
         p.state.position = p.physics.position.to_array();
         p.state.velocity = p.physics.velocity.to_array();
         p.state.flying = p.physics.flying;
@@ -783,7 +820,7 @@ fn edit_allowed(
     let Some(existing) = world.get_block(pos.x, pos.y, pos.z) else {
         return false; // not loaded
     };
-    if !(0..WORLD_HEIGHT).contains(&pos.y) {
+    if Dimension::of_block_y(pos.y).is_none() {
         return false;
     }
     let eye = player.feet() + Vec3::Y * EYE_HEIGHT;
@@ -802,7 +839,11 @@ fn edit_allowed(
     } else if registry.is_farmland(block) {
         // A hoe turns dirt and grass into farmland (with air above).
         let soil = existing == ourcraft_common::block::blocks::DIRT
-            || existing == ourcraft_common::block::blocks::GRASS;
+            || existing == ourcraft_common::block::blocks::GRASS
+            || matches!(
+                registry.get(existing).name.as_str(),
+                "core:sky_grass" | "core:sky_soil"
+            );
         held.ends_with("_hoe") && soil && near([0, 1, 0]).is_air()
     } else {
         // Placing: only into empty space (tall grass counts), never inside
@@ -836,14 +877,21 @@ fn compute_wanted_columns(query: Query<&ConnectedPlayer>, mut wanted: ResMut<Wan
     wanted.columns.clear();
     wanted.keep.clear();
     for p in query.iter().filter(|p| p.name.is_some()) {
+        let dim = p.dim();
         // Clients mesh a column only once its neighbours arrive, so send
         // one ring beyond their view distance.
         for (col, d) in columns_around(p.column(), p.view_distance + 1) {
-            let e = wanted.columns.entry(col).or_insert(i32::MAX);
+            let e = wanted.columns.entry((dim, col)).or_insert(i32::MAX);
             *e = (*e).min(d);
         }
         for (col, _) in columns_around(p.column(), p.view_distance + 3) {
-            wanted.keep.insert(col);
+            wanted.keep.insert((dim, col));
+        }
+        // Where they're going, first of all.
+        if let Some(t) = &p.travel {
+            for (col, _) in columns_around(t.column(), crate::portals::ARRIVAL_COLUMNS) {
+                wanted.columns.insert((t.to, col), -1);
+            }
         }
     }
 }
@@ -860,17 +908,18 @@ fn stream_columns(
             continue;
         }
         let center = p.column();
+        let dim = p.dimension;
         let r = p.view_distance + 1;
         // Forget columns the client will have unloaded (it keeps two rings
         // beyond its view distance), so they're re-sent if it comes back.
         p.sent.retain(|c| c.chebyshev_distance(center) <= r + 1);
 
         let mut todo: Vec<(ColumnPos, i32)> = columns_around(center, r)
-            .filter(|(c, _)| !p.sent.contains(c) && world.has_column(*c))
+            .filter(|(c, _)| !p.sent.contains(c) && world.has_column_in(dim, *c))
             .collect();
         todo.sort_by_key(|(_, d)| *d);
         for (col, _) in todo.into_iter().take(COLUMNS_PER_TICK) {
-            let Some(data) = encoded_column(&mut cache, &world, col) else {
+            let Some(data) = encoded_column(&mut cache, &world, dim, col) else {
                 continue;
             };
             // Don't overfill the reliable channel (that would disconnect).
@@ -887,12 +936,12 @@ fn stream_columns(
                 },
             );
             p.sent.insert(col);
+            let in_col = |pos: &IVec3| {
+                ColumnPos::from_block(pos.x, pos.z) == col
+                    && Dimension::of_block_y(pos.y) == Some(dim)
+            };
             // And what the signs in it say.
-            for (pos, lines) in open
-                .signs
-                .iter()
-                .filter(|(pos, _)| ColumnPos::from_block(pos.x, pos.z) == col)
-            {
+            for (pos, lines) in open.signs.iter().filter(|(pos, _)| in_col(pos)) {
                 net.send(
                     p.client,
                     Channel::Reliable,
@@ -903,11 +952,7 @@ fn stream_columns(
                 );
             }
             // And the patterns on its banners.
-            for (pos, layers) in open
-                .banners
-                .iter()
-                .filter(|(pos, _)| ColumnPos::from_block(pos.x, pos.z) == col)
-            {
+            for (pos, layers) in open.banners.iter().filter(|(pos, _)| in_col(pos)) {
                 net.send(
                     p.client,
                     Channel::Reliable,
@@ -918,11 +963,7 @@ fn stream_columns(
                 );
             }
             // And what's in its item frames.
-            for (pos, item) in open
-                .frames
-                .iter()
-                .filter(|(pos, _)| ColumnPos::from_block(pos.x, pos.z) == col)
-            {
+            for (pos, item) in open.frames.iter().filter(|(pos, _)| in_col(pos)) {
                 net.send(
                     p.client,
                     Channel::Reliable,

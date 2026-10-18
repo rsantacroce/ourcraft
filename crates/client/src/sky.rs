@@ -152,6 +152,7 @@ fn update_sky(
     camera: Single<&Transform, With<PlayerCamera>>,
     handles: Option<Res<VoxelMaterialHandle>>,
     effects: Res<crate::player::Effects>,
+    dimension: Res<crate::net::CurrentDimension>,
     mut materials: ResMut<Assets<VoxelMaterial>>,
     mut clear: ResMut<ClearColor>,
     mut sun: Single<&mut Transform, (With<Sun>, Without<PlayerCamera>, Without<Moon>)>,
@@ -159,19 +160,34 @@ fn update_sky(
 ) {
     // Rain makes the day greyer and a little darker.
     let rain = weather.rain_amount;
-    let daylight = tod.daylight() * (1.0 - 0.35 * rain);
-    let day = mix(
-        Color::srgb(0.53, 0.75, 0.96),
-        Color::srgb(0.55, 0.6, 0.66),
-        rain,
-    );
-    let night = Color::srgb(0.03, 0.04, 0.11);
+    let dreamy = dimension.0 == ourcraft_common::dimension::Dimension::CloudIsles;
+    let mut daylight = tod.daylight() * (1.0 - 0.35 * rain);
+    // The Cloud Isles: a pale lilac sky, pink sunsets, and nights that are
+    // never very dark.
+    let (day, night, warm) = if dreamy {
+        daylight = daylight.max(0.35);
+        (
+            Color::srgb(0.72, 0.78, 0.99),
+            Color::srgb(0.13, 0.09, 0.26),
+            Color::srgb(1.0, 0.5, 0.75),
+        )
+    } else {
+        (
+            mix(
+                Color::srgb(0.53, 0.75, 0.96),
+                Color::srgb(0.55, 0.6, 0.66),
+                rain,
+            ),
+            Color::srgb(0.03, 0.04, 0.11),
+            Color::srgb(1.0, 0.45, 0.25),
+        )
+    };
     let h = tod.sun_height();
     // Sunsets add a warm glow on top of the sky (instead of mixing orange
     // into a half-dark blue, which looks muddy brown).
     let glow = (-(h / 0.2).powi(2)).exp() * (1.0 - rain);
     let base = mix(night, day, daylight).to_linear();
-    let warm = Color::srgb(1.0, 0.45, 0.25).to_linear();
+    let warm = warm.to_linear();
     let mut sky = Color::LinearRgba(LinearRgba::new(
         base.red + warm.red * glow * 0.55,
         base.green + warm.green * glow * 0.35,

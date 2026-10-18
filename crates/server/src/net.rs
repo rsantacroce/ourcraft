@@ -2,12 +2,13 @@
 //! turning raw messages into typed [`FromClient`] messages for the rest of
 //! the server.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::UdpSocket;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
+use ourcraft_common::dimension::Dimension;
 use ourcraft_common::protocol::{self, Channel, ClientMessage, PROTOCOL_ID, ServerMessage};
 use renet::{ChannelConfig, ClientId, ConnectionConfig, RenetServer, SendType, ServerEvent};
 use renet_netcode::{NetcodeServerTransport, ServerAuthentication, ServerConfig as NetcodeConfig};
@@ -95,24 +96,70 @@ pub struct Network {
     local: Option<LocalServerLink>,
     /// Clients that sent garbage; disconnected at the end of the tick.
     misbehaving: HashSet<ClientId>,
+    /// Which dimension each client is in (they only hear about that one;
+    /// see `dimensions::localize`). Missing means the overworld.
+    dims: HashMap<ClientId, Dimension>,
+    /// When each client last changed dimension (seconds), and the clock.
+    moved_at: HashMap<ClientId, f64>,
+    clock: f64,
 }
+
+/// For this long after changing dimension, what a client says about places
+/// is ignored: it was probably sent before it heard about the move.
+const STALE_AFTER_MOVE_SECS: f64 = 1.0;
 
 impl Network {
     pub fn send(&mut self, client: ClientId, channel: Channel, msg: &ServerMessage) {
-        if self.server.is_connected(client) {
+        if !self.server.is_connected(client) {
+            return;
+        }
+        if let Some(msg) = crate::dimensions::localize(msg, self.dimension(client)) {
             self.server
-                .send_message(client, channel, protocol::encode(msg));
+                .send_message(client, channel, protocol::encode(&*msg));
         }
     }
 
+    /// Send to everyone (as each of them should hear it).
     pub fn broadcast(&mut self, channel: Channel, msg: &ServerMessage) {
-        self.server
-            .broadcast_message(channel, protocol::encode(msg));
+        self.send_to_all(None, channel, msg);
     }
 
     pub fn broadcast_except(&mut self, except: ClientId, channel: Channel, msg: &ServerMessage) {
-        self.server
-            .broadcast_message_except(except, channel, protocol::encode(msg));
+        self.send_to_all(Some(except), channel, msg);
+    }
+
+    fn send_to_all(&mut self, except: Option<ClientId>, channel: Channel, msg: &ServerMessage) {
+        // Encoded once per dimension, at most.
+        let mut encoded: HashMap<Dimension, Option<Vec<u8>>> = HashMap::new();
+        for client in self.server.clients_id() {
+            if Some(client) == except {
+                continue;
+            }
+            let dim = self.dimension(client);
+            let bytes = encoded.entry(dim).or_insert_with(|| {
+                crate::dimensions::localize(msg, dim).map(|m| protocol::encode(&*m))
+            });
+            if let Some(bytes) = bytes {
+                self.server.send_message(client, channel, bytes.clone());
+            }
+        }
+    }
+
+    /// The dimension a client is in.
+    pub fn dimension(&self, client: ClientId) -> Dimension {
+        self.dims.get(&client).copied().unwrap_or_default()
+    }
+
+    /// From now on, `client` hears about `dim` (and its messages about
+    /// places are about there), having just moved there.
+    pub fn set_dimension(&mut self, client: ClientId, dim: Dimension) {
+        self.dims.insert(client, dim);
+        self.moved_at.insert(client, self.clock);
+    }
+
+    /// `client` joins the game in `dim`.
+    pub fn join_dimension(&mut self, client: ClientId, dim: Dimension) {
+        self.dims.insert(client, dim);
     }
 
     /// Whether `bytes` more can be queued for a client without overflowing.
@@ -191,6 +238,9 @@ fn setup_network(
         netcode,
         local,
         misbehaving: HashSet::new(),
+        dims: HashMap::new(),
+        moved_at: HashMap::new(),
+        clock: 0.0,
     });
 }
 
@@ -203,6 +253,7 @@ fn receive(
 ) {
     let net = &mut *net;
     let dt = time.delta();
+    net.clock = time.elapsed_secs_f64();
     net.server.update(dt);
     if let Some(transport) = net.netcode.as_mut()
         && let Err(e) = transport.update(dt, &mut net.server)
@@ -223,6 +274,8 @@ fn receive(
             }
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 net.misbehaving.remove(&client_id);
+                net.dims.remove(&client_id);
+                net.moved_at.remove(&client_id);
                 disconnected.write(ClientDisconnected {
                     client: client_id,
                     reason: reason.to_string(),
@@ -236,6 +289,15 @@ fn receive(
             while let Some(bytes) = net.server.receive_message(client, channel) {
                 match protocol::decode::<ClientMessage>(&bytes) {
                     Some(msg) => {
+                        let dim = net.dimension(client);
+                        let just_moved = net
+                            .moved_at
+                            .get(&client)
+                            .is_some_and(|t| net.clock - t < STALE_AFTER_MOVE_SECS);
+                        if just_moved && crate::dimensions::has_place(&msg) {
+                            continue;
+                        }
+                        let msg = crate::dimensions::globalize(msg, dim);
                         messages.write(FromClient { client, msg });
                     }
                     None => {

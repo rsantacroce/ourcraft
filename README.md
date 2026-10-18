@@ -3,8 +3,9 @@
 A blocky sandbox game in Rust: infinite generated worlds to explore and
 build in, survival with ores, tools, crafting and furnaces, friendly
 animals you can keep, gentle night (and cave) monsters, real light, flowing
-water you can carry in a bucket, multiplayer, mods, and a cartoon team
-game mode called **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
+water you can carry in a bucket, the **Cloud Isles** (floating islands in
+a dreamy sky, through a portal you build), multiplayer, mods, and a cartoon
+team game mode called **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
 
 **Website and player manual:** https://rsantacroce.github.io/ourcraft-site/
 
@@ -46,6 +47,19 @@ cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad netwo
 | Right click a crafting table / furnace: use it | left trigger | tap |
 | Enter chat, Esc menu | | Menu button |
 | F3 info text, F7 simulate lag, T skip an hour, [ ] view distance | | |
+
+### The Cloud Isles
+
+1. Craft **sunstone**: eight glass round a gold ingot makes four.
+2. Build a standing frame of sunstone round a space at least 2 wide and
+   3 tall (10 blocks; the corners don't matter).
+3. Use a **feather** on the frame: it fills with a shimmering cloud portal.
+4. Stand in it for a moment. Whoosh!
+
+On the other side you come out in a portal (one is built for you if there
+isn't one nearby), so the way home is always there. Falling off an island
+doesn't hurt: you float down through the clouds and land at home. No
+monsters, no rain, and landing on a cloud never hurts.
 
 ## Dedicated server
 
@@ -92,8 +106,14 @@ mobile/          iOS (Xcode) and Android (Gradle) launchers
 - **World:** 16³ chunks in columns 256 blocks tall, palette-compressed;
   greedy meshing with ambient occlusion on background threads; a texture
   array with mipmaps; fog; day/night.
+- **Dimensions:** the server stacks the Cloud Isles 512 blocks below the
+  overworld in one world, so water, plants, circuits and animals work in
+  both unchanged. Each game only sees its own dimension at the usual
+  heights: the server moves positions on the way in and out, and leaves
+  out anything (blocks, animals, players) from the other one.
 - **Saves:** region files of 32×32 columns, LZ4-compressed, only edited
-  columns stored; block ids saved by name so mods can come and go.
+  columns stored; block ids saved by name so mods can come and go. The
+  Cloud Isles have their own, in `dimensions/cloud_isles/region/`.
 - **Network:** renet over UDP (netcode handshake). Single player uses the
   same server through an in-memory link. Movement is server-authoritative
   with client-side prediction and reconciliation; other players are

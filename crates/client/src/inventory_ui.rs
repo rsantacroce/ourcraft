@@ -491,7 +491,13 @@ impl PaletteKind {
             || def.name.ends_with("_leaves")
             || matches!(
                 def.name.as_str(),
-                "core:ice" | "core:deep_slate" | "core:obsidian"
+                "core:ice"
+                    | "core:deep_slate"
+                    | "core:obsidian"
+                    | "core:sky_grass"
+                    | "core:sky_soil"
+                    | "core:skystone"
+                    | "core:cloud"
             )
             || matches!(
                 def.name.as_str(),

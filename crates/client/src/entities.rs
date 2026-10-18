@@ -47,7 +47,12 @@ impl Plugin for EntitiesPlugin {
             )
             .add_systems(
                 PreUpdate,
-                reset_entities.run_if(on_message::<crate::net::SessionEnded>),
+                reset_entities
+                    .run_if(
+                        on_message::<crate::net::SessionEnded>
+                            .or_eager(on_message::<crate::net::DimensionChanged>),
+                    )
+                    .after(crate::net::NetReceiveSet),
             );
     }
 }

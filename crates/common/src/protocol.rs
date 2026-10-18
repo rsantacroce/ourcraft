@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 17;
+pub const PROTOCOL_VERSION: u64 = 18;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -313,6 +313,8 @@ pub enum ServerMessage {
         time_of_day: f32,
         /// Where to spawn (or where you logged off).
         state: NetPlayerState,
+        /// Which dimension that is.
+        dimension: crate::dimension::Dimension,
         /// Saved inventory, if the server knows this player.
         inventory: Option<(Vec<NetSlot>, u8)>,
         /// Blocks, textures, models and tools (including mods' additions).
@@ -469,6 +471,15 @@ pub enum ServerMessage {
         player: u64,
         pieces: [u16; 4],
     },
+
+    // ---- Dimensions ----
+    /// You've gone to another dimension, and are here now. Forget the
+    /// old one's blocks, animals and players: everything you hear from now
+    /// on is about the new one (its columns come next).
+    ChangedDimension {
+        dimension: crate::dimension::Dimension,
+        state: NetPlayerState,
+    },
 }
 
 /// Encode a message for sending.
@@ -558,6 +569,7 @@ mod tests {
                 creative: true,
                 time_of_day: 0.5,
                 state: NetPlayerState::default(),
+                dimension: crate::dimension::Dimension::CloudIsles,
                 inventory: Some((
                     vec![Some(NetStack {
                         item: 2,
@@ -609,6 +621,10 @@ mod tests {
                 players: vec![(3, NetPlayerState::default())],
             },
             ServerMessage::Kick("bye".into()),
+            ServerMessage::ChangedDimension {
+                dimension: crate::dimension::Dimension::CloudIsles,
+                state: NetPlayerState::default(),
+            },
         ];
         for m in msgs {
             let back: ServerMessage = decode(&encode(&m)).unwrap();

@@ -29,6 +29,12 @@ impl Plugin for RemotePlayersPlugin {
                 reset_players.run_if(on_message::<crate::net::SessionEnded>),
             )
             .add_systems(
+                PreUpdate,
+                forget_positions
+                    .run_if(on_message::<crate::net::DimensionChanged>)
+                    .after(NetReceiveSet),
+            )
+            .add_systems(
                 Update,
                 (
                     apply_appearances,
@@ -326,6 +332,13 @@ fn handle_player_messages(
                 players: states, ..
             } => {
                 let now = time.elapsed_secs_f64();
+                // Players left out are somewhere else (another dimension):
+                // hide them until they're back.
+                for mut p in &mut avatars {
+                    if !states.iter().any(|(id, _)| *id == p.id) {
+                        p.samples.clear();
+                    }
+                }
                 for (id, state) in states {
                     if Some(*id) == my_id {
                         continue;
@@ -425,6 +438,13 @@ fn reset_players(
     players.appearances.clear();
 }
 
+/// We've gone to another dimension: nobody is where we last saw them.
+fn forget_positions(mut avatars: Query<&mut RemotePlayer>) {
+    for mut p in &mut avatars {
+        p.samples.clear();
+    }
+}
+
 /// Blend between the two updates around (now − delay).
 fn sample_at(samples: &VecDeque<(f64, NetPlayerState)>, t: f64) -> Option<NetPlayerState> {
     let (first, last) = (samples.front()?, samples.back()?);
@@ -470,6 +490,7 @@ fn interpolate(
     let t = time.elapsed_secs_f64() - INTERPOLATION_DELAY.as_secs_f64();
     for (mut p, mut transform, mut vis, children) in &mut avatars {
         let Some(state) = sample_at(&p.samples, t) else {
+            *vis = Visibility::Hidden;
             continue;
         };
         p.shown = state;

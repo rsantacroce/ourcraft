@@ -18,6 +18,7 @@ mod circuit_textures;
 mod colour_textures;
 mod decoration_textures;
 mod magic_icons;
+mod sky_textures;
 mod stone_textures;
 mod wood_textures;
 pub use wood_textures::wood_colour;

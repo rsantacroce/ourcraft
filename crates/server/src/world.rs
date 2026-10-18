@@ -1,5 +1,9 @@
 //! The server's world: loading and generating columns players need,
 //! applying edits, saving, and the time of day.
+//!
+//! Every dimension lives in the one [`ServerWorld`], stacked (see
+//! [`ourcraft_common::dimension`]), so a column is named by its dimension
+//! and position: a [`DimColumn`].
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -8,7 +12,9 @@ use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, IoTaskPool, Task, futures::check_ready};
 use ourcraft_common::block::{BlockId, BlockRegistry};
 use ourcraft_common::chunk::Chunk;
+use ourcraft_common::cloud_isles::SkyGenerator;
 use ourcraft_common::container::Container;
+use ourcraft_common::dimension::Dimension;
 use ourcraft_common::item::ItemRegistry;
 use ourcraft_common::save::{
     BlockRemap, SavedAnimal, SavedContainer, SavedVehicle, WorldMeta, WorldStorage, encode_column,
@@ -22,6 +28,9 @@ use crate::ServerConfig;
 const AUTOSAVE_SECS: f32 = 30.0;
 /// Max columns loading/generating at once.
 const MAX_LOADING: usize = 32;
+
+/// A column of one dimension.
+pub type DimColumn = (Dimension, ColumnPos);
 
 pub struct WorldPlugin;
 
@@ -69,8 +78,12 @@ pub struct ServerWorld(pub VoxelWorld);
 #[derive(Resource)]
 pub struct OpenWorld {
     pub storage: Arc<WorldStorage>,
+    /// The Cloud Isles' terrain on disk (its own region files).
+    pub sky_storage: Arc<WorldStorage>,
     pub meta: WorldMeta,
     pub generator: Arc<WorldGenerator>,
+    /// Makes the Cloud Isles' floating islands.
+    pub sky_generator: Arc<SkyGenerator>,
     /// Where new players appear (block position to stand on).
     pub spawn: IVec3,
     /// Translation for block ids in old saves.
@@ -119,19 +132,19 @@ struct Snapshot {
 /// Columns encoded for sending, so several players near the same place
 /// don't each cost an encode. Cleared for a column when it changes.
 #[derive(Resource, Default)]
-pub struct ColumnCache(HashMap<ColumnPos, Arc<Vec<u8>>>);
+pub struct ColumnCache(HashMap<DimColumn, Arc<Vec<u8>>>);
 
 #[derive(Resource, Default)]
-struct Loading(HashMap<ColumnPos, Task<Vec<Chunk>>>);
+struct Loading(HashMap<DimColumn, Task<Vec<Chunk>>>);
 
 /// Columns some player needs, nearest-first priority (lower = sooner).
 /// Filled by the players module every tick.
 #[derive(Resource, Default)]
 pub struct WantedColumns {
-    pub columns: HashMap<ColumnPos, i32>,
+    pub columns: HashMap<DimColumn, i32>,
     /// Loaded columns to keep even if nobody needs them right now (a margin
     /// so walking back and forth doesn't reload them).
-    pub keep: HashSet<ColumnPos>,
+    pub keep: HashSet<DimColumn>,
 }
 
 #[derive(Resource, Default)]
@@ -194,7 +207,11 @@ fn open_world(
         }
     };
     storage.set_remap(remap.clone());
+    let sky_storage = WorldStorage::open_dimension(&config.world_dir, Dimension::CloudIsles)
+        .unwrap_or_else(|e| panic!("can't open the Cloud Isles' folder: {e}"));
+    sky_storage.set_remap(remap.clone());
     let generator = Arc::new(WorldGenerator::new(meta.seed));
+    let sky_generator = Arc::new(SkyGenerator::new(meta.seed));
     let (x, y, z) = generator.find_spawn();
     let items = Arc::new(ItemRegistry::from_defs(content.items.clone()));
     let containers = storage
@@ -272,9 +289,11 @@ fn open_world(
         .any(|(k, v)| k == "peaceful" && *v);
     let open = OpenWorld {
         storage: Arc::new(storage),
+        sky_storage: Arc::new(sky_storage),
         snapshot: Arc::new(Mutex::new(snapshot)),
         meta,
         generator,
+        sky_generator,
         spawn: IVec3::new(x, y, z),
         remap,
         items,
@@ -325,6 +344,14 @@ impl OpenWorld {
         self.meta.time_of_day
     }
 
+    /// Where a dimension's terrain is saved.
+    pub fn storage_for(&self, dim: Dimension) -> &Arc<WorldStorage> {
+        match dim {
+            Dimension::Overworld => &self.storage,
+            Dimension::CloudIsles => &self.sky_storage,
+        }
+    }
+
     /// Copy what needs saving for the background saver.
     fn update_snapshot(&self) {
         let containers = self
@@ -366,14 +393,15 @@ impl OpenWorld {
 pub fn encoded_column(
     cache: &mut ColumnCache,
     world: &ServerWorld,
+    dim: Dimension,
     pos: ColumnPos,
 ) -> Option<Arc<Vec<u8>>> {
-    if let Some(bytes) = cache.0.get(&pos) {
+    if let Some(bytes) = cache.0.get(&(dim, pos)) {
         return Some(bytes.clone());
     }
-    let chunks = world.column(pos)?;
+    let chunks = world.column_in(dim, pos)?;
     let bytes = Arc::new(encode_column(&chunks));
-    cache.0.insert(pos, bytes.clone());
+    cache.0.insert((dim, pos), bytes.clone());
     Some(bytes)
 }
 
@@ -387,10 +415,11 @@ pub fn set_block(
     block: BlockId,
 ) -> Option<BlockId> {
     let old = world.set_block(pos.x, pos.y, pos.z, block)?;
+    let dim = Dimension::of_block_y(pos.y)?;
     let col = ColumnPos::from_block(pos.x, pos.z);
-    cache.0.remove(&col);
-    if let Some(chunks) = world.column(col) {
-        open.storage.queue_save(col, &chunks);
+    cache.0.remove(&(dim, col));
+    if let Some(chunks) = world.column_in(dim, col) {
+        open.storage_for(dim).queue_save(col, &chunks);
     }
     Some(old)
 }
@@ -405,29 +434,34 @@ fn load_wanted_columns(
     if budget == 0 {
         return;
     }
-    let mut missing: Vec<(ColumnPos, i32)> = wanted
+    let mut missing: Vec<(DimColumn, i32)> = wanted
         .columns
         .iter()
-        .filter(|(p, _)| !world.has_column(**p) && !loading.0.contains_key(p))
-        .map(|(p, d)| (*p, *d))
+        .filter(|((dim, p), _)| !world.has_column_in(*dim, *p))
+        .filter(|(key, _)| !loading.0.contains_key(*key))
+        .map(|(key, d)| (*key, *d))
         .collect();
     missing.sort_by_key(|(_, d)| *d);
     let pool = AsyncComputeTaskPool::get();
-    for (pos, _) in missing.into_iter().take(budget) {
-        let storage = open.storage.clone();
-        let generator = open.generator.clone();
+    for ((dim, pos), _) in missing.into_iter().take(budget) {
+        let storage = open.storage_for(dim).clone();
+        let (ground, sky) = (open.generator.clone(), open.sky_generator.clone());
+        let generate = move || match dim {
+            Dimension::Overworld => ground.generate_column(pos),
+            Dimension::CloudIsles => sky.generate_column(pos),
+        };
         // A saved column if there is one, otherwise fresh terrain.
         let task = pool.spawn(async move {
             match storage.load_column(pos) {
                 Ok(Some(chunks)) => chunks,
-                Ok(None) => generator.generate_column(pos),
+                Ok(None) => generate(),
                 Err(e) => {
                     error!("Column {pos:?} is unreadable ({e}); regenerating it");
-                    generator.generate_column(pos)
+                    generate()
                 }
             }
         });
-        loading.0.insert(pos, task);
+        loading.0.insert((dim, pos), task);
     }
 }
 
@@ -440,8 +474,8 @@ fn receive_loaded_columns(mut world: ResMut<ServerWorld>, mut loading: ResMut<Lo
         }
         None => true,
     });
-    for (pos, chunks) in done {
-        world.insert_column(pos, chunks);
+    for ((dim, pos), chunks) in done {
+        world.insert_column_in(dim, pos, chunks);
     }
 }
 
@@ -451,14 +485,15 @@ fn unload_unwanted_columns(
     wanted: Res<WantedColumns>,
     mut loading: ResMut<Loading>,
 ) {
-    let unwanted: Vec<ColumnPos> = world
-        .columns()
-        .filter(|p| !wanted.columns.contains_key(p) && !wanted.keep.contains(p))
+    let unwanted: Vec<DimColumn> = Dimension::ALL
+        .into_iter()
+        .flat_map(|dim| world.columns_in(dim).map(move |p| (dim, p)))
+        .filter(|key| !wanted.columns.contains_key(key) && !wanted.keep.contains(key))
         .collect();
-    for pos in unwanted {
+    for (dim, pos) in unwanted {
         // Changed columns were queued for saving when they changed.
-        world.remove_column(pos);
-        cache.0.remove(&pos);
+        world.remove_column_in(dim, pos);
+        cache.0.remove(&(dim, pos));
     }
     loading
         .0
@@ -473,16 +508,17 @@ fn advance_time(time: Res<Time>, mut open: ResMut<OpenWorld>) {
 #[derive(Resource)]
 struct SaveOnDrop {
     storage: Arc<WorldStorage>,
+    sky_storage: Arc<WorldStorage>,
     snapshot: Arc<Mutex<Snapshot>>,
 }
 
 impl Drop for SaveOnDrop {
     fn drop(&mut self) {
-        save_now(&self.storage, &self.snapshot);
+        save_now(&self.storage, &self.sky_storage, &self.snapshot);
     }
 }
 
-fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
+fn save_now(storage: &WorldStorage, sky_storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
     let snapshot = snapshot.lock().unwrap().clone();
     if let Err(e) = storage.save_meta(&snapshot.meta) {
         error!("Saving world info failed: {e}");
@@ -516,11 +552,17 @@ fn save_now(storage: &WorldStorage, snapshot: &Mutex<Snapshot>) {
         Ok(_) => {}
         Err(e) => error!("Saving failed: {e}"),
     }
+    match sky_storage.flush() {
+        Ok(n) if n > 0 => info!("Saved {n} column(s) of the Cloud Isles"),
+        Ok(_) => {}
+        Err(e) => error!("Saving the Cloud Isles failed: {e}"),
+    }
 }
 
 fn install_save_guard(mut commands: Commands, open: Res<OpenWorld>) {
     commands.insert_resource(SaveOnDrop {
         storage: open.storage.clone(),
+        sky_storage: open.sky_storage.clone(),
         snapshot: open.snapshot.clone(),
     });
 }
@@ -540,13 +582,17 @@ fn autosave(
     if *timer >= AUTOSAVE_SECS && task.0.is_none() {
         *timer = 0.0;
         open.update_snapshot();
-        let (storage, snapshot) = (open.storage.clone(), open.snapshot.clone());
-        task.0 = Some(IoTaskPool::get().spawn(async move { save_now(&storage, &snapshot) }));
+        let (storage, sky, snapshot) = (
+            open.storage.clone(),
+            open.sky_storage.clone(),
+            open.snapshot.clone(),
+        );
+        task.0 = Some(IoTaskPool::get().spawn(async move { save_now(&storage, &sky, &snapshot) }));
     }
 }
 
 /// Save everything now (on shutdown).
 pub fn save_all(open: &OpenWorld) {
     open.update_snapshot();
-    save_now(&open.storage, &open.snapshot);
+    save_now(&open.storage, &open.sky_storage, &open.snapshot);
 }

@@ -447,7 +447,9 @@ pub fn used_in_place(
         && registry
             .stage(id)
             .is_some_and(|s| s.kind == StageKind::Hive && s.stage == s.max);
-    stepped || feeds || potting || frame || honey || banner
+    // A feather on a sunstone frame lights a cloud portal.
+    let portal = held == "core:feather" && name == "core:sunstone";
+    stepped || feeds || potting || frame || honey || banner || portal
 }
 
 /// Blocks that do something when you use them (instead of having a block
@@ -546,7 +548,12 @@ fn break_and_place(
             // A hoe turns dirt and grass into farmland.
             let name = held.map(|h| items.name(h)).unwrap_or("");
             let hit = target.0?;
-            let soil = hit.id == blocks::DIRT || hit.id == blocks::GRASS;
+            let soil = hit.id == blocks::DIRT
+                || hit.id == blocks::GRASS
+                || matches!(
+                    blocks.0.get(hit.id).name.as_str(),
+                    "core:sky_grass" | "core:sky_soil"
+                );
             let above = world.block(hit.block.x, hit.block.y + 1, hit.block.z);
             if !name.ends_with("_hoe") || !soil || !above.is_air() {
                 return None;

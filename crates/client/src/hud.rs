@@ -200,6 +200,7 @@ fn update_debug_text(
     target: Res<Target>,
     conn: Option<Res<Connection>>,
     remote: Res<RemotePlayers>,
+    dimension: Res<crate::net::CurrentDimension>,
     mut text: Single<&mut Text, With<DebugText>>,
 ) {
     let fps = diagnostics
@@ -223,7 +224,7 @@ fn update_debug_text(
     let flying = if player.state.flying { ", flying" } else { "" };
     text.0 = format!(
         "FPS: {fps:.0}   Time: {hh:02}:{mm:02}   Mode: {:?}{flying}\n\
-         Position: {:.1} / {:.1} / {:.1}\n\
+         Position: {:.1} / {:.1} / {:.1} in {}\n\
          Looking at: {looking_at}\n\
          Chunks: {} loaded, {} meshes, {} decoding, {} meshing\n\
          Render distance: {}\n\
@@ -233,6 +234,7 @@ fn update_debug_text(
         p.x,
         p.y,
         p.z,
+        dimension.0.display_name(),
         world.chunk_count(),
         streaming.mesh_count(),
         streaming.pending_decodes(),

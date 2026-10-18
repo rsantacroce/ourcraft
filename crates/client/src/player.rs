@@ -40,7 +40,12 @@ impl Plugin for PlayerPlugin {
             .add_systems(Startup, spawn_player)
             .add_systems(
                 PreUpdate,
-                (handle_welcome, reconcile, hear_sleeping)
+                (
+                    handle_welcome,
+                    arrive_in_dimension,
+                    reconcile,
+                    hear_sleeping,
+                )
                     .chain()
                     .after(NetReceiveSet),
             )
@@ -96,6 +101,9 @@ pub struct Player {
     /// the server look smooth instead of a jump.
     pub visual_offset: Vec3,
     pub stats: PredictionStats,
+    /// Server positions for inputs up to this tick are from before we
+    /// changed dimension: ignore them.
+    pub stale_until: u32,
 }
 
 /// Counters shown in the debug overlay.
@@ -120,6 +128,7 @@ impl Player {
             history: PredictionHistory::default(),
             visual_offset: Vec3::ZERO,
             stats: PredictionStats::default(),
+            stale_until: 0,
         }
     }
 
@@ -214,6 +223,24 @@ fn handle_welcome(
             }
             inventory.select(*selected as usize);
         }
+    }
+}
+
+/// The server moved us to another dimension: we're here now.
+fn arrive_in_dimension(mut messages: MessageReader<FromServer>, mut player: Single<&mut Player>) {
+    for FromServer(msg) in messages.read() {
+        let ServerMessage::ChangedDimension { state, .. } = msg else {
+            continue;
+        };
+        let feet = Vec3::from_array(state.position);
+        let flying = player.state.flying;
+        player.state = PlayerState::new(feet);
+        player.state.flying = flying && state.flying;
+        player.prev_position = feet;
+        player.history = PredictionHistory::default();
+        player.visual_offset = Vec3::ZERO;
+        player.stale_until = player.tick;
+        player.frozen = false;
     }
 }
 
@@ -319,7 +346,7 @@ fn reconcile(
             continue;
         };
         let player = &mut **player;
-        if player.frozen {
+        if player.frozen || *ack_tick <= player.stale_until {
             continue;
         }
         let mut server = PlayerState::new(Vec3::from_array(state.position));

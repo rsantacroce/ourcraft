@@ -18,6 +18,7 @@ pub mod boats;
 pub mod building;
 pub mod circuits;
 pub mod decoration;
+pub mod dimensions;
 pub mod entities;
 pub mod farming;
 pub mod magic;
@@ -27,6 +28,7 @@ pub mod needs;
 
 pub mod net;
 pub mod players;
+pub mod portals;
 pub mod rails;
 pub mod survival;
 pub mod updates;
@@ -163,6 +165,7 @@ impl Plugin for ServerPlugin {
             circuits::CircuitsPlugin,
             rails::RailsPlugin,
             magic::MagicPlugin,
+            portals::PortalsPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

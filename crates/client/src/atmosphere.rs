@@ -62,6 +62,8 @@ pub struct BlockBroken {
 }
 
 const CLOUD_HEIGHT: f32 = 172.0;
+/// Where the clouds are in the Cloud Isles (below the islands).
+const BELOW_CLOUD_HEIGHT: f32 = 16.0;
 const CLOUD_CELL: f32 = 12.0;
 /// Clouds reach this many cells out from the player.
 const CLOUD_RANGE: i32 = 26;
@@ -169,10 +171,17 @@ fn update_weather(
     time: Res<Time>,
     mut weather: ResMut<Weather>,
     world: Res<ClientWorld>,
+    dimension: Res<crate::net::CurrentDimension>,
     camera: Single<&Transform, With<PlayerCamera>>,
     mut check: Local<f32>,
 ) {
-    let target = if weather.raining { 1.0 } else { 0.0 };
+    // It never rains in the Cloud Isles: the rain clouds are down below.
+    let above_the_rain = dimension.0 == ourcraft_common::dimension::Dimension::CloudIsles;
+    let target = if weather.raining && !above_the_rain {
+        1.0
+    } else {
+        0.0
+    };
     let step = time.delta_secs() / 6.0; // fades over a few seconds
     weather.rain_amount += (target - weather.rain_amount).clamp(-step, step);
     *check -= time.delta_secs();
@@ -213,6 +222,7 @@ fn drift_clouds(
     time: Res<Time>,
     weather: Res<Weather>,
     tod: Res<TimeOfDay>,
+    dimension: Res<crate::net::CurrentDimension>,
     camera: Single<&Transform, (With<PlayerCamera>, Without<Clouds>)>,
     mut clouds: Single<(&mut Clouds, &mut Mesh3d, &mut Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -225,8 +235,17 @@ fn drift_clouds(
         ((cam.x + wind) / CLOUD_CELL).floor() as i32,
         (cam.z / CLOUD_CELL).floor() as i32,
     );
-    let cover = 0.32 + 0.3 * weather.rain_amount;
-    let rebuild = state.built_at.is_none_or(|(c, _)| c != cell) || weather.is_changed();
+    // In the Cloud Isles the clouds drift far below the islands, and
+    // there are more of them.
+    let below = dimension.0 == ourcraft_common::dimension::Dimension::CloudIsles;
+    let (height, cover) = if below {
+        (BELOW_CLOUD_HEIGHT, 0.5)
+    } else {
+        (CLOUD_HEIGHT, 0.32 + 0.3 * weather.rain_amount)
+    };
+    let rebuild = state.built_at.is_none_or(|(c, _)| c != cell)
+        || weather.is_changed()
+        || dimension.is_changed();
     if rebuild {
         let mut builder = Vec::new();
         for dz in -CLOUD_RANGE..=CLOUD_RANGE {
@@ -239,7 +258,7 @@ fn drift_clouds(
                 // slides them along.
                 let min = Vec3::new(
                     cx as f32 * CLOUD_CELL - wind,
-                    CLOUD_HEIGHT,
+                    height,
                     cz as f32 * CLOUD_CELL,
                 );
                 builder.push(min);
@@ -360,7 +379,7 @@ fn precipitation(
 /// Which footstep sound a block makes.
 fn step_sound(registry: &ourcraft_common::block::BlockRegistry, b: BlockId) -> &'static str {
     let name = &registry.get(b).name;
-    if name.contains("snow") || name.contains("wool") {
+    if name.contains("snow") || name.contains("wool") || name.contains("cloud") {
         "step_snow"
     } else if name.contains("sand") || name.contains("gravel") {
         "step_sand"
@@ -375,6 +394,7 @@ fn step_sound(registry: &ourcraft_common::block::BlockRegistry, b: BlockId) -> &
         || name.contains("dirt")
         || name.contains("leaves")
         || name.contains("clay")
+        || name.contains("soil")
     {
         "step_grass"
     } else {

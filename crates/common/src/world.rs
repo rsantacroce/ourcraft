@@ -3,11 +3,17 @@
 //! The world is infinite horizontally but has a fixed height of 256 blocks
 //! (16 chunks). Chunks are loaded and unloaded in vertical *columns*, so a
 //! column is the unit of generation, saving and network transfer.
+//!
+//! The server stacks other dimensions below the overworld in the same
+//! world (see [`crate::dimension`]); the `_in` methods take the dimension
+//! a column belongs to. Clients only ever hold their own dimension, at the
+//! usual heights.
 
 use std::collections::HashMap;
 
 use crate::block::BlockId;
 use crate::chunk::{CHUNK_SIZE_I32, Chunk, ChunkPos, split_block_pos};
+use crate::dimension::Dimension;
 
 /// Number of chunks stacked in a column.
 pub const WORLD_HEIGHT_CHUNKS: i32 = 16;
@@ -67,9 +73,9 @@ impl VoxelWorld {
     }
 
     /// The block at a world position, or `None` if its chunk isn't loaded.
-    /// Positions above or below the world are air.
+    /// Positions above or below the world (or between dimensions) are air.
     pub fn get_block(&self, x: i32, y: i32, z: i32) -> Option<BlockId> {
-        if !(0..WORLD_HEIGHT).contains(&y) {
+        if Dimension::of_block_y(y).is_none() {
             return Some(BlockId::AIR);
         }
         let (cpos, [lx, ly, lz]) = split_block_pos(x, y, z);
@@ -84,9 +90,7 @@ impl VoxelWorld {
     /// Change a block. Returns the previous block, or `None` if the position
     /// is outside the world or its chunk isn't loaded.
     pub fn set_block(&mut self, x: i32, y: i32, z: i32, block: BlockId) -> Option<BlockId> {
-        if !(0..WORLD_HEIGHT).contains(&y) {
-            return None;
-        }
+        Dimension::of_block_y(y)?;
         let (cpos, [lx, ly, lz]) = split_block_pos(x, y, z);
         self.chunks.get_mut(&cpos).map(|c| c.set(lx, ly, lz, block))
     }
@@ -103,32 +107,55 @@ impl VoxelWorld {
         self.chunks.insert(pos, chunk);
     }
 
-    /// Insert a whole column (`WORLD_HEIGHT_CHUNKS` chunks, bottom first).
+    /// Insert a whole overworld column (`WORLD_HEIGHT_CHUNKS` chunks,
+    /// bottom first).
     pub fn insert_column(&mut self, pos: ColumnPos, chunks: Vec<Chunk>) {
+        self.insert_column_in(Dimension::Overworld, pos, chunks);
+    }
+
+    /// Insert a whole column of a dimension (bottom first).
+    pub fn insert_column_in(&mut self, dim: Dimension, pos: ColumnPos, chunks: Vec<Chunk>) {
         debug_assert_eq!(chunks.len(), WORLD_HEIGHT_CHUNKS as usize);
+        let base = dim.base_chunk_y();
         for (cy, chunk) in chunks.into_iter().enumerate() {
-            self.chunks.insert(pos.chunk(cy as i32), chunk);
+            self.chunks.insert(pos.chunk(base + cy as i32), chunk);
         }
     }
 
-    /// Remove a column, returning its chunks (bottom first) if it was loaded.
+    /// Remove an overworld column, returning its chunks (bottom first) if
+    /// it was loaded.
     pub fn remove_column(&mut self, pos: ColumnPos) -> Option<Vec<Chunk>> {
+        self.remove_column_in(Dimension::Overworld, pos)
+    }
+
+    pub fn remove_column_in(&mut self, dim: Dimension, pos: ColumnPos) -> Option<Vec<Chunk>> {
+        let base = dim.base_chunk_y();
         let mut out = Vec::with_capacity(WORLD_HEIGHT_CHUNKS as usize);
         for cy in 0..WORLD_HEIGHT_CHUNKS {
-            out.push(self.chunks.remove(&pos.chunk(cy))?);
+            out.push(self.chunks.remove(&pos.chunk(base + cy))?);
         }
         Some(out)
     }
 
     pub fn has_column(&self, pos: ColumnPos) -> bool {
-        self.chunks.contains_key(&pos.chunk(0))
+        self.has_column_in(Dimension::Overworld, pos)
     }
 
-    /// Iterate over the positions of all loaded columns.
+    pub fn has_column_in(&self, dim: Dimension, pos: ColumnPos) -> bool {
+        self.chunks.contains_key(&pos.chunk(dim.base_chunk_y()))
+    }
+
+    /// Iterate over the positions of all loaded overworld columns.
     pub fn columns(&self) -> impl Iterator<Item = ColumnPos> + '_ {
+        self.columns_in(Dimension::Overworld)
+    }
+
+    /// Iterate over the positions of a dimension's loaded columns.
+    pub fn columns_in(&self, dim: Dimension) -> impl Iterator<Item = ColumnPos> + '_ {
+        let base = dim.base_chunk_y();
         self.chunks
             .keys()
-            .filter(|p| p.y == 0)
+            .filter(move |p| p.y == base)
             .map(|&p| ColumnPos::from(p))
     }
 
@@ -136,10 +163,16 @@ impl VoxelWorld {
         self.chunks.len()
     }
 
-    /// Clone a column's chunks (bottom first), e.g. for saving or sending.
+    /// Clone an overworld column's chunks (bottom first), e.g. for saving
+    /// or sending.
     pub fn column(&self, pos: ColumnPos) -> Option<Vec<Chunk>> {
+        self.column_in(Dimension::Overworld, pos)
+    }
+
+    pub fn column_in(&self, dim: Dimension, pos: ColumnPos) -> Option<Vec<Chunk>> {
+        let base = dim.base_chunk_y();
         (0..WORLD_HEIGHT_CHUNKS)
-            .map(|cy| self.chunks.get(&pos.chunk(cy)).cloned())
+            .map(|cy| self.chunks.get(&pos.chunk(base + cy)).cloned())
             .collect()
     }
 }
@@ -200,6 +233,25 @@ mod tests {
         let removed = w.remove_column(p).unwrap();
         assert_eq!(removed.len(), WORLD_HEIGHT_CHUNKS as usize);
         assert!(!w.has_column(p));
+        assert_eq!(w.chunk_count(), 0);
+    }
+
+    #[test]
+    fn dimensions_keep_their_own_columns() {
+        let mut w = VoxelWorld::new();
+        let p = ColumnPos::new(1, 1);
+        let sky = Dimension::CloudIsles;
+        w.insert_column_in(sky, p, column(blocks::STONE));
+        assert!(w.has_column_in(sky, p) && !w.has_column(p));
+        assert_eq!(w.columns_in(sky).collect::<Vec<_>>(), vec![p]);
+        assert_eq!(w.columns().count(), 0);
+        // Its blocks are down in the Cloud Isles' heights.
+        assert_eq!(w.get_block(16, sky.base_y() + 5, 16), Some(blocks::STONE));
+        assert_eq!(w.get_block(16, 5, 16), None);
+        // Between the dimensions there's only air.
+        assert_eq!(w.get_block(16, -100, 16), Some(blocks::AIR));
+        assert_eq!(w.column_in(sky, p).unwrap().len(), 16);
+        assert!(w.remove_column_in(sky, p).is_some());
         assert_eq!(w.chunk_count(), 0);
     }
 

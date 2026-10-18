@@ -25,7 +25,12 @@ impl Plugin for BannersPlugin {
             .add_systems(Update, show_patterns)
             .add_systems(
                 PreUpdate,
-                forget_patterns.run_if(on_message::<crate::net::SessionEnded>),
+                forget_patterns
+                    .run_if(
+                        on_message::<crate::net::SessionEnded>
+                            .or_eager(on_message::<crate::net::DimensionChanged>),
+                    )
+                    .after(crate::net::NetReceiveSet),
             );
     }
 }
