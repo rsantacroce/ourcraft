@@ -43,6 +43,9 @@ pub struct ClientSettings {
     pub chat_filter: bool,
     /// Show the FPS/position text in the corner.
     pub show_debug: bool,
+    /// How you look: a built-in skin's name, or `file:<name>.png` from the
+    /// skins folder (see [`crate::skins`]).
+    pub skin: String,
 }
 
 impl GraphicsSettings {
@@ -63,11 +66,12 @@ impl Default for ClientSettings {
             touch_controls: None,
             chat_filter: true,
             show_debug: !mobile,
+            skin: "explorer".into(),
         }
     }
 }
 
-fn settings_path() -> PathBuf {
+pub(crate) fn settings_path() -> PathBuf {
     let saves = crate::paths::saves_dir();
     saves
         .parent()
@@ -116,6 +120,7 @@ impl ClientSettings {
                 "chat_filter" => s.chat_filter = value != "off",
                 "music" => s.music = value != "off",
                 "show_debug" => s.show_debug = value == "on",
+                "skin" => s.skin = crate::skins::sanitize_skin_setting(value),
                 _ => {}
             }
         }
@@ -127,7 +132,8 @@ impl ClientSettings {
         format!(
             "# Ourcraft settings (you can edit this file)\n\
              name = {}\nrender_distance = {}\nmouse_sensitivity = {:.2}\nvolume = {:.2}\n\
-             music = {}\ntouch_controls = {}\nchat_filter = {}\nshow_debug = {}\n",
+             music = {}\ntouch_controls = {}\nchat_filter = {}\nshow_debug = {}\n\
+             skin = {}\n",
             self.name,
             self.render_distance,
             self.mouse_sensitivity,
@@ -140,6 +146,7 @@ impl ClientSettings {
             },
             onoff(self.chat_filter),
             onoff(self.show_debug),
+            self.skin,
         )
     }
 
@@ -245,8 +252,14 @@ mod tests {
             touch_controls: Some(false),
             chat_filter: false,
             show_debug: true,
+            skin: "file:My Skin.png".into(),
         };
         assert_eq!(ClientSettings::parse(&s.to_text()), s);
+        let knight = ClientSettings {
+            skin: "knight".into(),
+            ..s
+        };
+        assert_eq!(ClientSettings::parse(&knight.to_text()), knight);
     }
 
     #[test]
@@ -255,5 +268,10 @@ mod tests {
         assert_eq!(s.render_distance, GraphicsSettings::MAX_RENDER_DISTANCE);
         assert_eq!(s.volume, ClientSettings::default().volume);
         assert_eq!(s.name, "Player");
+        // An unknown skin (or a path out of the skins folder) is replaced.
+        let s = ClientSettings::parse("skin = dragon\n");
+        assert_eq!(s.skin, "explorer");
+        let s = ClientSettings::parse("skin = file:../../x.png\n");
+        assert_eq!(s.skin, "explorer");
     }
 }

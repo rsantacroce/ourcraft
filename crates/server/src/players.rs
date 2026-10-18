@@ -14,6 +14,7 @@ use ourcraft_common::protocol::{
     ServerMessage, sanitize_name,
 };
 use ourcraft_common::save::{PLAYER_VERSION, PlayerSave};
+use ourcraft_common::skin::NetSkin;
 use ourcraft_common::world::{ColumnPos, WORLD_HEIGHT};
 use renet::ClientId;
 
@@ -30,6 +31,9 @@ pub const MAX_REACH: f32 = 6.0 + 2.0;
 const COLUMNS_PER_TICK: usize = 6;
 /// Movement updates sent per second.
 const STATE_RATE: f32 = 20.0;
+/// Seconds between skin changes (the client waits a moment after the
+/// last click before sending, so this only stops floods).
+const SKIN_COOLDOWN: f32 = 0.5;
 /// Seconds a new connection has to say hello.
 const HELLO_TIMEOUT: f32 = 10.0;
 
@@ -121,6 +125,10 @@ pub struct ConnectedPlayer {
     /// Tools the player may use (from a mod), and when each was last used.
     pub tools: Vec<String>,
     pub tool_used_at: HashMap<String, f32>,
+    /// How they look, once they've told us (passed on to everyone else).
+    pub skin: Option<NetSkin>,
+    /// When they last changed skin (`connected_for`), to stop floods.
+    pub skin_changed_at: f32,
 }
 
 impl ConnectedPlayer {
@@ -187,6 +195,8 @@ fn on_connect(
                 rules: ourcraft_mod_api::PlayerRules::default(),
                 tools: Vec::new(),
                 tool_used_at: HashMap::new(),
+                skin: None,
+                skin_changed_at: f32::MIN,
             })
             .id();
         players.0.insert(*client, e);
@@ -403,6 +413,16 @@ fn handle_messages(
                     .iter()
                     .filter(|o| o.name.is_some() && o.client != *client)
                 {
+                    if let Some(skin) = &other.skin {
+                        net.send(
+                            *client,
+                            Channel::Reliable,
+                            &ServerMessage::Skin {
+                                player: other.client,
+                                skin: skin.clone(),
+                            },
+                        );
+                    }
                     if other.rules.color.is_some() || other.rules.tag.is_some() {
                         net.send(
                             *client,
@@ -494,6 +514,31 @@ fn handle_messages(
                 if let Ok(mut p) = query.get_mut(entity) {
                     p.inventory = inventory_from_net(slots, *selected, &open.items);
                 }
+            }
+            ClientMessage::Skin(skin) => {
+                let Ok(mut p) = query.get_mut(entity) else {
+                    continue;
+                };
+                // Only after hello, only sensible skins, and not more than
+                // a couple of changes a second (a custom skin is 16 KB).
+                let now = p.connected_for;
+                if p.name.is_none()
+                    || !skin.is_valid()
+                    || now - p.skin_changed_at < SKIN_COOLDOWN
+                    || p.skin.as_ref() == Some(skin)
+                {
+                    continue;
+                }
+                p.skin_changed_at = now;
+                p.skin = Some(skin.clone());
+                net.broadcast_except(
+                    *client,
+                    Channel::Reliable,
+                    &ServerMessage::Skin {
+                        player: *client,
+                        skin: skin.clone(),
+                    },
+                );
             }
             ClientMessage::GameMode { creative } => {
                 if let Ok(mut p) = query.get_mut(entity) {

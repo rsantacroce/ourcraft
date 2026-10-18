@@ -25,7 +25,7 @@ use ourcraft_common::raycast::{RayHit, raycast};
 use crate::input::{Actions, UiFocus};
 use crate::inventory_ui::OpenScreen;
 use crate::items::Items;
-use crate::player::{GameMode, Player, PlayerCamera};
+use crate::player::{GameMode, Player};
 use crate::world::{Blocks, ClientWorld};
 
 /// How far away you can reach blocks.
@@ -132,16 +132,15 @@ pub fn creative_hotbar() -> Inventory {
 fn update_target(
     world: Res<ClientWorld>,
     blocks: Res<Blocks>,
-    camera: Single<&GlobalTransform, With<PlayerCamera>>,
     player: Single<&Player>,
     mobs: Query<(&crate::entities::Mob, &Transform)>,
     mut target: ResMut<Target>,
     mut source: ResMut<SourceTarget>,
     mut target_mob: ResMut<TargetMob>,
 ) {
-    // Use the up-to-date look direction (the camera transform may lag a
-    // frame behind the mouse).
-    let origin = camera.translation();
+    // Aim from the player's eyes (not the camera, which may be behind or
+    // in front of us), with the up-to-date look direction.
+    let origin = player.eyes;
     let dir = player.look_direction();
     target.0 = raycast(&world.0, &blocks.0, origin, dir, REACH);
     source.0 = ourcraft_common::raycast::raycast_sources(&world.0, &blocks.0, origin, dir, REACH)
