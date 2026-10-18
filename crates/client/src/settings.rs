@@ -48,6 +48,8 @@ pub struct ClientSettings {
     pub skin: String,
     /// Middle click picks the block you're looking at (switching the slot).
     pub middle_click_pick: bool,
+    /// The mouse wheel moves along the hotbar.
+    pub wheel_hotbar: bool,
 }
 
 impl GraphicsSettings {
@@ -70,6 +72,7 @@ impl Default for ClientSettings {
             show_debug: !mobile,
             skin: "explorer".into(),
             middle_click_pick: true,
+            wheel_hotbar: true,
         }
     }
 }
@@ -125,6 +128,7 @@ impl ClientSettings {
                 "show_debug" => s.show_debug = value == "on",
                 "skin" => s.skin = crate::skins::sanitize_skin_setting(value),
                 "middle_click_pick" => s.middle_click_pick = value != "off",
+                "wheel_hotbar" => s.wheel_hotbar = value != "off",
                 _ => {}
             }
         }
@@ -137,7 +141,8 @@ impl ClientSettings {
             "# Ourcraft settings (you can edit this file)\n\
              name = {}\nrender_distance = {}\nmouse_sensitivity = {:.2}\nvolume = {:.2}\n\
              music = {}\ntouch_controls = {}\nchat_filter = {}\nshow_debug = {}\n\
-             skin = {}\nmiddle_click_pick = {}\n",
+             skin = {}\nmiddle_click_pick = {}\n\
+             wheel_hotbar = {}\n",
             self.name,
             self.render_distance,
             self.mouse_sensitivity,
@@ -152,6 +157,7 @@ impl ClientSettings {
             onoff(self.show_debug),
             self.skin,
             onoff(self.middle_click_pick),
+            onoff(self.wheel_hotbar),
         )
     }
 
@@ -218,6 +224,7 @@ fn apply_settings(
     input.mouse_sensitivity =
         InputSettings::default().mouse_sensitivity * settings.mouse_sensitivity;
     input.middle_click_pick = settings.middle_click_pick;
+    input.wheel_hotbar = settings.wheel_hotbar;
     if let Some(on) = settings.touch_controls {
         touch.enabled = on;
     }
@@ -260,6 +267,7 @@ mod tests {
             show_debug: true,
             skin: "file:My Skin.png".into(),
             middle_click_pick: false,
+            wheel_hotbar: false,
         };
         assert_eq!(ClientSettings::parse(&s.to_text()), s);
         let knight = ClientSettings {
