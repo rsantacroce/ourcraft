@@ -669,7 +669,9 @@ fn spawn_naturally(
     if states.0.values().filter(|s| s.natural).count() >= MAX_MOBS {
         return;
     }
-    for p in players.iter().filter(|p| p.name.is_some()) {
+    // (The Cloud Isles have no wild animals.)
+    let home = |p: &&ConnectedPlayer| p.dim() == ourcraft_common::dimension::Dimension::Overworld;
+    for p in players.iter().filter(|p| p.name.is_some()).filter(home) {
         let me = p.position();
         let near = states
             .0
@@ -1322,9 +1324,11 @@ fn monsters(
     if kinds.is_empty() {
         return;
     }
+    // No monsters in the Cloud Isles: it's a peaceful place.
     let hunted: Vec<Vec3> = players
         .iter()
         .filter(|p| crate::needs::applies(p, &open))
+        .filter(|p| p.dim() == ourcraft_common::dimension::Dimension::Overworld)
         .map(|p| p.position())
         .collect();
     for me in hunted {

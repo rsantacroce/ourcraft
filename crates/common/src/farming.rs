@@ -401,7 +401,16 @@ impl BlockRegistry {
         match s.kind {
             StageKind::Crop | StageKind::Stem { .. } => self.is_farmland(below),
             StageKind::Grass | StageKind::Flower | StageKind::Sapling { .. } => {
-                named(below, &["core:grass", "core:dirt", "core:snow"]) || self.is_farmland(below)
+                named(
+                    below,
+                    &[
+                        "core:grass",
+                        "core:dirt",
+                        "core:snow",
+                        "core:sky_grass",
+                        "core:sky_soil",
+                    ],
+                ) || self.is_farmland(below)
             }
             StageKind::Cane => {
                 if self.stage(below).is_some_and(|b| b.kind == StageKind::Cane) {
@@ -409,7 +418,14 @@ impl BlockRegistry {
                 }
                 let ground = named(
                     below,
-                    &["core:grass", "core:dirt", "core:sand", "core:snow"],
+                    &[
+                        "core:grass",
+                        "core:dirt",
+                        "core:sand",
+                        "core:snow",
+                        "core:sky_grass",
+                        "core:sky_soil",
+                    ],
                 );
                 let wet = [[1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]]
                     .iter()

@@ -61,6 +61,8 @@ pub struct Actions {
     pub pick_block: bool,
     pub toggle_fly: bool,
     pub toggle_inventory: bool,
+    /// Pressed: switch camera view (first person, behind, in front).
+    pub cycle_view: bool,
     /// Pressed a number key: select that hotbar slot.
     pub hotbar_select: Option<usize>,
     /// Scroll through the hotbar: positive = next slot.
@@ -78,6 +80,8 @@ pub struct InputSettings {
     pub stick_look_speed: f32,
     /// Stick values below this are ignored (sticks never rest at exactly 0).
     pub stick_deadzone: f32,
+    /// Middle click picks the block you're looking at.
+    pub middle_click_pick: bool,
 }
 
 impl Default for InputSettings {
@@ -86,6 +90,7 @@ impl Default for InputSettings {
             mouse_sensitivity: 0.0025,
             stick_look_speed: 3.0,
             stick_deadzone: 0.15,
+            middle_click_pick: true,
         }
     }
 }
@@ -152,6 +157,7 @@ fn keyboard_mouse_actions(
     actions.descend |= keys.pressed(KeyCode::ShiftLeft);
     actions.sprint |= keys.pressed(KeyCode::ControlLeft);
     actions.toggle_fly |= keys.just_pressed(KeyCode::KeyF);
+    actions.cycle_view |= keys.just_pressed(KeyCode::F5);
     for (i, key) in HOTBAR_KEYS.iter().enumerate() {
         if keys.just_pressed(*key) {
             actions.hotbar_select = Some(i);
@@ -185,7 +191,7 @@ fn keyboard_mouse_actions(
         actions.look += Vec2::new(delta.x, -delta.y);
         actions.break_block |= mouse.pressed(MouseButton::Left);
         actions.place_block |= mouse.pressed(MouseButton::Right);
-        actions.pick_block |= mouse.just_pressed(MouseButton::Middle);
+        actions.pick_block |= settings.middle_click_pick && mouse.just_pressed(MouseButton::Middle);
     }
 }
 
@@ -218,6 +224,7 @@ fn gamepad_actions(
         actions.break_block |= pad.pressed(GamepadButton::RightTrigger2);
         actions.place_block |= pad.pressed(GamepadButton::LeftTrigger2);
         actions.pick_block |= pad.just_pressed(GamepadButton::DPadUp);
+        actions.cycle_view |= pad.just_pressed(GamepadButton::DPadDown);
         actions.hotbar_scroll += pad.just_pressed(GamepadButton::RightTrigger) as i32
             - pad.just_pressed(GamepadButton::LeftTrigger) as i32;
         // Sticks report a position, not a distance, so scale by frame time.

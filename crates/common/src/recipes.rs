@@ -707,6 +707,13 @@ pub fn builtin_recipes() -> Vec<Recipe> {
         r.push(shaped(&["XXX", "XXX", "XXX"], &[('X', ingot)], block, 1));
         r.push(shapeless(&[block], ingot, 9));
     }
+    // ---- The Cloud Isles: sunstone for portal frames (ten make one) ----
+    r.push(shaped(
+        &["GGG", "GIG", "GGG"],
+        &[('G', "core:glass"), ('I', "core:gold_ingot")],
+        "core:sunstone",
+        4,
+    ));
     r
 }
 
@@ -975,5 +982,17 @@ mod tests {
         let right = [None, c, c, None, s, c, None, s, None];
         assert_eq!(book.find(&left, 3), Some((axe, 1)));
         assert_eq!(book.find(&right, 3), Some((axe, 1)));
+    }
+
+    #[test]
+    fn sunstone_for_portals() {
+        let (items, book) = book();
+        let g = Some(ItemId::from_block(blocks::GLASS));
+        let i = items.by_name("core:gold_ingot");
+        let grid = [g, g, g, g, i, g, g, g, g];
+        assert_eq!(
+            book.find(&grid, 3),
+            Some((items.by_name("core:sunstone").unwrap(), 4))
+        );
     }
 }

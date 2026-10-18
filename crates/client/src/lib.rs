@@ -2,6 +2,8 @@
 
 pub mod atmosphere;
 pub mod audio;
+pub mod avatar;
+pub mod camera_view;
 pub mod chat;
 pub mod entities;
 pub mod frames;
@@ -26,6 +28,7 @@ pub mod remote_players;
 pub mod render;
 pub mod settings;
 pub mod signs;
+pub mod skins;
 pub mod sky;
 pub mod survival;
 pub mod touch;
@@ -70,6 +73,9 @@ impl Plugin for ClientPlugin {
                 gadgets::GadgetsPlugin,
                 frames::FramesPlugin,
                 banners::BannersPlugin,
+                avatar::AvatarPlugin,
+                camera_view::CameraViewPlugin,
+                skins::SkinsPlugin,
             ));
     }
 }

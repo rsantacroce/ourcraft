@@ -523,6 +523,8 @@ impl BlockRegistry {
         crate::circuits::register_circuits(&mut reg);
         // ---- Milestone 24: our own magic ----
         crate::magic::register_blocks(&mut reg);
+        // ---- The Cloud Isles and their portal ----
+        crate::cloud_isles::register_blocks(&mut reg);
         reg
     }
 

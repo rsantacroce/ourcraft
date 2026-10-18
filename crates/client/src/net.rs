@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bevy::prelude::*;
 use bevy::window::AppLifecycle;
+use ourcraft_common::dimension::Dimension;
 use ourcraft_common::protocol::{
     self, Channel, ClientMessage, DEFAULT_PORT, PROTOCOL_ID, PROTOCOL_VERSION, PlayerId,
     ServerMessage, sanitize_name,
@@ -29,6 +30,8 @@ impl Plugin for NetPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<FromServer>()
             .add_message::<SessionEnded>()
+            .add_message::<DimensionChanged>()
+            .init_resource::<CurrentDimension>()
             .add_systems(Startup, connect_from_launch_options)
             .add_systems(
                 PreUpdate,
@@ -81,6 +84,18 @@ pub struct SinglePlayer {
 /// the client can clear what it knew about that world.
 #[derive(Message, Debug, Clone, Copy)]
 pub struct SessionEnded;
+
+/// Sent when the server moves us to another dimension: every part of the
+/// client that remembers blocks, animals or players clears them, like when
+/// a game ends. It arrives in a frame of its own (nothing else from the
+/// server comes in that frame), so systems that run after
+/// [`NetReceiveSet`] can clear up without throwing away anything new.
+#[derive(Message, Debug, Clone, Copy)]
+pub struct DimensionChanged(pub Dimension);
+
+/// The dimension we're in (from the server).
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CurrentDimension(pub Dimension);
 
 /// What to do on startup (from the command line until the menu in M10):
 /// - `ourcraft` → single player, world "My World"
@@ -495,6 +510,8 @@ fn receive(
     settings: Res<GraphicsSettings>,
     mut conn: ResMut<Connection>,
     mut messages: MessageWriter<FromServer>,
+    mut changed: MessageWriter<DimensionChanged>,
+    mut dimension: ResMut<CurrentDimension>,
 ) {
     let conn = &mut *conn;
     conn.clock = time.elapsed_secs_f64();
@@ -561,23 +578,52 @@ fn receive(
     });
     ready.sort_by(|a, b| a.0.total_cmp(&b.0));
     {
-        for (_, msg) in ready {
+        let mut delivered = 0;
+        let mut ready = ready.into_iter();
+        while let Some((release, msg)) = ready.next() {
             match &msg {
                 ServerMessage::Welcome {
                     your_id,
                     server_name,
                     motd,
+                    dimension: dim,
                     ..
                 } => {
                     info!("Joined {server_name}: {motd}");
                     conn.my_id = Some(*your_id);
                     conn.status = Status::Connected;
+                    dimension.0 = *dim;
                 }
                 ServerMessage::Kick(reason) => {
                     conn.status = Status::Disconnected(reason.clone());
                 }
+                // Moving dimension gets a frame to itself: what came before
+                // it this frame, then the move alone next frame, then what
+                // came after it.
+                ServerMessage::ChangedDimension { dimension: dim, .. } => {
+                    let dim = *dim;
+                    let mut later: Vec<(f64, ServerMessage)> = ready.collect();
+                    if delivered == 0 {
+                        info!("Moved to {}", dim.display_name());
+                        dimension.0 = dim;
+                        changed.write(DimensionChanged(dim));
+                        messages.write(FromServer(msg));
+                    } else {
+                        later.insert(0, (release, msg));
+                    }
+                    // The rest wait for the next frame (in order).
+                    for (release, item) in later.into_iter().rev() {
+                        conn.incoming.push_front(Delayed {
+                            release,
+                            channel: Channel::Reliable,
+                            item,
+                        });
+                    }
+                    break;
+                }
                 _ => {}
             }
+            delivered += 1;
             messages.write(FromServer(msg));
         }
     }

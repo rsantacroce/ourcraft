@@ -597,6 +597,7 @@ pub(super) fn texture_pixel(name: &str, x: usize, y: usize) -> Option<Rgba> {
         .or_else(|| super::stone_textures::pixel(name, x, y))
         .or_else(|| super::decoration_textures::pixel(name, x, y))
         .or_else(|| super::circuit_textures::pixel(name, x, y))
+        .or_else(|| super::sky_textures::pixel(name, x, y))
 }
 
 /// True if `name` is one of the built-in textures.

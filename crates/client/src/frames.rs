@@ -22,7 +22,12 @@ impl Plugin for FramesPlugin {
             .add_systems(Update, show_frames)
             .add_systems(
                 PreUpdate,
-                forget_frames.run_if(on_message::<crate::net::SessionEnded>),
+                forget_frames
+                    .run_if(
+                        on_message::<crate::net::SessionEnded>
+                            .or_eager(on_message::<crate::net::DimensionChanged>),
+                    )
+                    .after(crate::net::NetReceiveSet),
             );
     }
 }

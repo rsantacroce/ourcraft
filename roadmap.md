@@ -23,6 +23,7 @@ picks up from there.
 | Platform | macOS, Windows, Linux, iPad/iPhone, Android; touch and gamepad controls |
 | Atmosphere | Drifting clouds; rain (snow where it's snowy) that greys the sky and stays outside; footsteps that sound like the ground; birds, water and wind; three calm music pieces now and then (can be switched off); bits flying off broken blocks |
 | Magic | A wish table that makes tools and armour sparkly; hop, glow and swim potions |
+| Dimensions | The Cloud Isles: floating islands in a lilac sky, reached through a sunstone portal lit with a feather |
 | Extras | WebAssembly mods, main menu, settings, sound effects, chat filter |
 
 ## Partly done
@@ -303,6 +304,50 @@ after closing), banner patterns, and the map filling in from memory
 right after the game starts, and zoomed out. (Maps are remembered per
 server address, so two worlds hosted at the same address share one.)
 
+### The Cloud Isles ✅ done
+
+The dreamy sky world from milestone 24's wish list, and the game's first
+dimension besides the overworld:
+
+- **The Cloud Isles:** floating islands over endless sky, with domed
+  tops of sky grass on sky soil and deep, pointed bellies of skystone
+  (with a little gold), little islets higher up, and a layer of real
+  clouds (soft blocks that catch you) drifting below. Cherry, birch and
+  oak trees, flowers and grass. A lilac sky with pink sunsets, nights
+  that never get very dark, no rain (the drawn clouds float below you),
+  no monsters and no wild animals.
+- **Portal:** sunstone (eight glass round a gold ingot makes four) built
+  as a standing frame round a space at least 2 wide and 3 tall, lit with
+  a feather (used up in survival). Stand in it for two and a half seconds.
+  You come out in a portal near the same x and z on the other side; if
+  there isn't one, a small one is built, with a step to stand on (and a
+  little cloud, out over empty sky). Breaking the frame puts a portal out.
+- **Falling off** an island floats you gently down to the ground at home.
+  Water and clouds break any fall, and a fall never counts across
+  dimensions.
+- **Multiplayer:** players only see (and hear about) the dimension they're
+  in. Each player's dimension is saved with them (player files version 6);
+  the Cloud Isles' land has its own region files.
+- **How it works:** the server keeps the Cloud Isles 512 blocks below the
+  overworld in the same world (`common::dimension`), so everything that
+  ticks there (water, crops, circuits, carts, drops) just works. Games
+  only ever get their own dimension, at the usual heights: the server's
+  network code moves positions on the way out and in, and leaves out
+  messages about the other dimension (`server::dimensions`). When a
+  player's height says they're somewhere else, they're told to start
+  afresh there, however they got there (portal, fall, waking up in bed, a
+  mod's teleport).
+
+Not quite as planned: maps only remember the overworld; mods see the
+server's stacked heights (and `GroundHeight` answers for the overworld);
+everyone has to be in bed to skip the night, in either dimension.
+
+Checked by tests (a whole trip there and back in
+`server/tests/cloud_isles.rs`, with a friend who can't see you, a
+restart, and a fall home) and the new textures drawn out to a picture;
+not yet looked at in the running game (the sky colours and the clouds
+below the islands especially).
+
 ### The big item list (milestones 17–24)
 
 Minecraft has well over a thousand items, most of them colour and wood
@@ -528,8 +573,9 @@ hop (jump about two and a half blocks, 90 s), glow (see in caves and at
 night, 2 min) or swim (swim twice as fast and never run out of breath,
 2 min). Drinking gives the bottle back; the time left shows top right.
 
-Not quite as planned: the dreamy sky world through a cloud portal is
-left for later. (Effects are saved since the third gap fixes.)
+Not quite as planned: the dreamy sky world through a cloud portal came
+later, as the Cloud Isles (below). (Effects are saved since the third gap
+fixes.)
 
 What was planned:
 
@@ -546,7 +592,6 @@ get new names and art, never copied ones.
 
 ### Later ideas
 
-- A dreamy sky world reached through a cloud portal.
 - Villages and other structures in world generation.
 - Achievements to guide new players ("Make a crafting table!").
 - More game modes as mods: a racing course, hide and seek, a building

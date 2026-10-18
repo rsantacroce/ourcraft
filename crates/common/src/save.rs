@@ -17,6 +17,13 @@
 //! between runs. The world metadata stores the *names* of all blocks at save
 //! time; on load, ids are translated to the current registry. Thanks to
 //! palette compression this only touches each chunk's small palette.
+//!
+//! **Dimensions.** The overworld's regions are in `region/`; each other
+//! dimension has its own, in `dimensions/<name>/region/` (the Cloud Isles:
+//! `dimensions/cloud_isles/region/`). Player files say which dimension
+//! the player is in, with their position in that dimension's own heights.
+//! Furnaces, signs and the like are kept in one list for the whole world,
+//! at the server's stacked positions (see [`crate::dimension`]).
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -28,6 +35,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::block::{BlockId, BlockRegistry};
 use crate::chunk::Chunk;
+use crate::dimension::Dimension;
 use crate::inventory::{INVENTORY_SLOTS, Inventory, ItemStack};
 use crate::item::ItemRegistry;
 use crate::world::{ColumnPos, WORLD_HEIGHT_CHUNKS};
@@ -47,7 +55,8 @@ const COLUMN_FORMAT: u8 = 1;
 /// Version of `world.dat`.
 pub const META_VERSION: u32 = 2;
 /// Version of player files. 3: inventories by item name (milestone 11).
-pub const PLAYER_VERSION: u32 = 5;
+/// 6: which dimension they're in.
+pub const PLAYER_VERSION: u32 = 6;
 
 fn invalid(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
@@ -338,6 +347,24 @@ pub struct PlayerSave {
     pub vitals: Option<[f32; 3]>,
     /// Seconds left of each potion effect (hop, glow, swim).
     pub effects: [f32; 3],
+    /// Which dimension they're in (its [`Dimension::save_name`]);
+    /// `position` is in that dimension's own heights.
+    pub dimension: String,
+}
+
+/// A player file as saved by version 5 (always in the overworld).
+#[derive(Deserialize)]
+struct PlayerSaveV5 {
+    _version: u32,
+    position: [f32; 3],
+    yaw: f32,
+    pitch: f32,
+    flying: bool,
+    inventory: Vec<Option<SavedStack>>,
+    selected: usize,
+    creative: bool,
+    vitals: Option<[f32; 3]>,
+    effects: [f32; 3],
 }
 
 /// A player file as saved by version 4 (no potion effects yet).
@@ -380,6 +407,12 @@ struct PlayerSaveV2 {
 }
 
 impl PlayerSave {
+    /// The dimension they're in (the overworld if it's unknown, say from
+    /// a mod that's gone).
+    pub fn dimension(&self) -> Dimension {
+        Dimension::from_save_name(&self.dimension).unwrap_or_default()
+    }
+
     pub fn inventory(&self, items: &ItemRegistry) -> Inventory {
         let mut inv = Inventory::default();
         for (slot, saved) in inv.every_slot_mut().zip(&self.inventory) {
@@ -542,10 +575,17 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::rename(tmp, path)
 }
 
+/// The overworld's name in player files.
+fn overworld() -> String {
+    Dimension::Overworld.save_name().to_owned()
+}
+
 /// A world's folder on disk. Safe to share between threads: loading and
 /// saving happen on background threads so they never stall a frame.
 pub struct WorldStorage {
     dir: PathBuf,
+    /// Where this storage's region files are.
+    region_dir: PathBuf,
     regions: Mutex<HashMap<RegionPos, RegionFile>>,
     /// Columns handed to [`WorldStorage::queue_save`] but not yet written.
     /// Loads check here first, so a column unloaded and quickly reloaded
@@ -561,7 +601,24 @@ impl WorldStorage {
         fs::create_dir_all(dir.join("region"))?;
         fs::create_dir_all(dir.join("players"))?;
         Ok(Self {
+            region_dir: dir.join("region"),
             dir,
+            regions: Mutex::new(HashMap::new()),
+            pending: Mutex::new(HashMap::new()),
+            remap: Mutex::new(None),
+        })
+    }
+
+    /// The terrain of another dimension of the world in `dir`: only its
+    /// columns are kept here (in `dimensions/<name>/region/`), so use the
+    /// world's main storage for everything else.
+    pub fn open_dimension(dir: impl Into<PathBuf>, dim: Dimension) -> io::Result<Self> {
+        let dir = dir.into();
+        let region_dir = dir.join("dimensions").join(dim.save_name()).join("region");
+        fs::create_dir_all(&region_dir)?;
+        Ok(Self {
+            dir,
+            region_dir,
             regions: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
             remap: Mutex::new(None),
@@ -588,7 +645,7 @@ impl WorldStorage {
         let region = match regions.entry(rpos) {
             std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
             std::collections::hash_map::Entry::Vacant(e) => {
-                let path = self.dir.join("region").join(rpos.file_name());
+                let path = self.region_dir.join(rpos.file_name());
                 e.insert(RegionFile::open(&path)?)
             }
         };
@@ -704,6 +761,22 @@ impl WorldStorage {
         let (version, _) = postcard::take_from_bytes::<u32>(&bytes).map_err(bad)?;
         match version {
             PLAYER_VERSION => return postcard::from_bytes(&bytes).map(Some).map_err(bad),
+            5 => {
+                let old: PlayerSaveV5 = postcard::from_bytes(&bytes).map_err(bad)?;
+                return Ok(Some(PlayerSave {
+                    version: PLAYER_VERSION,
+                    position: old.position,
+                    yaw: old.yaw,
+                    pitch: old.pitch,
+                    flying: old.flying,
+                    inventory: old.inventory,
+                    selected: old.selected,
+                    creative: old.creative,
+                    vitals: old.vitals,
+                    effects: old.effects,
+                    dimension: overworld(),
+                }));
+            }
             4 => {
                 let old: PlayerSaveV4 = postcard::from_bytes(&bytes).map_err(bad)?;
                 return Ok(Some(PlayerSave {
@@ -717,6 +790,7 @@ impl WorldStorage {
                     creative: old.creative,
                     vitals: old.vitals,
                     effects: [0.0; 3],
+                    dimension: overworld(),
                 }));
             }
             3 => {
@@ -732,6 +806,7 @@ impl WorldStorage {
                     creative: old.creative,
                     vitals: None,
                     effects: [0.0; 3],
+                    dimension: overworld(),
                 }));
             }
             2 => {}
@@ -760,6 +835,7 @@ impl WorldStorage {
             creative: true,
             vitals: None,
             effects: [0.0; 3],
+            dimension: overworld(),
         }))
     }
 
@@ -1091,6 +1167,7 @@ mod tests {
             creative: false,
             vitals: Some([12.0, 15.5, 12.0]),
             effects: [0.0, 40.0, 0.0],
+            dimension: Dimension::CloudIsles.save_name().into(),
         };
         player.store_inventory(&inv, &items);
         storage.save_player("Alex/../evil", &player).unwrap();
@@ -1187,6 +1264,72 @@ mod tests {
         assert_eq!(p.inventory[0].as_ref().unwrap().item, "paint:red");
         assert_eq!(p.inventory[0].as_ref().unwrap().count, 5);
         assert_eq!(p.inventory[2], None, "unknown ids are dropped");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn version_5_players_are_in_the_overworld() {
+        #[derive(Serialize)]
+        struct V5 {
+            version: u32,
+            position: [f32; 3],
+            yaw: f32,
+            pitch: f32,
+            flying: bool,
+            inventory: Vec<Option<SavedStack>>,
+            selected: usize,
+            creative: bool,
+            vitals: Option<[f32; 3]>,
+            effects: [f32; 3],
+        }
+        let dir = temp_dir("player-v5");
+        let storage = WorldStorage::open(&dir).unwrap();
+        let old = V5 {
+            version: 5,
+            position: [4.0, 70.0, 2.0],
+            yaw: 1.0,
+            pitch: 0.0,
+            flying: false,
+            inventory: vec![],
+            selected: 0,
+            creative: false,
+            vitals: Some([20.0, 20.0, 12.0]),
+            effects: [0.0, 30.0, 0.0],
+        };
+        fs::write(
+            dir.join("players/Ivy.dat"),
+            postcard::to_allocvec(&old).unwrap(),
+        )
+        .unwrap();
+        let p = storage.load_player("Ivy", &[]).unwrap().unwrap();
+        assert_eq!(p.version, PLAYER_VERSION);
+        assert_eq!(p.dimension(), Dimension::Overworld);
+        assert_eq!((p.position, p.effects), (old.position, old.effects));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn each_dimension_keeps_its_own_regions() {
+        let dir = temp_dir("dimensions");
+        let home = WorldStorage::open(&dir).unwrap();
+        let sky = WorldStorage::open_dimension(&dir, Dimension::CloudIsles).unwrap();
+        let pos = ColumnPos::new(1, -2);
+        let ground = WorldGenerator::new(3).generate_column(pos);
+        let islands = crate::cloud_isles::SkyGenerator::new(3).generate_column(pos);
+        home.queue_save(pos, &ground);
+        sky.queue_save(pos, &islands);
+        home.flush().unwrap();
+        sky.flush().unwrap();
+        assert!(
+            dir.join("dimensions/cloud_isles/region/r.0.-1.ocr")
+                .exists()
+        );
+        // Reopened, each gives back its own column at the same place.
+        let home = WorldStorage::open(&dir).unwrap();
+        let sky = WorldStorage::open_dimension(&dir, Dimension::CloudIsles).unwrap();
+        assert_eq!(home.load_column(pos).unwrap().unwrap(), ground);
+        assert_eq!(sky.load_column(pos).unwrap().unwrap(), islands);
+        assert!(sky.load_column(ColumnPos::new(9, 9)).unwrap().is_none());
         fs::remove_dir_all(dir).unwrap();
     }
 

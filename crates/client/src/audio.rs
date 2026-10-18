@@ -27,6 +27,12 @@ impl Plugin for SoundPlugin {
             .add_systems(Startup, create_sounds)
             .add_systems(PreUpdate, sounds_from_server.after(NetReceiveSet))
             .add_systems(
+                PreUpdate,
+                whoosh_between_dimensions
+                    .run_if(on_message::<crate::net::DimensionChanged>)
+                    .after(NetReceiveSet),
+            )
+            .add_systems(
                 Update,
                 (
                     sounds_from_edits,
@@ -210,6 +216,30 @@ fn generate(name: &str) -> Vec<f32> {
         "squeak" => synth(0.15, |t| {
             let f = 1300.0 + 1500.0 * t;
             (TAU * f * t).sin() * 0.35 * env(t, 18.0)
+        }),
+        // Whoosh: airy noise swelling up and away (going through a portal).
+        "whoosh" => {
+            let mut low = 0.0;
+            synth(0.95, |t| {
+                low += (noise.next() - low) * (0.05 + 0.4 * t);
+                let swell = (t / 0.5).min(1.0) * (-(t - 0.5).max(0.0) * 4.0).exp();
+                let hum = (TAU * (220.0 + 330.0 * t) * t).sin() * 0.15;
+                (low * 1.6 + hum) * swell * 0.6
+            })
+        }
+        // Shimmer: a few bright chimes running up (a portal lighting).
+        "shimmer" => synth(0.9, |t| {
+            let notes = [783.99, 987.77, 1174.66, 1567.98];
+            (0..4)
+                .map(|i| {
+                    let start = i as f32 * 0.09;
+                    if t < start {
+                        return 0.0;
+                    }
+                    let local = t - start;
+                    (TAU * notes[i] * local).sin() * 0.22 * env(local, 5.0)
+                })
+                .sum()
         }),
         // Boing: a springy rising wobble.
         "boing" => synth(0.35, |t| {
@@ -422,7 +452,7 @@ pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     out
 }
 
-pub const SOUND_NAMES: [&str; 33] = [
+pub const SOUND_NAMES: [&str; 35] = [
     "place",
     "break",
     "pop",
@@ -438,6 +468,8 @@ pub const SOUND_NAMES: [&str; 33] = [
     "bonk",
     "grumble",
     "boing",
+    "whoosh",
+    "shimmer",
     "neigh",
     "bark",
     "meow",
@@ -465,6 +497,11 @@ fn create_sounds(mut commands: Commands, mut sources: ResMut<Assets<AudioSource>
         sounds.0.insert(name, sources.add(AudioSource { bytes }));
     }
     commands.insert_resource(sounds);
+}
+
+/// Arriving in another dimension.
+fn whoosh_between_dimensions(mut out: MessageWriter<PlaySound>) {
+    out.write(PlaySound::ui("whoosh"));
 }
 
 fn sounds_from_server(mut messages: MessageReader<FromServer>, mut out: MessageWriter<PlaySound>) {

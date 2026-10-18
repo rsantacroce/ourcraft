@@ -19,7 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bump when any message changes shape.
-pub const PROTOCOL_VERSION: u64 = 17;
+pub const PROTOCOL_VERSION: u64 = 18;
 /// Identifies Ourcraft traffic (and its version) on the wire.
 pub const PROTOCOL_ID: u64 = 0x4f55_5243_0000_0000 | PROTOCOL_VERSION; // "OURC" + version
 /// Default UDP port for servers.
@@ -268,6 +268,8 @@ pub enum ClientMessage {
         held: u16,
         direction: [f32; 3],
     },
+    /// How I look (sent after joining, and when I pick another skin).
+    Skin(crate::skin::NetSkin),
 }
 
 /// Lines on a sign, and characters per line.
@@ -313,6 +315,8 @@ pub enum ServerMessage {
         time_of_day: f32,
         /// Where to spawn (or where you logged off).
         state: NetPlayerState,
+        /// Which dimension that is.
+        dimension: crate::dimension::Dimension,
         /// Saved inventory, if the server knows this player.
         inventory: Option<(Vec<NetSlot>, u8)>,
         /// Blocks, textures, models and tools (including mods' additions).
@@ -469,6 +473,20 @@ pub enum ServerMessage {
         player: u64,
         pieces: [u16; 4],
     },
+
+    // ---- Dimensions ----
+    /// You've gone to another dimension, and are here now. Forget the
+    /// old one's blocks, animals and players: everything you hear from now
+    /// on is about the new one (its columns come next).
+    ChangedDimension {
+        dimension: crate::dimension::Dimension,
+        state: NetPlayerState,
+    },
+    /// How a player looks (their skin).
+    Skin {
+        player: PlayerId,
+        skin: crate::skin::NetSkin,
+    },
 }
 
 /// Encode a message for sending.
@@ -541,6 +559,10 @@ mod tests {
                 cursor: None,
                 secondary: true,
             },
+            ClientMessage::Skin(crate::skin::NetSkin::Builtin("miner".into())),
+            ClientMessage::Skin(crate::skin::NetSkin::Custom(
+                (0..crate::skin::SKIN_BYTES).map(|i| i as u8).collect(),
+            )),
         ];
         for m in msgs {
             let back: ClientMessage = decode(&encode(&m)).unwrap();
@@ -558,6 +580,7 @@ mod tests {
                 creative: true,
                 time_of_day: 0.5,
                 state: NetPlayerState::default(),
+                dimension: crate::dimension::Dimension::CloudIsles,
                 inventory: Some((
                     vec![Some(NetStack {
                         item: 2,
@@ -609,6 +632,14 @@ mod tests {
                 players: vec![(3, NetPlayerState::default())],
             },
             ServerMessage::Kick("bye".into()),
+            ServerMessage::ChangedDimension {
+                dimension: crate::dimension::Dimension::CloudIsles,
+                state: NetPlayerState::default(),
+            },
+            ServerMessage::Skin {
+                player: 3,
+                skin: crate::skin::NetSkin::Custom(vec![7; crate::skin::SKIN_BYTES]),
+            },
         ];
         for m in msgs {
             let back: ServerMessage = decode(&encode(&m)).unwrap();
@@ -627,6 +658,18 @@ mod tests {
         // Sent 60×/s per player with 4 inputs each, so keep it compact.
         let m = ClientMessage::Inputs(vec![NetInput::default(); 4]);
         assert!(encode(&m).len() < 120, "{} bytes", encode(&m).len());
+    }
+
+    #[test]
+    fn custom_skins_stay_small() {
+        // A custom skin is sent once per player: its pixels plus a few
+        // bytes, well within what the reliable channel can hold.
+        let m = ClientMessage::Skin(crate::skin::NetSkin::Custom(vec![
+            255;
+            crate::skin::SKIN_BYTES
+        ]));
+        let n = encode(&m).len();
+        assert!(n < crate::skin::SKIN_BYTES + 16, "{n} bytes");
     }
 
     #[test]

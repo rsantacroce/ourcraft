@@ -30,7 +30,12 @@ impl Plugin for SignsPlugin {
             .add_systems(Update, (edit_signs, draw_editor, place_sign_text).chain())
             .add_systems(
                 PreUpdate,
-                forget_signs.run_if(on_message::<crate::net::SessionEnded>),
+                forget_signs
+                    .run_if(
+                        on_message::<crate::net::SessionEnded>
+                            .or_eager(on_message::<crate::net::DimensionChanged>),
+                    )
+                    .after(crate::net::NetReceiveSet),
             );
     }
 }

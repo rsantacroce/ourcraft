@@ -168,8 +168,9 @@ fn simulate_entities(
                 }
             }
         }
-        // Fell out of the world.
-        if e.position.y < -32.0 {
+        // Fell out of the bottom of its dimension.
+        let (low, _) = ourcraft_common::dimension::Dimension::of_y(e.position.y).player_range();
+        if e.position.y < low {
             done.push((id, None));
         }
     }

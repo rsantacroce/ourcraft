@@ -136,6 +136,68 @@ fn cast(
     None
 }
 
+/// How far along a ray you can go before entering a solid block (up to
+/// `max_distance`). The third-person camera uses this to stay out of walls.
+/// Plants, water and other things you can walk through don't count.
+pub fn clear_distance(
+    world: &impl BlockSource,
+    reg: &BlockRegistry,
+    origin: Vec3,
+    dir: Vec3,
+    max_distance: f32,
+) -> f32 {
+    let Some(dir) = dir.try_normalize() else {
+        return max_distance;
+    };
+    let mut block = origin.floor().as_ivec3();
+    let step = IVec3::new(
+        dir.x.signum() as i32,
+        dir.y.signum() as i32,
+        dir.z.signum() as i32,
+    );
+    let delta = Vec3::new(
+        (1.0 / dir.x).abs(),
+        (1.0 / dir.y).abs(),
+        (1.0 / dir.z).abs(),
+    );
+    let first = |o: f32, d: f32, b: i32| {
+        if d > 0.0 {
+            (b as f32 + 1.0 - o) / d
+        } else if d < 0.0 {
+            (o - b as f32) / -d
+        } else {
+            f32::INFINITY
+        }
+    };
+    let mut t_max = Vec3::new(
+        first(origin.x, dir.x, block.x),
+        first(origin.y, dir.y, block.y),
+        first(origin.z, dir.z, block.z),
+    );
+    let mut t = 0.0;
+    while t < max_distance {
+        // The block the ray starts in doesn't count (we may be standing in
+        // a doorway or a slab).
+        if t > 0.0
+            && let Some(id) = world.get_block(block.x, block.y, block.z)
+            && (reg.is_solid(id) || reg.is_opaque(id))
+        {
+            return t;
+        }
+        let axis = if t_max.x < t_max.y && t_max.x < t_max.z {
+            0
+        } else if t_max.y < t_max.z {
+            1
+        } else {
+            2
+        };
+        t = t_max[axis];
+        t_max[axis] += delta[axis];
+        block[axis] += step[axis];
+    }
+    max_distance
+}
+
 /// Where a ray enters a box, and the outward direction of the face it
 /// enters through.
 fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<(f32, IVec3)> {
@@ -188,6 +250,23 @@ mod tests {
             w.set_block(p.x, p.y, p.z, *b);
         }
         w
+    }
+
+    #[test]
+    fn the_camera_stops_at_walls_not_torches_or_water() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        let w = world_with(&[
+            (IVec3::new(3, 10, 0), blocks::STONE),
+            (IVec3::new(-2, 10, 0), blocks::TORCH),
+            (IVec3::new(0, 10, 2), blocks::WATER),
+        ]);
+        let eye = Vec3::new(0.5, 10.5, 0.5);
+        // A wall 2.5 blocks to the east.
+        let d = clear_distance(&w, &reg, eye, Vec3::X, 4.0);
+        assert!((d - 2.5).abs() < 1e-4, "{d}");
+        // A torch to the west and water to the south are no trouble.
+        assert_eq!(clear_distance(&w, &reg, eye, Vec3::NEG_X, 4.0), 4.0);
+        assert_eq!(clear_distance(&w, &reg, eye, Vec3::Z, 4.0), 4.0);
     }
 
     #[test]

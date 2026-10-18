@@ -333,7 +333,7 @@ fn handle_container_messages(
 /// Survival players get drops for the blocks they break. Broken furnaces
 /// spill what they held, and torches hanging on a broken block fall off.
 #[allow(clippy::too_many_arguments)]
-fn drop_broken_blocks(
+pub(crate) fn drop_broken_blocks(
     mut applied: ResMut<AppliedEdits>,
     mut players: Query<&mut ConnectedPlayer>,
     mut open: ResMut<OpenWorld>,

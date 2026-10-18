@@ -7,6 +7,7 @@
 
 use bevy::prelude::*;
 use ourcraft_common::block::BlockId;
+use ourcraft_common::dimension::Dimension;
 use ourcraft_common::farming::{CANE_HEIGHT, StageKind};
 use ourcraft_common::inventory::ItemStack;
 use ourcraft_common::item::ItemId;
@@ -154,14 +155,15 @@ fn grow(
     *timer = 0.0;
     let reg = &registry.0;
     hives.0.clear();
-    // Columns near anyone.
-    let mut columns: Vec<ColumnPos> = Vec::new();
+    // Columns near anyone (in whichever dimension they're in).
+    let mut columns: Vec<(Dimension, ColumnPos)> = Vec::new();
     for p in players.iter().filter(|p| p.name.is_some()) {
+        let dim = p.dim();
         let here = ColumnPos::from_world(p.state.position[0], p.state.position[2]);
         for dz in -GROW_RADIUS..=GROW_RADIUS {
             for dx in -GROW_RADIUS..=GROW_RADIUS {
-                let c = ColumnPos::new(here.x + dx, here.z + dz);
-                if !columns.contains(&c) && world.has_column(c) {
+                let c = (dim, ColumnPos::new(here.x + dx, here.z + dz));
+                if !columns.contains(&c) && world.has_column_in(c.0, c.1) {
                     columns.push(c);
                 }
             }
@@ -170,9 +172,9 @@ fn grow(
     let lively = |b: BlockId| reg.grows(b) || reg.is_farmland(b);
     // Find everything that might change first, then change it.
     let mut found: Vec<(IVec3, BlockId)> = Vec::new();
-    for col in columns {
+    for (dim, col) in columns {
         for cy in 0..ourcraft_common::world::WORLD_HEIGHT_CHUNKS {
-            let pos = col.chunk(cy);
+            let pos = col.chunk(dim.base_chunk_y() + cy);
             let Some(chunk) = world.chunk(pos) else {
                 continue;
             };
@@ -288,7 +290,10 @@ const PLANT_LIGHT: u8 = 9;
 
 /// Can a plant here see the sky, or is there a lamp close enough?
 fn lit(world: &ServerWorld, registry: &Registry, p: IVec3) -> bool {
-    let sky = (p.y + 1..ourcraft_common::world::WORLD_HEIGHT).all(|y| {
+    // (Up to the top of whichever dimension it's in.)
+    let top =
+        Dimension::of_block_y(p.y).map_or(0, |d| d.base_y()) + ourcraft_common::world::WORLD_HEIGHT;
+    let sky = (p.y + 1..top).all(|y| {
         world
             .get_block(p.x, y, p.z)
             .is_none_or(|b| !registry.0.is_opaque(b))
