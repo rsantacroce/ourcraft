@@ -122,6 +122,7 @@ enum Action {
     ToggleDebug,
     ToggleMusic,
     Skin(i32),
+    TogglePick,
 }
 
 #[derive(Component)]
@@ -381,6 +382,7 @@ fn button_actions(
             Action::ToggleMusic => settings.music = !settings.music,
             Action::ToggleDebug => settings.show_debug = !settings.show_debug,
             Action::Skin(d) => settings.skin = crate::skins::cycle_skin(&settings.skin, d),
+            Action::TogglePick => settings.middle_click_pick = !settings.middle_click_pick,
         }
     }
 }
@@ -824,6 +826,15 @@ fn rebuild_menu(
                             onoff(settings.show_debug)
                         ),
                         Action::ToggleDebug,
+                        420.0,
+                    );
+                    button_sized(
+                        ui,
+                        format!(
+                            "Middle click picks block: {}",
+                            onoff(settings.middle_click_pick)
+                        ),
+                        Action::TogglePick,
                         420.0,
                     );
                     button(ui, "Done", Action::CloseSettings);

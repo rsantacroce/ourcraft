@@ -80,6 +80,8 @@ pub struct InputSettings {
     pub stick_look_speed: f32,
     /// Stick values below this are ignored (sticks never rest at exactly 0).
     pub stick_deadzone: f32,
+    /// Middle click picks the block you're looking at.
+    pub middle_click_pick: bool,
 }
 
 impl Default for InputSettings {
@@ -88,6 +90,7 @@ impl Default for InputSettings {
             mouse_sensitivity: 0.0025,
             stick_look_speed: 3.0,
             stick_deadzone: 0.15,
+            middle_click_pick: true,
         }
     }
 }
@@ -188,7 +191,7 @@ fn keyboard_mouse_actions(
         actions.look += Vec2::new(delta.x, -delta.y);
         actions.break_block |= mouse.pressed(MouseButton::Left);
         actions.place_block |= mouse.pressed(MouseButton::Right);
-        actions.pick_block |= mouse.just_pressed(MouseButton::Middle);
+        actions.pick_block |= settings.middle_click_pick && mouse.just_pressed(MouseButton::Middle);
     }
 }
 

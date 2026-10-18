@@ -11,6 +11,10 @@ team game mode called **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhon
 
 ## Play
 
+**Download** the game for macOS, Windows or Linux from the
+[latest release](https://github.com/rsantacroce/ourcraft/releases/latest)
+(or the website), or build it from source:
+
 ```sh
 cargo run --release            # main menu
 ```
@@ -40,7 +44,7 @@ cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad netwo
 | Shift down, Ctrl run | B, left stick click | Down button, push stick fully |
 | Left click break / use | right trigger | press and hold |
 | Right click place | left trigger | tap |
-| Middle click pick block | D-pad up | |
+| Middle click pick block (can be switched off in Settings) | D-pad up | |
 | 1–9, wheel: hotbar | bumpers | tap a slot |
 | E inventory and crafting, F fly, G creative/survival | Y, X | Bag, Fly buttons |
 | Q drop one (Ctrl+Q: the stack) | | |
@@ -80,6 +84,17 @@ cargo run --release -p ourcraft_server --bin ourcraft-server -- \
 
 Worlds are saved in `./worlds/`, extra mods are loaded from `./mods/`.
 Ctrl+C saves and stops. The server is headless (no window, minimal Bevy).
+
+## Making a release
+
+Push a version tag and GitHub builds the game and server for macOS
+(Apple Silicon + Intel), Windows and Linux and attaches them to a release
+(`.github/workflows/release.yml`); the website's download buttons always
+point at the latest one:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```
 
 ## Phones and tablets
 

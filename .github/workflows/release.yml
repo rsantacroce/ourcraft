@@ -1,0 +1,136 @@
+# Build the game and the server for macOS, Windows and Linux and attach them
+# to a GitHub release. Runs when a version tag is pushed:
+#
+#     git tag v0.1.0 && git push origin v0.1.0
+#
+# or by hand from the Actions tab (that makes a draft release of `main`).
+#
+# The file names have no version in them, so the website can always link to
+# https://github.com/rsantacroce/ourcraft/releases/latest/download/<name>.
+# The mods in mods/dist are bundled into the binaries, so nothing else ships.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos
+          - os: windows-latest
+            name: windows
+          - os: ubuntu-22.04
+            name: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      # One app that runs on both Apple Silicon and Intel Macs.
+      - name: Build (macOS)
+        if: matrix.name == 'macos'
+        run: |
+          for t in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --target $t -p ourcraft_client -p ourcraft_server --bins
+          done
+          mkdir -p out
+          for b in ourcraft ourcraft-server; do
+            lipo -create -output out/$b \
+              target/aarch64-apple-darwin/release/$b target/x86_64-apple-darwin/release/$b
+          done
+
+      - name: Build (Windows, Linux)
+        if: matrix.name != 'macos'
+        shell: bash
+        run: |
+          cargo build --release -p ourcraft_client -p ourcraft_server --bins
+          mkdir -p out
+          ext=""; [ "${{ matrix.name }}" = windows ] && ext=".exe"
+          cp target/release/ourcraft$ext target/release/ourcraft-server$ext out/
+
+      - name: Package (macOS)
+        if: matrix.name == 'macos'
+        run: |
+          app=out/Ourcraft.app
+          mkdir -p $app/Contents/MacOS
+          cp out/ourcraft $app/Contents/MacOS/ourcraft
+          cat > $app/Contents/Info.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Ourcraft</string>
+            <key>CFBundleDisplayName</key><string>Ourcraft</string>
+            <key>CFBundleIdentifier</key><string>com.github.rsantacroce.ourcraft</string>
+            <key>CFBundleExecutable</key><string>ourcraft</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${GITHUB_REF_NAME#v}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          EOF
+          # Not notarised: an ad-hoc signature keeps Apple Silicon happy.
+          codesign --force --deep --sign - $app
+          codesign --force --sign - out/ourcraft-server
+          mkdir -p dist
+          (cd out && ditto -c -k --keepParent Ourcraft.app ../dist/ourcraft-macos.zip)
+          (cd out && zip ../dist/ourcraft-server-macos.zip ourcraft-server)
+
+      - name: Package (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path out/ourcraft.exe -DestinationPath dist/ourcraft-windows.zip
+          Compress-Archive -Path out/ourcraft-server.exe -DestinationPath dist/ourcraft-server-windows.zip
+
+      - name: Package (Linux)
+        if: matrix.name == 'linux'
+        run: |
+          mkdir -p dist
+          tar -C out -czf dist/ourcraft-linux.tar.gz ourcraft
+          tar -C out -czf dist/ourcraft-server-linux.tar.gz ourcraft-server
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && 'nightly' || github.ref_name }}
+          generate_release_notes: true
