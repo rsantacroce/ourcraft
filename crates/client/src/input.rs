@@ -61,6 +61,8 @@ pub struct Actions {
     pub pick_block: bool,
     pub toggle_fly: bool,
     pub toggle_inventory: bool,
+    /// Pressed: switch camera view (first person, behind, in front).
+    pub cycle_view: bool,
     /// Pressed a number key: select that hotbar slot.
     pub hotbar_select: Option<usize>,
     /// Scroll through the hotbar: positive = next slot.
@@ -152,6 +154,7 @@ fn keyboard_mouse_actions(
     actions.descend |= keys.pressed(KeyCode::ShiftLeft);
     actions.sprint |= keys.pressed(KeyCode::ControlLeft);
     actions.toggle_fly |= keys.just_pressed(KeyCode::KeyF);
+    actions.cycle_view |= keys.just_pressed(KeyCode::F5);
     for (i, key) in HOTBAR_KEYS.iter().enumerate() {
         if keys.just_pressed(*key) {
             actions.hotbar_select = Some(i);
@@ -218,6 +221,7 @@ fn gamepad_actions(
         actions.break_block |= pad.pressed(GamepadButton::RightTrigger2);
         actions.place_block |= pad.pressed(GamepadButton::LeftTrigger2);
         actions.pick_block |= pad.just_pressed(GamepadButton::DPadUp);
+        actions.cycle_view |= pad.just_pressed(GamepadButton::DPadDown);
         actions.hotbar_scroll += pad.just_pressed(GamepadButton::RightTrigger) as i32
             - pad.just_pressed(GamepadButton::LeftTrigger) as i32;
         // Sticks report a position, not a distance, so scale by frame time.

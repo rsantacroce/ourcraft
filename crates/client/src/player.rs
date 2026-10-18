@@ -100,6 +100,9 @@ pub struct Player {
     /// Added to the camera position and faded out, so corrections from
     /// the server look smooth instead of a jump.
     pub visual_offset: Vec3,
+    /// Where the player's eyes are this frame (smoothed like the camera).
+    /// Blocks are aimed at from here, even when the camera is behind you.
+    pub eyes: Vec3,
     pub stats: PredictionStats,
     /// Server positions for inputs up to this tick are from before we
     /// changed dimension: ignore them.
@@ -127,6 +130,7 @@ impl Player {
             tick: 0,
             history: PredictionHistory::default(),
             visual_offset: Vec3::ZERO,
+            eyes: feet + Vec3::Y * physics::EYE_HEIGHT,
             stats: PredictionStats::default(),
             stale_until: 0,
         }
@@ -526,10 +530,11 @@ fn get_up(
     }
 }
 
-/// Place the camera at the player's eyes. Physics runs at 60 steps per
+/// Place the camera at the player's eyes (the camera view module may then
+/// move it behind or in front of the player). Physics runs at 60 steps per
 /// second but the screen may refresh at 120+, so we blend between the last
 /// two physics positions according to how far we are into the next step.
-fn follow_camera(
+pub(crate) fn follow_camera(
     time: Res<Time>,
     fixed: Res<Time<Fixed>>,
     mut player: Single<&mut Player>,
@@ -540,6 +545,7 @@ fn follow_camera(
     if let Some(bed) = asleep.0 {
         camera.translation = bed.as_vec3() + Vec3::new(0.5, 0.75, 0.5);
         camera.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, 1.2, 0.0);
+        player.eyes = camera.translation;
         return;
     }
     // Fade out any correction offset smoothly.
@@ -548,5 +554,6 @@ fn follow_camera(
     let t = fixed.overstep_fraction();
     let feet = player.prev_position.lerp(player.state.position, t) + player.visual_offset;
     camera.translation = feet + Vec3::Y * physics::EYE_HEIGHT;
+    player.eyes = camera.translation;
     camera.rotation = Quat::from_euler(EulerRot::YXZ, player.yaw, player.pitch, 0.0);
 }

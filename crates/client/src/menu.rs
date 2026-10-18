@@ -121,6 +121,7 @@ enum Action {
     ToggleFilter,
     ToggleDebug,
     ToggleMusic,
+    Skin(i32),
 }
 
 #[derive(Component)]
@@ -379,6 +380,7 @@ fn button_actions(
             Action::ToggleFilter => settings.chat_filter = !settings.chat_filter,
             Action::ToggleMusic => settings.music = !settings.music,
             Action::ToggleDebug => settings.show_debug = !settings.show_debug,
+            Action::Skin(d) => settings.skin = crate::skins::cycle_skin(&settings.skin, d),
         }
     }
 }
@@ -519,6 +521,7 @@ fn rebuild_menu(
     screen: Res<Screen>,
     forms: Res<Forms>,
     settings: Res<ClientSettings>,
+    my_skin: Res<crate::skins::MySkin>,
     mut lan: ResMut<LanBrowser>,
     mut focus: ResMut<UiFocus>,
     existing: Query<Entity, With<MenuRoot>>,
@@ -532,7 +535,12 @@ fn rebuild_menu(
     if focus.menu_open != menu_open {
         focus.menu_open = menu_open;
     }
-    if !screen.is_changed() && !forms.is_changed() && !settings.is_changed() && !lan.is_changed() {
+    if !screen.is_changed()
+        && !forms.is_changed()
+        && !settings.is_changed()
+        && !lan.is_changed()
+        && !my_skin.is_changed()
+    {
         return;
     }
     for e in &existing {
@@ -750,6 +758,24 @@ fn rebuild_menu(
                             button_sized(r, "+", plus, 50.0);
                         });
                     };
+                    row(
+                        ui,
+                        format!("Skin: {}", crate::skins::skin_label(&settings.skin)),
+                        Action::Skin(-1),
+                        Action::Skin(1),
+                    );
+                    if let Some(problem) = &my_skin.problem {
+                        note(ui, problem.clone(), red);
+                    } else if !mobile {
+                        note(
+                            ui,
+                            format!(
+                                "Your own skins: 64×64 PNG files in {}",
+                                crate::skins::skins_dir().display()
+                            ),
+                            grey,
+                        );
+                    }
                     row(
                         ui,
                         format!("View distance: {} chunks", settings.render_distance),

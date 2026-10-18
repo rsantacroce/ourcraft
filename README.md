@@ -45,6 +45,7 @@ cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad netwo
 | E inventory and crafting, F fly, G creative/survival | Y, X | Bag, Fly buttons |
 | Q drop one (Ctrl+Q: the stack) | | |
 | Right click a crafting table / furnace: use it | left trigger | tap |
+| F5 camera: first person, behind, in front | D-pad down | View button |
 | Enter chat, Esc menu | | Menu button |
 | F3 info text, F7 simulate lag, T skip an hour, [ ] view distance | | |
 
@@ -60,6 +61,15 @@ On the other side you come out in a portal (one is built for you if there
 isn't one nearby), so the way home is always there. Falling off an island
 doesn't hurt: you float down through the clouds and land at home. No
 monsters, no rain, and landing on a cloud never hurts.
+
+### Skins
+
+Pick how you look under **Settings → Skin**: six built-in skins, or your
+own. Drop 64×64 skin PNGs (the classic layout, so existing skin files
+work; old 64×32 ones too) into the `skins` folder next to `settings.txt`
+(on a Mac, `~/Library/Application Support/Ourcraft/skins`) and they appear
+in the list. Other players see your skin in multiplayer. Press F5 to see
+yourself.
 
 ## Dedicated server
 

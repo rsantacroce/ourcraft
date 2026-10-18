@@ -25,6 +25,7 @@ pub use wood_textures::wood_colour;
 mod farm_icons;
 mod farm_textures;
 pub mod item_icons;
+pub mod skin_textures;
 pub mod textures;
 
 use std::sync::Arc;

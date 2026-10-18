@@ -268,6 +268,8 @@ pub enum ClientMessage {
         held: u16,
         direction: [f32; 3],
     },
+    /// How I look (sent after joining, and when I pick another skin).
+    Skin(crate::skin::NetSkin),
 }
 
 /// Lines on a sign, and characters per line.
@@ -480,6 +482,11 @@ pub enum ServerMessage {
         dimension: crate::dimension::Dimension,
         state: NetPlayerState,
     },
+    /// How a player looks (their skin).
+    Skin {
+        player: PlayerId,
+        skin: crate::skin::NetSkin,
+    },
 }
 
 /// Encode a message for sending.
@@ -552,6 +559,10 @@ mod tests {
                 cursor: None,
                 secondary: true,
             },
+            ClientMessage::Skin(crate::skin::NetSkin::Builtin("miner".into())),
+            ClientMessage::Skin(crate::skin::NetSkin::Custom(
+                (0..crate::skin::SKIN_BYTES).map(|i| i as u8).collect(),
+            )),
         ];
         for m in msgs {
             let back: ClientMessage = decode(&encode(&m)).unwrap();
@@ -625,6 +636,10 @@ mod tests {
                 dimension: crate::dimension::Dimension::CloudIsles,
                 state: NetPlayerState::default(),
             },
+            ServerMessage::Skin {
+                player: 3,
+                skin: crate::skin::NetSkin::Custom(vec![7; crate::skin::SKIN_BYTES]),
+            },
         ];
         for m in msgs {
             let back: ServerMessage = decode(&encode(&m)).unwrap();
@@ -643,6 +658,18 @@ mod tests {
         // Sent 60×/s per player with 4 inputs each, so keep it compact.
         let m = ClientMessage::Inputs(vec![NetInput::default(); 4]);
         assert!(encode(&m).len() < 120, "{} bytes", encode(&m).len());
+    }
+
+    #[test]
+    fn custom_skins_stay_small() {
+        // A custom skin is sent once per player: its pixels plus a few
+        // bytes, well within what the reliable channel can hold.
+        let m = ClientMessage::Skin(crate::skin::NetSkin::Custom(vec![
+            255;
+            crate::skin::SKIN_BYTES
+        ]));
+        let n = encode(&m).len();
+        assert!(n < crate::skin::SKIN_BYTES + 16, "{n} bytes");
     }
 
     #[test]

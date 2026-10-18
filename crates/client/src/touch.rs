@@ -78,6 +78,8 @@ enum TouchButton {
     Menu,
     /// Hold to eat (only shown with food in hand, in survival).
     Eat,
+    /// Switch camera view (top, next to the bag).
+    View,
 }
 
 const JOYSTICK_RADIUS: f32 = 70.0;
@@ -113,22 +115,24 @@ fn button_layout(button: TouchButton) -> (Vec2, f32) {
         TouchButton::Inventory => (Vec2::new(-60.0, 0.0), 32.0), // placed at the top
         TouchButton::Menu => (Vec2::ZERO, 30.0),                 // top left
         TouchButton::Eat => (Vec2::new(-215.0, -105.0), 36.0),
+        TouchButton::View => (Vec2::new(-140.0, 0.0), 28.0), // placed at the top
     }
 }
 
-const BUTTONS: [TouchButton; 6] = [
+const BUTTONS: [TouchButton; 7] = [
     TouchButton::Jump,
     TouchButton::Down,
     TouchButton::Fly,
     TouchButton::Inventory,
     TouchButton::Menu,
     TouchButton::Eat,
+    TouchButton::View,
 ];
 
 /// Screen-space centre of a button for a window of `size`.
 fn button_center(button: TouchButton, size: Vec2) -> Vec2 {
     let (offset, _) = button_layout(button);
-    if button == TouchButton::Inventory {
+    if button == TouchButton::Inventory || button == TouchButton::View {
         Vec2::new(size.x + offset.x, 60.0)
     } else if button == TouchButton::Menu {
         Vec2::new(56.0, 56.0)
@@ -206,6 +210,7 @@ fn touch_actions(
                 TouchButton::Fly => actions.toggle_fly = true,
                 TouchButton::Inventory => actions.toggle_inventory = true,
                 TouchButton::Menu => actions.open_menu = true,
+                TouchButton::View => actions.cycle_view = true,
                 TouchButton::Down | TouchButton::Eat => {}
             }
         }
@@ -328,6 +333,7 @@ fn spawn_touch_ui(mut commands: Commands) {
                 TouchButton::Inventory => "Bag",
                 TouchButton::Menu => "Menu",
                 TouchButton::Eat => "Eat",
+                TouchButton::View => "View",
             };
             ui.spawn((
                 circle(r, Color::srgba(0.0, 0.0, 0.0, 0.3)),
