@@ -123,6 +123,7 @@ enum Action {
     ToggleMusic,
     Skin(i32),
     TogglePick,
+    ToggleWheel,
 }
 
 #[derive(Component)]
@@ -383,6 +384,7 @@ fn button_actions(
             Action::ToggleDebug => settings.show_debug = !settings.show_debug,
             Action::Skin(d) => settings.skin = crate::skins::cycle_skin(&settings.skin, d),
             Action::TogglePick => settings.middle_click_pick = !settings.middle_click_pick,
+            Action::ToggleWheel => settings.wheel_hotbar = !settings.wheel_hotbar,
         }
     }
 }
@@ -747,96 +749,111 @@ fn rebuild_menu(
                         })
                         .with_children(|r| {
                             button_sized(r, "-", minus, 50.0);
-                            r.spawn((
+                            r.spawn(Node {
+                                width: px(300),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            })
+                            .with_child((
                                 Text::new(label),
                                 TextFont::from_font_size(18.0),
                                 TextColor(Color::WHITE),
-                                Node {
-                                    width: px(300),
-                                    justify_content: JustifyContent::Center,
-                                    ..default()
-                                },
+                                TextLayout::justify(Justify::Center),
                             ));
                             button_sized(r, "+", plus, 50.0);
                         });
                     };
-                    row(
-                        ui,
-                        format!("Skin: {}", crate::skins::skin_label(&settings.skin)),
-                        Action::Skin(-1),
-                        Action::Skin(1),
-                    );
+                    // Two columns where there's room (one on narrow screens),
+                    // so everything fits without scrolling.
+                    let columns = Node {
+                        flex_wrap: FlexWrap::Wrap,
+                        justify_content: JustifyContent::Center,
+                        column_gap: px(16),
+                        row_gap: px(10),
+                        max_width: px(880),
+                        ..default()
+                    };
+                    let touch = match settings.touch_controls {
+                        None => "automatic",
+                        Some(true) => "on",
+                        Some(false) => "off",
+                    };
+                    ui.spawn(columns.clone()).with_children(|ui| {
+                        row(
+                            ui,
+                            format!("Skin: {}", crate::skins::skin_label(&settings.skin)),
+                            Action::Skin(-1),
+                            Action::Skin(1),
+                        );
+                        row(
+                            ui,
+                            format!("View distance: {} chunks", settings.render_distance),
+                            Action::RenderDistance(-1),
+                            Action::RenderDistance(1),
+                        );
+                        row(
+                            ui,
+                            format!("Look sensitivity: {:.1}", settings.mouse_sensitivity),
+                            Action::Sensitivity(-1),
+                            Action::Sensitivity(1),
+                        );
+                        row(
+                            ui,
+                            format!("Sound volume: {:.0}%", settings.volume * 100.0),
+                            Action::Volume(-1),
+                            Action::Volume(1),
+                        );
+                    });
                     if let Some(problem) = &my_skin.problem {
                         note(ui, problem.clone(), red);
                     } else if !mobile {
                         note(
                             ui,
                             format!(
-                                "Your own skins: 64×64 PNG files in {}",
+                                "Your own skins: 64x64 PNG files in {}",
                                 crate::skins::skins_dir().display()
                             ),
                             grey,
                         );
                     }
-                    row(
-                        ui,
-                        format!("View distance: {} chunks", settings.render_distance),
-                        Action::RenderDistance(-1),
-                        Action::RenderDistance(1),
-                    );
-                    row(
-                        ui,
-                        format!("Look sensitivity: {:.1}", settings.mouse_sensitivity),
-                        Action::Sensitivity(-1),
-                        Action::Sensitivity(1),
-                    );
-                    row(
-                        ui,
-                        format!("Sound volume: {:.0}%", settings.volume * 100.0),
-                        Action::Volume(-1),
-                        Action::Volume(1),
-                    );
-                    let touch = match settings.touch_controls {
-                        None => "automatic",
-                        Some(true) => "on",
-                        Some(false) => "off",
-                    };
-                    button_sized(
-                        ui,
-                        format!("Touch controls: {touch}"),
-                        Action::CycleTouch,
-                        420.0,
-                    );
-                    button_sized(
-                        ui,
-                        format!("Hide rude words in chat: {}", onoff(settings.chat_filter)),
-                        Action::ToggleFilter,
-                        420.0,
-                    );
-                    button_sized(
-                        ui,
-                        format!("Music: {}", onoff(settings.music)),
-                        Action::ToggleMusic,
-                        420.0,
-                    );
-                    button_sized(
-                        ui,
-                        format!(
-                            "Show info text (FPS, position): {}",
-                            onoff(settings.show_debug)
-                        ),
-                        Action::ToggleDebug,
-                        420.0,
-                    );
-                    button_sized(
-                        ui,
-                        format!(
-                            "Middle click picks block: {}",
-                            onoff(settings.middle_click_pick)
-                        ),
-                        Action::TogglePick,
-                        420.0,
-                    );
+                    ui.spawn(columns).with_children(|ui| {
+                        let toggles = [
+                            (format!("Touch controls: {touch}"), Action::CycleTouch),
+                            (
+                                format!("Hide rude words in chat: {}", onoff(settings.chat_filter)),
+                                Action::ToggleFilter,
+                            ),
+                            (
+                                format!("Music: {}", onoff(settings.music)),
+                                Action::ToggleMusic,
+                            ),
+                            (
+                                format!(
+                                    "Show info text (FPS, position): {}",
+                                    onoff(settings.show_debug)
+                                ),
+                                Action::ToggleDebug,
+                            ),
+                            (
+                                format!(
+                                    "Middle click picks block: {}",
+                                    onoff(settings.middle_click_pick)
+                                ),
+                                Action::TogglePick,
+                            ),
+                            (
+                                format!(
+                                    "Mouse wheel changes slot: {}",
+                                    onoff(settings.wheel_hotbar)
+                                ),
+                                Action::ToggleWheel,
+                            ),
+                        ];
+                        for (label, action) in toggles {
+                            button_sized(ui, label, action, 420.0);
+                        }
+                    });
                     button(ui, "Done", Action::CloseSettings);
                 }
                 Screen::Pause => {

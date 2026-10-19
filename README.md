@@ -45,7 +45,7 @@ cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad netwo
 | Left click break / use | right trigger | press and hold |
 | Right click place | left trigger | tap |
 | Middle click pick block (can be switched off in Settings) | D-pad up | |
-| 1–9, wheel: hotbar | bumpers | tap a slot |
+| 1–9, wheel: hotbar (the wheel can be switched off in Settings) | bumpers | tap a slot |
 | E inventory and crafting, F fly, G creative/survival | Y, X | Bag, Fly buttons |
 | Q drop one (Ctrl+Q: the stack) | | |
 | Right click a crafting table / furnace: use it | left trigger | tap |

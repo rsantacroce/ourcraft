@@ -82,6 +82,8 @@ pub struct InputSettings {
     pub stick_deadzone: f32,
     /// Middle click picks the block you're looking at.
     pub middle_click_pick: bool,
+    /// The mouse wheel moves along the hotbar.
+    pub wheel_hotbar: bool,
 }
 
 impl Default for InputSettings {
@@ -91,6 +93,7 @@ impl Default for InputSettings {
             stick_look_speed: 3.0,
             stick_deadzone: 0.15,
             middle_click_pick: true,
+            wheel_hotbar: true,
         }
     }
 }
@@ -165,7 +168,7 @@ fn keyboard_mouse_actions(
     }
     // Scrolling down moves to the next slot, like most games. (Careful:
     // `0.0f32.signum()` is 1.0, so check for zero first.)
-    if scroll.delta.y != 0.0 {
+    if settings.wheel_hotbar && scroll.delta.y != 0.0 {
         actions.hotbar_scroll -= scroll.delta.y.signum() as i32;
     }
 
