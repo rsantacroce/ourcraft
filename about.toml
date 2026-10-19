@@ -1,0 +1,33 @@
+# Settings for `cargo about`, which gathers the license notices of every
+# library the game is built with into THIRD_PARTY_LICENSES.html (shipped
+# with each download; see .github/workflows/release.yml):
+#
+#     cargo about generate .github/licenses/about.hbs -o THIRD_PARTY_LICENSES.html
+accepted = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "BSL-1.0",
+    "OFL-1.1",
+    "MPL-2.0",
+    "Unlicense",
+    "0BSD",
+    "CDLA-Permissive-2.0",
+]
+# Just what ships: the game and the server, for the desktop platforms.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
+ignore-dev-dependencies = true
+ignore-build-dependencies = false
