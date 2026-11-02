@@ -72,7 +72,7 @@ impl std::fmt::Display for SkinError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SkinError::WrongSize { width, height } => {
-                write!(f, "is {width}×{height}; skins must be 64×64 (or 64×32)")
+                write!(f, "is {width}x{height}; skins must be 64x64 (or 64x32)")
             }
             SkinError::BadData => write!(f, "has broken pixel data"),
             SkinError::TooBig(n) => write!(f, "is too big for a skin ({} KB)", n / 1024),

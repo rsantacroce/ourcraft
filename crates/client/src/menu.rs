@@ -729,7 +729,7 @@ fn world_list(
                         } else {
                             let play = button_node(
                                 row,
-                                format!("{}\n{mode} · played {when}", meta.name),
+                                format!("{}\n{mode}, played {when}", meta.name),
                                 Action::Play {
                                     folder: folder.clone(),
                                     name: meta.name,
@@ -1140,6 +1140,37 @@ fn rebuild_menu(
                 Screen::None => {}
             }
         });
+
+    // On phones and tablets the on-screen keyboard covers the bottom half,
+    // where the field being typed in may be: show it again up top.
+    if let (true, Some(field)) = (mobile, forms.focused) {
+        let (label, value) = match field {
+            Field::WorldName => ("Name", forms.world_name.as_str()),
+            Field::Seed => ("Seed", forms.seed.as_str()),
+            Field::Address => ("Address", forms.address.as_str()),
+            Field::PlayerName => ("Your name", settings.name.as_str()),
+        };
+        commands.spawn((
+            MenuRoot,
+            Text::new(format!("{label}: {value}_")),
+            TextFont::from_font_size(20.0),
+            TextColor(Color::WHITE),
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(12),
+                left: px(16),
+                right: px(16),
+                padding: UiRect::axes(px(12), px(8)),
+                border: UiRect::all(px(2)),
+                border_radius: BorderRadius::all(px(6)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.1, 0.12, 0.2, 0.95)),
+            BorderColor::all(Color::srgb(1.0, 0.85, 0.3)),
+            GlobalZIndex(11),
+            Pickable::IGNORE,
+        ));
+    }
 }
 
 #[cfg(test)]
