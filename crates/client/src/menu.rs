@@ -9,7 +9,10 @@ use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use ourcraft_common::protocol::{DEFAULT_PORT, sanitize_name};
-use ourcraft_common::save::list_worlds;
+use std::time::SystemTime;
+
+use bevy::ui_widgets::{ControlOrientation, ScrollArea, Scrollbar, ScrollbarThumb};
+use ourcraft_common::save::{WorldMeta, list_worlds};
 
 use crate::audio::PlaySound;
 use crate::input::{Actions, UiFocus};
@@ -24,6 +27,7 @@ impl Plugin for MenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Screen>()
             .init_resource::<Forms>()
+            .init_resource::<WorldListScroll>()
             .add_systems(Startup, start_screen)
             .add_systems(PreUpdate, open_pause_menu.after(crate::input::ActionsSet))
             .add_systems(
@@ -34,6 +38,7 @@ impl Plugin for MenuPlugin {
                     button_actions,
                     button_hover,
                     rebuild_menu,
+                    remember_world_scroll,
                 )
                     .chain(),
             );
@@ -78,7 +83,50 @@ struct Forms {
     message: Option<String>,
     /// Where Settings goes back to.
     settings_from: Screen,
+    /// How the world list is ordered.
+    sort: WorldSort,
+    /// The world (folder) whose Delete was pressed once: asking "really?".
+    confirm_delete: Option<String>,
 }
+
+/// Orders for the world list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum WorldSort {
+    #[default]
+    LastPlayed,
+    Name,
+    Newest,
+}
+
+impl WorldSort {
+    fn next(self) -> Self {
+        match self {
+            Self::LastPlayed => Self::Name,
+            Self::Name => Self::Newest,
+            Self::Newest => Self::LastPlayed,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::LastPlayed => "last played",
+            Self::Name => "name",
+            Self::Newest => "newest",
+        }
+    }
+}
+
+/// How far the world list is scrolled, kept while the menu is rebuilt.
+#[derive(Resource, Default)]
+struct WorldListScroll(f32);
+
+/// The scrolling list of worlds.
+#[derive(Component)]
+struct WorldList;
+
+/// A red button (deleting).
+#[derive(Component)]
+struct Danger;
 
 impl Default for Forms {
     fn default() -> Self {
@@ -92,6 +140,8 @@ impl Default for Forms {
             focused: None,
             message: None,
             settings_from: Screen::Title,
+            sort: WorldSort::default(),
+            confirm_delete: None,
         }
     }
 }
@@ -99,9 +149,18 @@ impl Default for Forms {
 #[derive(Component, Debug, Clone, PartialEq)]
 enum Action {
     Go(Screen),
-    Play { folder: String, name: String },
+    Play {
+        folder: String,
+        name: String,
+    },
     NewWorld,
     CreateWorld,
+    CycleSort,
+    /// Delete pressed: ask first.
+    AskDelete(String),
+    /// "Yes, delete it."
+    Delete(String),
+    KeepWorld,
     ToggleSplat,
     ToggleSurvival,
     ToggleLan,
@@ -274,6 +333,7 @@ fn button_actions(
             Action::Go(s) => {
                 forms.message = None;
                 forms.focused = None;
+                forms.confirm_delete = None;
                 *screen = s;
             }
             Action::Play {
@@ -316,6 +376,13 @@ fn button_actions(
                 commands.insert_resource(Connection::single_player(&opts, &name));
                 forms.focused = None;
                 *screen = Screen::None;
+            }
+            Action::CycleSort => forms.sort = forms.sort.next(),
+            Action::AskDelete(folder) => forms.confirm_delete = Some(folder),
+            Action::KeepWorld => forms.confirm_delete = None,
+            Action::Delete(folder) => {
+                forms.confirm_delete = None;
+                forms.message = delete_world(&folder).err();
             }
             Action::ToggleSplat => forms.splat_squad = !forms.splat_squad,
             Action::ToggleSurvival => forms.survival = !forms.survival,
@@ -392,19 +459,73 @@ fn button_actions(
 const BUTTON: Color = Color::srgb(0.24, 0.42, 0.28);
 const BUTTON_HOVER: Color = Color::srgb(0.32, 0.55, 0.36);
 const BUTTON_PRESSED: Color = Color::srgb(0.18, 0.32, 0.2);
+const DANGER: Color = Color::srgb(0.6, 0.22, 0.2);
+const DANGER_HOVER: Color = Color::srgb(0.78, 0.3, 0.26);
+const DANGER_PRESSED: Color = Color::srgb(0.45, 0.16, 0.14);
 
 fn button_hover(
     mut buttons: Query<
-        (&Interaction, &mut BackgroundColor),
+        (&Interaction, &mut BackgroundColor, Has<Danger>),
         (Changed<Interaction>, With<MenuButton>),
     >,
 ) {
-    for (interaction, mut bg) in &mut buttons {
-        bg.0 = match interaction {
-            Interaction::Pressed => BUTTON_PRESSED,
-            Interaction::Hovered => BUTTON_HOVER,
-            Interaction::None => BUTTON,
+    for (interaction, mut bg, danger) in &mut buttons {
+        bg.0 = match (interaction, danger) {
+            (Interaction::Pressed, false) => BUTTON_PRESSED,
+            (Interaction::Hovered, false) => BUTTON_HOVER,
+            (Interaction::None, false) => BUTTON,
+            (Interaction::Pressed, true) => DANGER_PRESSED,
+            (Interaction::Hovered, true) => DANGER_HOVER,
+            (Interaction::None, true) => DANGER,
         };
+    }
+}
+
+/// Delete a saved world's folder (after the player said yes).
+fn delete_world(folder: &str) -> Result<(), String> {
+    // Only ever a plain folder name straight inside the saves folder.
+    let plain =
+        !folder.is_empty() && folder != "." && folder != ".." && !folder.contains(['/', '\\', ':']);
+    let dir = saves_dir().join(folder);
+    if !plain || !dir.join("world.dat").is_file() {
+        return Err(format!("Couldn't delete \"{folder}\": it isn't a world."));
+    }
+    std::fs::remove_dir_all(&dir).map_err(|e| format!("Couldn't delete the world: {e}"))
+}
+
+/// When a world was last saved (played), and when it was made.
+fn world_times(folder: &str) -> (Option<SystemTime>, Option<SystemTime>) {
+    let dir = saves_dir().join(folder);
+    let saved = std::fs::metadata(dir.join("world.dat"))
+        .and_then(|m| m.modified())
+        .ok();
+    let made = std::fs::metadata(&dir)
+        .and_then(|m| m.created().or_else(|_| m.modified()))
+        .ok();
+    (saved, made)
+}
+
+/// "today", "yesterday", "3 days ago"…
+fn days_ago(t: SystemTime) -> String {
+    let days = SystemTime::now()
+        .duration_since(t)
+        .map_or(0, |d| d.as_secs() / 86_400);
+    match days {
+        0 => "today".into(),
+        1 => "yesterday".into(),
+        2..=13 => format!("{days} days ago"),
+        14..=59 => format!("{} weeks ago", days / 7),
+        _ => format!("{} months ago", days / 30),
+    }
+}
+
+/// Keep the world list's scroll position across menu rebuilds.
+fn remember_world_scroll(
+    lists: Query<&ScrollPosition, (With<WorldList>, Changed<ScrollPosition>)>,
+    mut saved: ResMut<WorldListScroll>,
+) {
+    for pos in &lists {
+        saved.0 = pos.y;
     }
 }
 
@@ -418,6 +539,16 @@ fn button_sized(
     action: Action,
     width: f32,
 ) {
+    button_node(parent, label, action, width);
+}
+
+/// A button; returns its entity so callers can restyle it.
+fn button_node(
+    parent: &mut ChildSpawnerCommands,
+    label: impl Into<String>,
+    action: Action,
+    width: f32,
+) -> Entity {
     parent
         .spawn((
             Button,
@@ -441,7 +572,8 @@ fn button_sized(
             TextFont::from_font_size(19.0),
             TextColor(Color::WHITE),
             Pickable::IGNORE,
-        ));
+        ))
+        .id()
 }
 
 fn text_field(
@@ -515,6 +647,121 @@ fn note(parent: &mut ChildSpawnerCommands, text: impl Into<String>, color: Color
     ));
 }
 
+/// The worlds, in a box that scrolls (mouse wheel, or drag the bar), each
+/// with its Delete button.
+fn world_list(
+    ui: &mut ChildSpawnerCommands,
+    worlds: Vec<(String, WorldMeta, Option<SystemTime>, Option<SystemTime>)>,
+    forms: &Forms,
+    scroll: f32,
+) {
+    ui.spawn(Node {
+        display: Display::Grid,
+        width: px(530),
+        max_width: percent(96),
+        // About six worlds tall, but never more than half the screen.
+        height: px(330),
+        max_height: vh(50),
+        grid_template_columns: vec![RepeatedGridTrack::flex(1, 1.0), RepeatedGridTrack::auto(1)],
+        grid_template_rows: vec![RepeatedGridTrack::flex(1, 1.0)],
+        column_gap: px(6),
+        ..default()
+    })
+    .with_children(|frame| {
+        let list = frame
+            .spawn((
+                WorldList,
+                ScrollArea,
+                ScrollPosition(Vec2::new(0.0, scroll)),
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(6),
+                    padding: UiRect::all(px(6)),
+                    overflow: Overflow::scroll_y(),
+                    border_radius: BorderRadius::all(px(8)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.22)),
+            ))
+            .with_children(|list| {
+                for (folder, meta, saved, _) in worlds {
+                    let mode = match meta.game_mode.as_deref() {
+                        Some("team_shooter") => "Splat Squad",
+                        Some(_) => "game mode",
+                        None if meta.creative => "creative",
+                        None => "survival",
+                    };
+                    let when = saved.map(days_ago).unwrap_or_default();
+                    list.spawn(Node {
+                        column_gap: px(6),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        if forms.confirm_delete.as_deref() == Some(folder.as_str()) {
+                            row.spawn((
+                                Text::new(format!("Delete \"{}\" for good?", meta.name)),
+                                TextFont::from_font_size(16.0),
+                                TextColor(Color::WHITE),
+                                Node {
+                                    flex_grow: 1.0,
+                                    ..default()
+                                },
+                            ));
+                            let yes = button_node(row, "Delete", Action::Delete(folder), 100.0);
+                            row.commands()
+                                .entity(yes)
+                                .insert((Danger, BackgroundColor(DANGER)));
+                            button_node(row, "Keep", Action::KeepWorld, 90.0);
+                        } else {
+                            let play = button_node(
+                                row,
+                                format!("{}\n{mode} · played {when}", meta.name),
+                                Action::Play {
+                                    folder: folder.clone(),
+                                    name: meta.name,
+                                },
+                                400.0,
+                            );
+                            row.commands().entity(play).insert(Node {
+                                flex_grow: 1.0,
+                                min_height: px(54),
+                                padding: UiRect::axes(px(12), px(6)),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(px(2)),
+                                border_radius: BorderRadius::all(px(8)),
+                                ..default()
+                            });
+                            let delete =
+                                button_node(row, "Delete", Action::AskDelete(folder), 80.0);
+                            row.commands()
+                                .entity(delete)
+                                .insert((Danger, BackgroundColor(DANGER)));
+                        }
+                    });
+                }
+            })
+            .id();
+        frame
+            .spawn((
+                Node {
+                    width: px(12),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.2)),
+                Scrollbar::new(list, ControlOrientation::Vertical, 30.0),
+            ))
+            .with_child((
+                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
+                ScrollbarThumb {
+                    border_radius: BorderRadius::all(px(6)),
+                    border: UiRect::ZERO,
+                },
+            ));
+    });
+}
+
 fn onoff(b: bool) -> &'static str {
     if b { "on" } else { "off" }
 }
@@ -529,6 +776,7 @@ fn rebuild_menu(
     mut lan: ResMut<LanBrowser>,
     mut focus: ResMut<UiFocus>,
     existing: Query<Entity, With<MenuRoot>>,
+    scroll: Res<WorldListScroll>,
 ) {
     // The local network list only listens while the Join screen is open.
     let want_lan = *screen == Screen::Join;
@@ -614,32 +862,41 @@ fn rebuild_menu(
                 }
                 Screen::Worlds => {
                     heading(ui, "Your worlds");
-                    button(ui, "+ New world", Action::NewWorld);
-                    let worlds = list_worlds(&saves_dir());
+                    ui.spawn(Node {
+                        column_gap: px(10),
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        button_sized(row, "+ New world", Action::NewWorld, 250.0);
+                        button_sized(
+                            row,
+                            format!("Sort: {}", forms.sort.label()),
+                            Action::CycleSort,
+                            250.0,
+                        );
+                    });
+                    let mut worlds: Vec<_> = list_worlds(&saves_dir())
+                        .into_iter()
+                        .map(|(folder, meta)| {
+                            let (saved, made) = world_times(&folder);
+                            (folder, meta, saved, made)
+                        })
+                        .collect();
+                    match forms.sort {
+                        WorldSort::LastPlayed => worlds.sort_by_key(|w| std::cmp::Reverse(w.2)),
+                        WorldSort::Name => worlds.sort_by_key(|w| w.1.name.to_lowercase()),
+                        WorldSort::Newest => worlds.sort_by_key(|w| std::cmp::Reverse(w.3)),
+                    }
                     if worlds.is_empty() {
                         note(ui, "No worlds yet. Make one!", grey);
-                    }
-                    for (folder, meta) in worlds.into_iter().take(12) {
-                        let mode = match meta.game_mode.as_deref() {
-                            Some("team_shooter") => " (Splat Squad)",
-                            Some(_) => " (game mode)",
-                            None if meta.creative => "",
-                            None => " (survival)",
-                        };
-                        button(
-                            ui,
-                            format!("{}{mode}", meta.name),
-                            Action::Play {
-                                folder,
-                                name: meta.name,
-                            },
-                        );
+                    } else {
+                        world_list(ui, worlds, &forms, scroll.0);
                     }
                     button_sized(
                         ui,
                         format!("Friends on my network can join: {}", onoff(forms.lan)),
                         Action::ToggleLan,
-                        480.0,
+                        510.0,
                     );
                     button(ui, "Back", Action::Go(Screen::Title));
                 }
