@@ -22,6 +22,7 @@ pub enum Deed {
     Sleep,
     Ride,
     VisitCloudIsles,
+    FindVillage,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -101,6 +102,12 @@ pub const ALL: &[Achievement] = &[
         "Make a sword",
         "two planks or stones over a stick",
         |n| n.ends_with("_sword"),
+    ),
+    deed(
+        "village",
+        "Find a village",
+        "houses round a well, out on open plains, deserts and snowfields",
+        Deed::FindVillage,
     ),
     have(
         "furnace",

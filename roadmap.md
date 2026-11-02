@@ -33,7 +33,6 @@ picks up from there.
 
 Milestones 17–24 brought in the big item list. Still missing:
 
-- Villages and other generated structures
 - Experience points (achievements are done: see below)
 - Thunder (left out on purpose, for now)
 
@@ -591,7 +590,12 @@ get new names and art, never copied ones.
 
 ### Later ideas
 
-- Villages and other structures in world generation.
+- ~~Villages in world generation~~: done. Up to one village per 256×256
+  area, on plains, deserts and snowfields: four to seven
+  little houses (oak, sandstone or pine) with doors, windows, a bed, a
+  crafting table and a torch, round a well, joined by gravel paths. No
+  trees grow inside. "Find a village" is an achievement. Other
+  structures (ruins, towers) could follow the same pattern.
 - ~~Achievements to guide new players~~: done. Eighteen goals in survival,
   from "Get some wood" to "Visit the Cloud Isles", each announced with a
   title, a cheer and a hint for the next one; `/goals` lists them, and
@@ -610,8 +614,10 @@ get new names and art, never copied ones.
   up for chat (new touch Chat button; chat moves to the top while you
   type) and the menu fields. Tested on the Android emulator with Gboard;
   iOS builds but still needs a try on a real iPad or iPhone.
-- The world list shows a missing-character box between "survival" and
-  "played today" on Android (the font lacks that symbol).
+- ~~Missing-character box in the world list on Android~~: fixed (the
+  font has plain ASCII only, so "·" and "×" in on-screen text became
+  ", " and "x"). On phones, the field being typed in now also shows in a
+  bar above the keyboard, which covers the lower fields.
 - Ask Apple for the multicast permission so LAN discovery works on iOS.
 - Move to Bevy 0.20 (0.20.1 is out). Nothing blocks it any more: the
   game uses plain `renet`, which doesn't depend on Bevy.

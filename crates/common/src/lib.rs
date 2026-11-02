@@ -26,6 +26,7 @@ pub mod save;
 pub mod shapes;
 pub mod skin;
 pub mod stones;
+pub mod villages;
 pub mod woods;
 pub mod world;
 pub mod worldgen;

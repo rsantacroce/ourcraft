@@ -46,6 +46,7 @@ pub struct WorldGenerator {
     cave_b: FastNoiseLite,
     cheese: FastNoiseLite,
     plants: Plants,
+    pub(crate) village: crate::villages::VillageBlocks,
 }
 
 /// Plant blocks the generator puts in the world. Their numbers come after
@@ -158,6 +159,9 @@ impl WorldGenerator {
             cave_b: noise(seed, 7, 0.018, 1, FBm),
             cheese: noise(seed, 8, 0.011, 2, FBm),
             plants: Plants::look_up(),
+            village: crate::villages::VillageBlocks::look_up(
+                &crate::block::BlockRegistry::with_builtin_blocks(),
+            ),
         }
     }
 
@@ -299,6 +303,7 @@ impl WorldGenerator {
 
         self.place_features(pos, &mut col);
         self.place_plants(pos, &mut col);
+        self.place_villages(pos, &mut col);
 
         (0..WORLD_HEIGHT_CHUNKS as usize)
             .map(|cy| Chunk::from_blocks(&col[cy * CHUNK_VOLUME..(cy + 1) * CHUNK_VOLUME]))
@@ -448,7 +453,7 @@ impl WorldGenerator {
 impl WorldGenerator {
     /// Does a tree or cactus grow out of this column? Returns its random
     /// bits, the ground height and the biome.
-    fn feature_root(&self, wx: i32, wz: i32) -> Option<(u64, i32, Biome)> {
+    pub(crate) fn feature_root(&self, wx: i32, wz: i32) -> Option<(u64, i32, Biome)> {
         let r = splitmix64(self.seed ^ splitmix64((wx as u64) << 32 ^ (wz as u32 as u64)));
         let chance = r % 1000;
         // Cheap rejection before computing the surface.
@@ -464,6 +469,10 @@ impl WorldGenerator {
             Biome::Mountains => 3,
         };
         if chance >= threshold || height <= SEA_LEVEL + 1 || self.is_cave(wx, height, wz, height) {
+            return None;
+        }
+        // No trees in villages.
+        if self.village_near(wx, wz).is_some() {
             return None;
         }
         Some((r, height, biome))

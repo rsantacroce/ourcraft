@@ -95,6 +95,15 @@ fn check_achievements(
         if p.dimension == Dimension::CloudIsles {
             deeds.push(Deed::VisitCloudIsles);
         }
+        let at = p.position();
+        if p.dimension == Dimension::Overworld
+            && open
+                .generator
+                .village_near(at.x.floor() as i32, at.z.floor() as i32)
+                .is_some()
+        {
+            deeds.push(Deed::FindVillage);
+        }
         for d in deeds {
             if let Some(a) = achievements::for_deed(d)
                 && !has(a.id)
