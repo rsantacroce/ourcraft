@@ -1135,6 +1135,7 @@ fn hit_mobs(
     mut states: ResMut<MobStates>,
     mut net: ResMut<Network>,
     mut rng: ResMut<Rng>,
+    mut deeds: MessageWriter<crate::achievements::DeedDone>,
 ) {
     for FromClient { client, msg } in messages.read() {
         let ClientMessage::HitEntity { id, held } = msg else {
@@ -1185,6 +1186,10 @@ fn hit_mobs(
             },
         );
         if gone {
+            deeds.write(crate::achievements::DeedDone {
+                client: *client,
+                deed: ourcraft_common::achievements::Deed::BopMonster,
+            });
             states.0.remove(id);
             entities.remove(*id);
             net.broadcast(

@@ -34,7 +34,7 @@ picks up from there.
 Milestones 17–24 brought in the big item list. Still missing:
 
 - Villages and other generated structures
-- Experience points and achievements
+- Experience points (achievements are done: see below)
 - Thunder (left out on purpose, for now)
 
 ## Next milestones
@@ -592,7 +592,10 @@ get new names and art, never copied ones.
 ### Later ideas
 
 - Villages and other structures in world generation.
-- Achievements to guide new players ("Make a crafting table!").
+- ~~Achievements to guide new players~~: done. Eighteen goals in survival,
+  from "Get some wood" to "Visit the Cloud Isles", each announced with a
+  title, a cheer and a hint for the next one; `/goals` lists them, and
+  they're saved per player in `achievements.dat`.
 - More game modes as mods: a racing course, hide and seek, a building
   contest with voting.
 - Player skins: choose colours and a face, drawn as box models.

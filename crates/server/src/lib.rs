@@ -13,6 +13,7 @@
 //!   the network. Same code, same rules; and the same world can later be
 //!   opened up to friends.
 
+pub mod achievements;
 pub mod adventure;
 pub mod boats;
 pub mod builder;
@@ -168,6 +169,7 @@ impl Plugin for ServerPlugin {
             magic::MagicPlugin,
             portals::PortalsPlugin,
             builder::BuilderPlugin,
+            achievements::AchievementsPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

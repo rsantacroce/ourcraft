@@ -641,7 +641,7 @@ fn handle_messages(
                     continue;
                 }
                 // Building tools: handled by the builder module.
-                if crate::builder::is_command(&text) {
+                if crate::builder::is_command(&text) || crate::achievements::is_command(&text) {
                     continue;
                 }
                 // /spawn: anyone can go back to their bed (or the world's
@@ -910,7 +910,7 @@ fn run_command(
     let mut words = text.split_whitespace();
     match words.next()? {
         "/help" => Some(
-            "Commands: /spawn (stuck? go back to your bed or the start), /time day, /time night, /weather rain, /weather clear, /summon sheep (or pig, cow, chicken), /tp x y z, /peaceful, /build (building tools in creative; mods may add more)"
+            "Commands: /spawn (stuck? go back to your bed or the start), /goals (things to try), /time day, /time night, /weather rain, /weather clear, /summon sheep (or pig, cow, chicken), /tp x y z, /peaceful, /build (building tools in creative; mods may add more)"
                 .into(),
         ),
         "/peaceful" => {
