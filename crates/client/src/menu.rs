@@ -39,9 +39,22 @@ impl Plugin for MenuPlugin {
                     button_hover,
                     rebuild_menu,
                     remember_world_scroll,
+                    report_text_focus,
                 )
                     .chain(),
             );
+    }
+}
+
+/// Tell the on-screen keyboard whether a field is being typed into.
+fn report_text_focus(
+    forms: Res<Forms>,
+    screen: Res<Screen>,
+    mut text: ResMut<crate::soft_keyboard::TextFocus>,
+) {
+    let typing = forms.focused.is_some() && *screen != Screen::None;
+    if text.menu_field != typing {
+        text.menu_field = typing;
     }
 }
 
@@ -256,7 +269,7 @@ fn type_into_fields(
             Field::Address => &mut forms.address,
             Field::PlayerName => &mut settings.name,
         };
-        match &ev.logical_key {
+        match &crate::soft_keyboard::key_of(ev) {
             Key::Backspace => {
                 text.pop();
             }

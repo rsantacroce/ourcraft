@@ -30,6 +30,7 @@ pub mod settings;
 pub mod signs;
 pub mod skins;
 pub mod sky;
+pub mod soft_keyboard;
 pub mod survival;
 pub mod touch;
 pub mod vitals;
@@ -76,7 +77,8 @@ impl Plugin for ClientPlugin {
                 avatar::AvatarPlugin,
                 camera_view::CameraViewPlugin,
                 skins::SkinsPlugin,
-            ));
+            ))
+            .add_plugins(soft_keyboard::SoftKeyboardPlugin);
     }
 }
 

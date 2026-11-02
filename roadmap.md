@@ -10,7 +10,7 @@ picks up from there.
 |---|---|
 | World | Infinite generated terrain; plains, forest, desert, snowy and mountain biomes; caves; trees; cacti; seas and lakes; beaches; bedrock floor; a seed per world |
 | Blocks | 26 built-in (stone, dirt, grass, sand, log, leaves, planks, snowy grass, cactus, bedrock, gravel, cobblestone, glass, bricks, lamp, water, coal/iron/gold/diamond ore, clay, crafting table, furnace, iron/gold/diamond blocks, wool), plus 9 from the Paint Blocks mod and 2 from the Snow Fun tutorial mod |
-| Items | Sticks, coal, iron and gold ingots, diamonds, clay balls, bricks, shears, eggs, apples; wooden, stone, iron and diamond pickaxes, axes and shovels that wear out |
+| Items | Sticks, coal, iron and gold ingots, diamonds, clay balls, bricks, shears, eggs, apples; wooden, stone, iron and diamond pickaxes, axes and shovels that wear out; wooden, stone, iron and diamond swords that bop monsters harder |
 | Building | Break, place, pick block; 9-slot hotbar; 36-slot inventory; creative palette of every item; stairs and slabs (wood, cobblestone, stone, brick), fences that join up, doors and trapdoors that open, ladders to climb, chests, signs you write on, beds that skip the night |
 | Crafting | 2×2 grid in the inventory, 3×3 on a crafting table, 25 recipes (mods can add more); furnace that smelts ore, sand, clay and cobblestone with coal or wood |
 | Game modes | Creative (fly, endless blocks) and survival (blocks take time to break, the right tool is faster, drops land as items you pick up; health, hunger and breath; falls, drowning and lava hurt; fainting sends you back to bed with your things; gentle monsters at night; `/peaceful`); Splat Squad team game (mod) |
@@ -36,7 +36,6 @@ Milestones 17–24 brought in the big item list. Still missing:
 - Villages and other generated structures
 - Experience points and achievements
 - Thunder (left out on purpose, for now)
-- Swords (left out on purpose: bopping monsters is enough)
 
 ## Next milestones
 
@@ -597,15 +596,22 @@ get new names and art, never copied ones.
 - More game modes as mods: a racing course, hide and seek, a building
   contest with voting.
 - Player skins: choose colours and a face, drawn as box models.
+- ~~A diamond sword to finish the set~~: done (wood, stone, iron and
+  diamond). Maybe other gentle weapons along the same lines.
 
 ## Housekeeping
 
 - Check the darker colours seen on the Android emulator against a real
   device.
-- Typing on phones and tablets (show the on-screen keyboard for chat and
-  world names).
+- ~~Typing on phones and tablets~~: done. The on-screen keyboard comes
+  up for chat (new touch Chat button; chat moves to the top while you
+  type) and the menu fields. Tested on the Android emulator with Gboard;
+  iOS builds but still needs a try on a real iPad or iPhone.
+- The world list shows a missing-character box between "survival" and
+  "played today" on Android (the font lacks that symbol).
 - Ask Apple for the multicast permission so LAN discovery works on iOS.
-- Move to Bevy 0.20 once the networking crates support it.
+- Move to Bevy 0.20 (0.20.1 is out). Nothing blocks it any more: the
+  game uses plain `renet`, which doesn't depend on Bevy.
 - ~~Sunset sky looks muddy brown~~: fixed (the warm glow is now added on
   top of the sky colour).
 - The sun "drawn as a clipped triangle" turned out to be the sun setting

@@ -70,6 +70,9 @@ pub struct Actions {
     /// Open (or close) the pause menu (touch Menu button; Esc is read
     /// directly by the menu).
     pub open_menu: bool,
+    /// Pressed: open (or close) chat (touch Chat button; Enter and `/` are
+    /// read directly by chat).
+    pub open_chat: bool,
 }
 
 #[derive(Resource, Debug)]

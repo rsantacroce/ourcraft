@@ -1,6 +1,6 @@
-//! Chat: shows recent messages and (with a keyboard) lets you type.
+//! Chat: shows recent messages and lets you type.
 //!
-//! Press Enter to start typing, Enter again to send, Esc to cancel. Messages
+//! Press Enter (or the touch Chat button) to start typing, Enter again to send, Esc to cancel. Messages
 //! fade out after a while. Commands start with `/` (try `/help`).
 
 use bevy::input::ButtonState;
@@ -82,6 +82,7 @@ fn collect_messages(
 
 fn type_chat(
     mut typed: MessageReader<KeyboardInput>,
+    actions: Res<crate::input::Actions>,
     mut focus: ResMut<UiFocus>,
     mut input: ResMut<ChatInput>,
     conn: Option<ResMut<Connection>>,
@@ -95,23 +96,34 @@ fn type_chat(
     let presses: Vec<Key> = typed
         .read()
         .filter(|e| e.state == ButtonState::Pressed)
-        .map(|e| e.logical_key.clone())
+        .map(crate::soft_keyboard::key_of)
         .collect();
     let mut presses = presses.into_iter();
+    // The touch Chat button closes chat again (there may be no Esc key).
+    if focus.chat_open && actions.open_chat {
+        focus.chat_open = false;
+        input.text.clear();
+        return;
+    }
     if !focus.chat_open {
         if focus.inventory_open || focus.menu_open || busy {
             return;
         }
-        // Enter opens chat; `/` opens it ready for a command.
-        let Some(opener) = presses.find(|k| {
-            matches!(k, Key::Enter) || matches!(k, Key::Character(c) if c.as_str() == "/")
-        }) else {
-            return;
-        };
-        focus.chat_open = true;
-        input.text.clear();
-        if matches!(opener, Key::Character(_)) {
-            input.text.push('/');
+        if actions.open_chat {
+            focus.chat_open = true;
+            input.text.clear();
+        } else {
+            // Enter opens chat; `/` opens it ready for a command.
+            let Some(opener) = presses.find(|k| {
+                matches!(k, Key::Enter) || matches!(k, Key::Character(c) if c.as_str() == "/")
+            }) else {
+                return;
+            };
+            focus.chat_open = true;
+            input.text.clear();
+            if matches!(opener, Key::Character(_)) {
+                input.text.push('/');
+            }
         }
     }
     let mut conn = conn;
@@ -151,17 +163,24 @@ struct ChatLines;
 #[derive(Component)]
 struct ChatBox;
 
+/// The column holding the chat lines and the box you type in.
+#[derive(Component)]
+struct ChatArea;
+
 fn spawn_chat_ui(mut commands: Commands) {
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            left: px(10),
-            bottom: px(90),
-            width: px(520),
-            flex_direction: FlexDirection::Column,
-            row_gap: px(4),
-            ..default()
-        })
+        .spawn((
+            ChatArea,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(10),
+                bottom: px(90),
+                width: px(520),
+                flex_direction: FlexDirection::Column,
+                row_gap: px(4),
+                ..default()
+            },
+        ))
         .with_children(|ui| {
             ui.spawn((
                 ChatLines,
@@ -207,9 +226,26 @@ fn update_chat_ui(
     log: Res<ChatLog>,
     input: Res<ChatInput>,
     focus: Res<UiFocus>,
+    touch: Res<crate::touch::TouchControls>,
+    mut area: Single<&mut Node, With<ChatArea>>,
     mut lines: Single<&mut Text, (With<ChatLines>, Without<ChatBox>)>,
     mut chat_box: Single<(&mut Text, &mut Visibility), (With<ChatBox>, Without<ChatLines>)>,
 ) {
+    // The on-screen keyboard covers the bottom of the screen, so typing
+    // on a touch screen happens up top, under the Menu and Chat buttons.
+    let up_top = focus.chat_open && touch.enabled;
+    // The box you type in goes first there, so the keyboard can only ever
+    // hide old messages.
+    let (top, bottom, direction) = if up_top {
+        (px(92), Val::Auto, FlexDirection::ColumnReverse)
+    } else {
+        (Val::Auto, px(90), FlexDirection::Column)
+    };
+    if area.top != top || area.bottom != bottom || area.flex_direction != direction {
+        area.top = top;
+        area.bottom = bottom;
+        area.flex_direction = direction;
+    }
     let now = time.elapsed_secs_f64();
     // While typing, show more history; otherwise only recent lines.
     let recent: Vec<String> = log
@@ -218,8 +254,19 @@ fn update_chat_ui(
         .filter(|l| focus.chat_open || now - l.at < SHOW_SECS)
         .map(|l| format_line(l, settings.chat_filter))
         .collect();
-    let start = recent.len().saturating_sub(MAX_LINES);
-    lines.0 = recent[start..].join("\n");
+    if up_top {
+        // Under the box, newest first: only a few fit above the keyboard.
+        lines.0 = recent
+            .iter()
+            .rev()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
+    } else {
+        let start = recent.len().saturating_sub(MAX_LINES);
+        lines.0 = recent[start..].join("\n");
+    }
 
     let (text, vis) = &mut *chat_box;
     if focus.chat_open {
