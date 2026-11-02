@@ -3,6 +3,10 @@
 //! Each skin is an [`Outfit`] (skin tone, hair, shirt, trousers, shoes and
 //! maybe a hat), painted onto the classic 64×64 skin layout so it wraps
 //! around the avatar exactly like a skin file would.
+//!
+//! Players can also make their own outfit (see [`MAKER_PARTS`]): the
+//! choices are packed into the skin's name (`made_` and one letter or
+//! digit per choice), so every game can draw it from the name alone.
 
 use ourcraft_common::skin::{BodyPart, Face, SKIN_BYTES, SkinBox, face_rects, put_pixel};
 
@@ -58,6 +62,17 @@ struct Outfit {
     collar: bool,
     /// How much the cloth's colour varies from pixel to pixel.
     texture: f32,
+    face: FaceStyle,
+}
+
+/// The look on a face.
+#[derive(Clone, Copy, PartialEq)]
+enum FaceStyle {
+    Smile,
+    Grin,
+    Surprised,
+    Freckles,
+    Glasses,
 }
 
 fn outfit(name: &str) -> Option<Outfit> {
@@ -79,6 +94,7 @@ fn outfit(name: &str) -> Option<Outfit> {
         robot: false,
         collar: true,
         texture: 8.0,
+        face: FaceStyle::Smile,
     };
     Some(match name {
         "explorer" => Outfit {
@@ -160,8 +176,221 @@ fn outfit(name: &str) -> Option<Outfit> {
             texture: 10.0,
             ..base
         },
-        _ => return None,
+        _ => return made_outfit(name),
     })
+}
+
+/// Name prefix of a skin made in the skin maker.
+pub const MADE_PREFIX: &str = "made_";
+
+/// The skin maker's choices, in the order they're packed into the name:
+/// (what's being chosen, the options).
+pub const MAKER_PARTS: [(&str, &[&str]); 9] = [
+    (
+        "Skin",
+        &[
+            "Peach", "Tan", "Brown", "Dark", "Pale", "Olive", "Green", "Blue",
+        ],
+    ),
+    (
+        "Hair colour",
+        &[
+            "Brown", "Black", "Blonde", "Ginger", "Grey", "White", "Pink", "Blue", "Green",
+            "Purple",
+        ],
+    ),
+    ("Hair", &["Short", "Long"]),
+    (
+        "Eyes",
+        &["Blue", "Brown", "Green", "Grey", "Hazel", "Violet"],
+    ),
+    (
+        "Face",
+        &["Smile", "Grin", "Surprised", "Freckles", "Glasses"],
+    ),
+    ("Shirt", &COLOUR_NAMES),
+    ("Trousers", &COLOUR_NAMES),
+    ("Shoes", &["Grey", "Brown", "Black", "White", "Red", "Blue"]),
+    (
+        "Hat",
+        &[
+            "None",
+            "Hard hat",
+            "Straw hat",
+            "Knight's helmet",
+            "Space helmet",
+        ],
+    ),
+];
+
+const COLOUR_NAMES: [&str; 16] = [
+    "White",
+    "Light grey",
+    "Grey",
+    "Black",
+    "Brown",
+    "Red",
+    "Orange",
+    "Yellow",
+    "Lime",
+    "Green",
+    "Cyan",
+    "Light blue",
+    "Blue",
+    "Purple",
+    "Magenta",
+    "Pink",
+];
+
+const SKIN_TONES: [[u8; 3]; 8] = [
+    [226, 178, 136],
+    [200, 150, 106],
+    [150, 100, 70],
+    [100, 66, 46],
+    [244, 210, 186],
+    [196, 160, 110],
+    [120, 190, 110],
+    [120, 170, 230],
+];
+const HAIR: [[u8; 3]; 10] = [
+    [92, 60, 36],
+    [36, 30, 28],
+    [226, 196, 110],
+    [190, 90, 40],
+    [140, 140, 146],
+    [236, 236, 230],
+    [240, 130, 180],
+    [70, 110, 220],
+    [70, 170, 80],
+    [130, 70, 190],
+];
+const EYES: [[u8; 3]; 6] = [
+    [60, 90, 160],
+    [70, 50, 30],
+    [40, 120, 60],
+    [110, 120, 130],
+    [130, 100, 50],
+    [130, 80, 190],
+];
+const CLOTH: [[u8; 3]; 16] = [
+    [236, 236, 236],
+    [160, 160, 166],
+    [90, 92, 98],
+    [36, 36, 40],
+    [120, 80, 50],
+    [190, 50, 50],
+    [230, 130, 40],
+    [236, 200, 50],
+    [130, 200, 60],
+    [60, 130, 60],
+    [40, 160, 160],
+    [110, 170, 230],
+    [60, 70, 170],
+    [130, 60, 170],
+    [200, 70, 180],
+    [240, 150, 180],
+];
+const SHOES: [[u8; 3]; 6] = [
+    [80, 80, 86],
+    [90, 60, 40],
+    [30, 30, 34],
+    [230, 230, 230],
+    [190, 50, 50],
+    [60, 80, 170],
+];
+
+/// The skin name for these choices (one index per [`MAKER_PARTS`]).
+pub fn made_skin_name(choices: [u8; 9]) -> String {
+    let mut name = MADE_PREFIX.to_owned();
+    for (c, (_, options)) in choices.iter().zip(MAKER_PARTS) {
+        let c = (*c as usize).min(options.len() - 1) as u32;
+        name.push(std::char::from_digit(c, 36).unwrap_or('0'));
+    }
+    name
+}
+
+/// The choices packed into a made skin's name, if it is one.
+pub fn made_skin_choices(name: &str) -> Option<[u8; 9]> {
+    let code = name.strip_prefix(MADE_PREFIX)?;
+    if code.len() != MAKER_PARTS.len() {
+        return None;
+    }
+    let mut choices = [0u8; 9];
+    for (i, ch) in code.chars().enumerate() {
+        let c = ch.to_digit(36)? as usize;
+        if ch.is_ascii_uppercase() || c >= MAKER_PARTS[i].1.len() {
+            return None;
+        }
+        choices[i] = c as u8;
+    }
+    Some(choices)
+}
+
+fn made_outfit(name: &str) -> Option<Outfit> {
+    let c = made_skin_choices(name)?.map(usize::from);
+    let col = |a: [u8; 3]| rgb(a[0], a[1], a[2]);
+    let seed = name
+        .bytes()
+        .fold(7u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32))
+        % 10_000;
+    Some(Outfit {
+        seed,
+        skin: col(SKIN_TONES[c[0]]),
+        hair: col(HAIR[c[1]]),
+        long_hair: c[2] == 1,
+        eyes: col(EYES[c[3]]),
+        face: [
+            FaceStyle::Smile,
+            FaceStyle::Grin,
+            FaceStyle::Surprised,
+            FaceStyle::Freckles,
+            FaceStyle::Glasses,
+        ][c[4]],
+        shirt: col(CLOTH[c[5]]),
+        sleeves: 4,
+        gloves: None,
+        trousers: col(CLOTH[c[6]]),
+        shoes: col(SHOES[c[7]]),
+        belt: None,
+        overalls: None,
+        tabard: None,
+        hat: [Hat::None, Hat::Hard, Hat::Straw, Hat::Knight, Hat::Space][c[8]],
+        robot: false,
+        collar: true,
+        texture: 8.0,
+    })
+}
+
+/// A flat picture of a skin from the front (16×32 RGBA), for showing in
+/// menus: head (with hat) on top, then body and arms, then legs.
+pub fn front_view(skin: &[u8]) -> Vec<u8> {
+    const W: u32 = 16;
+    let mut out = vec![0u8; (W * 32 * 4) as usize];
+    let front = Face::ALL
+        .iter()
+        .position(|f| *f == Face::Front)
+        .unwrap_or(0);
+    let mut copy = |b: SkinBox, at_x: u32, at_y: u32| {
+        let (fx, fy, w, h) = face_rects(b)[front];
+        for y in 0..h {
+            for x in 0..w {
+                let c = ourcraft_common::skin::get_pixel(skin, fx + x, fy + y);
+                if c[3] > 0 {
+                    let i = (((at_y + y) * W + at_x + x) * 4) as usize;
+                    out[i..i + 4].copy_from_slice(&c);
+                }
+            }
+        }
+    };
+    copy(BodyPart::Head.inner(), 4, 0);
+    copy(BodyPart::Head.outer(), 4, 0);
+    copy(BodyPart::Body.inner(), 4, 8);
+    // The right arm and leg are on the left as you look at someone.
+    copy(BodyPart::RightArm.inner(), 0, 8);
+    copy(BodyPart::LeftArm.inner(), 12, 8);
+    copy(BodyPart::RightLeg.inner(), 4, 20);
+    copy(BodyPart::LeftLeg.inner(), 8, 20);
+    out
 }
 
 /// A built-in skin's 64×64 RGBA pixels, if `name` is one.
@@ -197,7 +426,13 @@ fn paint_box(skin: &mut [u8], b: SkinBox, f: impl Fn(Face, u32, u32, u32, u32) -
 
 /// Cloth: a colour with a little random variation (and seams on the edges).
 fn cloth(o: &Outfit, c: Rgba, x: u32, y: u32, salt: u32) -> Rgba {
-    speckle(c, x as usize, y as usize, o.seed * 31 + salt, o.texture)
+    speckle(
+        c,
+        x as usize,
+        y as usize,
+        o.seed.wrapping_mul(31).wrapping_add(salt),
+        o.texture,
+    )
 }
 
 fn inner_pixel(o: &Outfit, part: BodyPart, face: Face, x: u32, y: u32, w: u32, h: u32) -> Rgba {
@@ -281,14 +516,36 @@ fn front_of_head(o: &Outfit, x: u32, y: u32, skin: Rgba, hair: Rgba) -> Rgba {
     if fringe || (o.long_hair && (x == 0 || x == 7) && y < 6) {
         return hair;
     }
-    match (x, y) {
+    let frame = rgb(40, 36, 40);
+    match (o.face, x, y) {
+        // Glasses: a dark frame round the eyes and across the nose.
+        (FaceStyle::Glasses, 0..=7, 3) => frame,
+        (FaceStyle::Glasses, 0 | 3 | 4 | 7, 4) => frame,
+        // Surprised: eyebrows up, and an "o" of a mouth.
+        (FaceStyle::Surprised, 1..=2 | 5..=6, 2) => shift(o.hair, -10.0),
+        (FaceStyle::Surprised, 1..=2 | 5..=6, 3) => skin,
+        (FaceStyle::Surprised, 3..=4, 6) => rgb(90, 40, 40),
+        (FaceStyle::Surprised, 3..=4, 7) => shift(o.skin, -30.0),
+        (FaceStyle::Surprised, 2 | 5, 6) => skin,
         // Eyebrows, then eyes: white on the outside, colour inside.
-        (1..=2 | 5..=6, 3) => shift(o.hair, -10.0),
-        (1 | 6, 4) => rgb(250, 250, 250),
-        (2 | 5, 4) => o.eyes,
-        // A little nose and a smile.
-        (3..=4, 5) => shift(o.skin, -22.0),
-        (2..=5, 6) => {
+        (_, 1..=2 | 5..=6, 3) => shift(o.hair, -10.0),
+        (_, 1 | 6, 4) => rgb(250, 250, 250),
+        (_, 2 | 5, 4) => o.eyes,
+        // Freckles on the cheeks.
+        (FaceStyle::Freckles, 0 | 2 | 5 | 7, 5) => shift(o.skin, -45.0),
+        // A little nose.
+        (_, 3..=4, 5) => shift(o.skin, -22.0),
+        // A big grin: a wide mouth with teeth.
+        (FaceStyle::Grin, 1..=6, 6) => {
+            if x == 1 || x == 6 {
+                shift(o.skin, -30.0)
+            } else {
+                rgb(250, 250, 250)
+            }
+        }
+        (FaceStyle::Grin, 2..=5, 7) => rgb(150, 70, 70),
+        // A smile.
+        (_, 2..=5, 6) => {
             if x == 2 || x == 5 {
                 shift(o.skin, -30.0)
             } else {
@@ -433,7 +690,45 @@ mod tests {
             }
         }
         assert!(builtin_skin("nobody").is_none());
+        assert!(builtin_skin("made_000000000").is_some());
         // They don't all look the same.
         assert_ne!(builtin_skin("explorer"), builtin_skin("miner"));
+    }
+
+    #[test]
+    fn made_skins_round_trip_through_their_names() {
+        let choices = [3, 9, 1, 5, 4, 15, 12, 5, 4];
+        let name = made_skin_name(choices);
+        assert_eq!(name, "made_39154fc54");
+        assert!(name.len() <= ourcraft_common::skin::MAX_SKIN_NAME);
+        assert!(ourcraft_common::skin::NetSkin::Builtin(name.clone()).is_valid());
+        assert_eq!(made_skin_choices(&name), Some(choices));
+        let skin = builtin_skin(&name).unwrap();
+        assert_ne!(skin, builtin_skin(&made_skin_name([0; 9])).unwrap());
+        // Out of range, too short or upper case: not a made skin.
+        for bad in ["made_99999999z", "made_000", "made_00000000A", "made_"] {
+            assert!(made_skin_choices(bad).is_none(), "{bad}");
+        }
+        // Every face is different.
+        let faces: Vec<_> = (0..5u8)
+            .map(|f| {
+                front_view(&builtin_skin(&made_skin_name([0, 0, 0, 0, f, 0, 0, 0, 0])).unwrap())
+            })
+            .collect();
+        for (i, a) in faces.iter().enumerate() {
+            for b in &faces[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+    }
+
+    #[test]
+    fn front_view_has_a_whole_body() {
+        let view = front_view(&builtin_skin("explorer").unwrap());
+        assert_eq!(view.len(), 16 * 32 * 4);
+        // Head, body and legs are all there (not see-through).
+        for (x, y) in [(8, 4), (8, 14), (6, 26), (10, 26), (1, 10), (14, 10)] {
+            assert_eq!(view[((y * 16 + x) * 4 + 3) as usize], 255, "({x}, {y})");
+        }
     }
 }

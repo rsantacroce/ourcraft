@@ -602,7 +602,12 @@ get new names and art, never copied ones.
   they're saved per player in `achievements.dat`.
 - More game modes as mods: a racing course, hide and seek, a building
   contest with voting.
-- Player skins: choose colours and a face, drawn as box models.
+- ~~Player skins: choose colours and a face~~: done. "Make your own skin"
+  in Settings picks skin tone, hair colour and length, eyes, a face
+  (smile, grin, surprised, freckles, glasses), shirt, trousers, shoes and
+  a hat, with a preview and "Surprise me!". The choices travel as the
+  skin's name (`made_` and nine letters or digits), so everyone sees it
+  without sending any pictures.
 - ~~A diamond sword to finish the set~~: done (wood, stone, iron and
   diamond). Maybe other gentle weapons along the same lines.
 

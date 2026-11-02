@@ -2,8 +2,9 @@
 //!
 //! The Settings screen offers the game's own skins plus any PNG files in
 //! the `skins` folder next to the settings file (64×64 classic-layout
-//! skins, or the older 64×32 ones). The choice is saved in settings as a
-//! skin name (`explorer`) or `file:<name>.png`.
+//! skins, or the older 64×32 ones), and the one you made yourself in the
+//! skin maker. The choice is saved in settings as a skin name (`explorer`,
+//! or `made_…` for a made one) or `file:<name>.png`.
 //!
 //! Your skin is sent to the server when you join (and again if you change
 //! it), and the server passes it on so everyone else sees it. A custom skin
@@ -21,7 +22,7 @@ use ourcraft_common::skin::{
 };
 
 use crate::net::Connection;
-use crate::render::skin_textures::{BUILTIN_SKINS, builtin_skin};
+use crate::render::skin_textures::{BUILTIN_SKINS, builtin_skin, front_view, made_skin_choices};
 use crate::settings::ClientSettings;
 
 /// Saved-setting prefix for a skin file from the skins folder.
@@ -33,8 +34,8 @@ impl Plugin for SkinsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MySkin>()
             .init_resource::<SkinImages>()
-            .add_systems(Startup, make_skins_folder)
-            .add_systems(Update, (choose_skin, send_skin).chain());
+            .add_systems(Startup, (make_skins_folder, make_preview))
+            .add_systems(Update, (choose_skin, send_skin, update_preview).chain());
     }
 }
 
@@ -55,9 +56,13 @@ pub fn skins_dir() -> PathBuf {
 }
 
 /// Every skin you can pick, as saved-setting values: the built-in ones,
-/// then the PNG files in the skins folder (in name order).
-pub fn skin_choices() -> Vec<String> {
+/// the one you made, then the PNG files in the skins folder (in name
+/// order).
+pub fn skin_choices(made: &str) -> Vec<String> {
     let mut choices: Vec<String> = BUILTIN_SKINS.iter().map(|(n, _)| n.to_string()).collect();
+    if made_skin_choices(made).is_some() {
+        choices.push(made.to_owned());
+    }
     choices.extend(
         skin_files(&skins_dir())
             .into_iter()
@@ -80,8 +85,8 @@ fn skin_files(dir: &Path) -> Vec<String> {
 }
 
 /// The next (or previous) skin after `current`.
-pub fn cycle_skin(current: &str, step: i32) -> String {
-    let choices = skin_choices();
+pub fn cycle_skin(current: &str, step: i32, made: &str) -> String {
+    let choices = skin_choices(made);
     let i = choices.iter().position(|c| c == current).unwrap_or(0) as i32;
     let n = choices.len() as i32;
     choices[(i + step).rem_euclid(n) as usize].clone()
@@ -94,6 +99,9 @@ pub fn skin_label(value: &str) -> String {
             .trim_end_matches(".png")
             .trim_end_matches(".PNG")
             .to_owned();
+    }
+    if made_skin_choices(value).is_some() {
+        return "Made by you".into();
     }
     BUILTIN_SKINS
         .iter()
@@ -113,7 +121,7 @@ pub fn sanitize_skin_setting(value: &str) -> String {
         if ok {
             return value.to_owned();
         }
-    } else if BUILTIN_SKINS.iter().any(|(n, _)| *n == value) {
+    } else if BUILTIN_SKINS.iter().any(|(n, _)| *n == value) || made_skin_choices(value).is_some() {
         return value.to_owned();
     }
     BUILTIN_SKINS[0].0.to_owned()
@@ -197,6 +205,41 @@ impl SkinImages {
         let handle = images.add(image);
         self.0.insert(skin.clone(), handle.clone());
         handle
+    }
+}
+
+/// A front-on picture of the skin you're wearing, for the menus.
+#[derive(Resource)]
+pub struct SkinPreview(pub Handle<Image>);
+
+fn make_preview(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    commands.insert_resource(SkinPreview(images.add(preview_image(&[0; SKIN_BYTES]))));
+}
+
+fn preview_image(skin: &[u8]) -> Image {
+    let mut image = Image::new(
+        Extent3d {
+            width: 16,
+            height: 32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        front_view(skin),
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
+    );
+    image.sampler = ImageSampler::nearest();
+    image
+}
+
+fn update_preview(
+    mine: Res<MySkin>,
+    preview: Option<Res<SkinPreview>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Some(preview) = preview else { return };
+    if mine.is_changed() || preview.is_added() {
+        let _ = images.insert(preview.0.id(), preview_image(&skin_pixels(&mine.skin)));
     }
 }
 
