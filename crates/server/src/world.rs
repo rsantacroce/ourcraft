@@ -424,6 +424,38 @@ pub fn set_block(
     Some(old)
 }
 
+/// Change many blocks at once: like [`set_block`], but each column is only
+/// re-encoded and saved once. Returns what each changed spot held before
+/// (spots in unloaded columns, or already holding the block, are left out).
+pub fn set_blocks(
+    world: &mut ServerWorld,
+    cache: &mut ColumnCache,
+    open: &OpenWorld,
+    changes: impl IntoIterator<Item = (IVec3, BlockId)>,
+) -> Vec<(IVec3, BlockId)> {
+    let mut old = Vec::new();
+    let mut touched = HashSet::new();
+    for (pos, block) in changes {
+        let Some(dim) = Dimension::of_block_y(pos.y) else {
+            continue;
+        };
+        if world.get_block(pos.x, pos.y, pos.z) == Some(block) {
+            continue;
+        }
+        if let Some(was) = world.set_block(pos.x, pos.y, pos.z, block) {
+            old.push((pos, was));
+            touched.insert((dim, ColumnPos::from_block(pos.x, pos.z)));
+        }
+    }
+    for (dim, col) in touched {
+        cache.0.remove(&(dim, col));
+        if let Some(chunks) = world.column_in(dim, col) {
+            open.storage_for(dim).queue_save(col, &chunks);
+        }
+    }
+    old
+}
+
 fn load_wanted_columns(
     world: Res<ServerWorld>,
     open: Res<OpenWorld>,

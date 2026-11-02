@@ -143,6 +143,9 @@ pub struct ConnectedPlayer {
     pub skin: Option<NetSkin>,
     /// When they last changed skin (`connected_for`), to stop floods.
     pub skin_changed_at: f32,
+    /// Seconds spent with their head or feet inside a solid block (they're
+    /// lifted out after a moment; see [`unstick`]).
+    pub stuck_for: f32,
 }
 
 impl ConnectedPlayer {
@@ -222,6 +225,7 @@ fn on_connect(
                 tool_used_at: HashMap::new(),
                 skin: None,
                 skin_changed_at: f32::MIN,
+                stuck_for: 0.0,
             })
             .id();
         players.0.insert(*client, e);
@@ -636,6 +640,44 @@ fn handle_messages(
                 if text.is_empty() {
                     continue;
                 }
+                // Building tools: handled by the builder module.
+                if crate::builder::is_command(&text) {
+                    continue;
+                }
+                // /spawn: anyone can go back to their bed (or the world's
+                // spawn), say when they're stuck somewhere.
+                if text == "/spawn" || text == "/home" || text == "/unstuck" {
+                    let reply = if p.riding.is_some() || p.boat.is_some() || p.cart.is_some() {
+                        "Hop off first, then try /spawn again.".to_owned()
+                    } else {
+                        let home = open.beds.get(&name).copied().unwrap_or(open.spawn);
+                        let mut at = home.as_vec3() + Vec3::new(0.5, 1.0, 0.5);
+                        if ourcraft_common::physics::collides(&world.0, &registry.0, at)
+                            && let Some(free) = open_space_above(&world.0, &registry.0, at)
+                        {
+                            at = free;
+                        }
+                        if let Ok(mut p) = query.get_mut(entity) {
+                            p.physics.position = at;
+                            p.physics.velocity = Vec3::ZERO;
+                            p.state.position = at.to_array();
+                        }
+                        if open.beds.contains_key(&name) {
+                            "Back to your bed!".to_owned()
+                        } else {
+                            "Back to the start of the world!".to_owned()
+                        }
+                    };
+                    net.send(
+                        *client,
+                        Channel::Reliable,
+                        &ServerMessage::Chat {
+                            from: None,
+                            text: reply,
+                        },
+                    );
+                    continue;
+                }
                 // /tp x y z: creative players can jump anywhere.
                 if let Some(rest) = text.strip_prefix("/tp") {
                     let to: Vec<f32> = rest
@@ -764,6 +806,7 @@ fn simulate_players(
     mut query: Query<&mut ConnectedPlayer>,
     world: Res<ServerWorld>,
     registry: Res<Registry>,
+    time: Res<Time>,
 ) {
     for mut p in &mut query {
         if p.name.is_none() {
@@ -791,6 +834,7 @@ fn simulate_players(
             p.state.yaw = input.yaw;
             p.state.pitch = input.pitch;
         }
+        unstick(p, &world.0, &registry.0, time.delta_secs());
         // Keep players inside their dimension.
         let (low, high) = Dimension::of_y(p.physics.position.y).player_range();
         p.physics.position.y = p.physics.position.y.clamp(low, high);
@@ -799,6 +843,62 @@ fn simulate_players(
         p.state.flying = p.physics.flying;
         p.state.on_ground = p.physics.on_ground;
     }
+}
+
+/// Seconds inside a block before being lifted out.
+const STUCK_SECONDS: f32 = 1.0;
+
+/// Someone whose feet or head have been inside a solid block for a moment
+/// (spawned in a tree, buried by falling sand, an old save from before a
+/// world changed) is lifted to the nearest open space above.
+fn unstick(
+    p: &mut ConnectedPlayer,
+    world: &impl ourcraft_common::world::BlockSource,
+    reg: &ourcraft_common::block::BlockRegistry,
+    dt: f32,
+) {
+    let feet = p.physics.position;
+    let inside = |y: f32| {
+        let b = Vec3::new(feet.x, y, feet.z).floor().as_ivec3();
+        world
+            .get_block(b.x, b.y, b.z)
+            .is_some_and(|id| reg.is_solid(id) && reg.shape(id).is_cube())
+    };
+    if p.riding.is_some() || p.boat.is_some() || p.cart.is_some() {
+        p.stuck_for = 0.0;
+        return;
+    }
+    if !(inside(feet.y + 0.1) || inside(feet.y + 1.6)) {
+        p.stuck_for = 0.0;
+        return;
+    }
+    p.stuck_for += dt;
+    if p.stuck_for < STUCK_SECONDS {
+        return;
+    }
+    p.stuck_for = 0.0;
+    if let Some(free) = open_space_above(world, reg, feet) {
+        p.physics.position = free;
+        p.physics.velocity = Vec3::ZERO;
+        p.state.position = free.to_array();
+    }
+}
+
+/// The nearest spot straight above `feet` where a player fits, standing on
+/// whatever is below (only looking in loaded chunks).
+pub(crate) fn open_space_above(
+    world: &impl ourcraft_common::world::BlockSource,
+    reg: &ourcraft_common::block::BlockRegistry,
+    feet: Vec3,
+) -> Option<Vec3> {
+    let base = feet.y.floor();
+    (1..=96)
+        .map(|dy| Vec3::new(feet.x, base + dy as f32, feet.z))
+        .find(|at| {
+            let b = at.floor().as_ivec3();
+            let loaded = (0..3).all(|d| world.get_block(b.x, b.y + d, b.z).is_some());
+            loaded && !ourcraft_common::physics::collides(world, reg, *at)
+        })
 }
 
 /// A few chat commands. Returns a reply if `text` was a command.
@@ -810,7 +910,7 @@ fn run_command(
     let mut words = text.split_whitespace();
     match words.next()? {
         "/help" => Some(
-            "Commands: /time day, /time night, /weather rain, /weather clear, /summon sheep (or pig, cow, chicken), /tp x y z, /peaceful (mods may add more)"
+            "Commands: /spawn (stuck? go back to your bed or the start), /time day, /time night, /weather rain, /weather clear, /summon sheep (or pig, cow, chicken), /tp x y z, /peaceful, /build (building tools in creative; mods may add more)"
                 .into(),
         ),
         "/peaceful" => {

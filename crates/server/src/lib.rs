@@ -15,6 +15,7 @@
 
 pub mod adventure;
 pub mod boats;
+pub mod builder;
 pub mod building;
 pub mod circuits;
 pub mod decoration;
@@ -166,6 +167,7 @@ impl Plugin for ServerPlugin {
             rails::RailsPlugin,
             magic::MagicPlugin,
             portals::PortalsPlugin,
+            builder::BuilderPlugin,
         ))
         .add_systems(Update, check_stop_flag);
     }

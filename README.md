@@ -53,6 +53,26 @@ cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad netwo
 | Enter chat, Esc menu | | Menu button |
 | F3 info text, F7 simulate lag, T skip an hour, [ ] view distance | | |
 
+### Building tools (creative)
+
+Type these in chat (Enter). Leave out the block to use the one you're holding.
+
+| Command | What it does |
+|---|---|
+| `/pos1`, `/pos2` | Mark the corners of a box at the block you're looking at |
+| `/fill [block]`, `/clear` | Fill the box (`/fill stone`, `/fill oak_planks`), or empty it |
+| `/walls [block]`, `/box [block]` | Just the four walls, or a hollow box |
+| `/replace <old> [new]` | Swap one block for another inside the box |
+| `/sphere <size> [block]` | A ball where you're looking |
+| `/copy`, `/paste` | Copy the box and paste it where you're standing (`/paste solid` skips air) |
+| `/undo`, `/sel`, `/build` | Take back the last change (up to 8), show the box, help |
+
+Chests, signs, frames and banners are never overwritten.
+
+Stuck somewhere? `/spawn` takes you back to your bed (or the start of
+the world), in any mode. If you end up inside a block, the game lifts you
+out after a second.
+
 ### The Cloud Isles
 
 1. Craft **sunstone**: eight glass round a gold ingot makes four.

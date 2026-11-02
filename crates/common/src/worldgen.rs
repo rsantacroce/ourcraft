@@ -212,7 +212,11 @@ impl WorldGenerator {
                     let flat = (-3..=3).all(|dz| {
                         (-3..=3).all(|dx| (self.surface(wx + dx, wz + dz).0 - h).abs() <= 1)
                     });
-                    if flat {
+                    // No tree (or cactus) close enough for its trunk or
+                    // leaves to be where you'd stand.
+                    let clear = (-4..=4)
+                        .all(|dz| (-4..=4).all(|dx| self.feature_root(wx + dx, wz + dz).is_none()));
+                    if flat && clear {
                         return (wx, h, wz);
                     }
                 }
@@ -407,26 +411,9 @@ impl WorldGenerator {
 
         for wz in (z0 - MARGIN)..(z0 + s + MARGIN) {
             for wx in (x0 - MARGIN)..(x0 + s + MARGIN) {
-                let r = splitmix64(self.seed ^ splitmix64((wx as u64) << 32 ^ (wz as u32 as u64)));
-                let chance = r % 1000;
-                // Cheap rejection before computing the surface.
-                if chance >= 40 {
+                let Some((r, height, biome)) = self.feature_root(wx, wz) else {
                     continue;
-                }
-                let (height, biome) = self.surface(wx, wz);
-                let threshold = match biome {
-                    Biome::Forest => 40,
-                    Biome::Snowy => 12,
-                    Biome::Plains => 4,
-                    Biome::Desert => 6,
-                    Biome::Mountains => 3,
                 };
-                if chance >= threshold
-                    || height <= SEA_LEVEL + 1
-                    || self.is_cave(wx, height, wz, height)
-                {
-                    continue;
-                }
                 let base = height + 1;
                 let r2 = r >> 16;
                 if biome == Biome::Desert {
@@ -459,6 +446,29 @@ impl WorldGenerator {
 }
 
 impl WorldGenerator {
+    /// Does a tree or cactus grow out of this column? Returns its random
+    /// bits, the ground height and the biome.
+    fn feature_root(&self, wx: i32, wz: i32) -> Option<(u64, i32, Biome)> {
+        let r = splitmix64(self.seed ^ splitmix64((wx as u64) << 32 ^ (wz as u32 as u64)));
+        let chance = r % 1000;
+        // Cheap rejection before computing the surface.
+        if chance >= 40 {
+            return None;
+        }
+        let (height, biome) = self.surface(wx, wz);
+        let threshold = match biome {
+            Biome::Forest => 40,
+            Biome::Snowy => 12,
+            Biome::Plains => 4,
+            Biome::Desert => 6,
+            Biome::Mountains => 3,
+        };
+        if chance >= threshold || height <= SEA_LEVEL + 1 || self.is_cave(wx, height, wz, height) {
+            return None;
+        }
+        Some((r, height, biome))
+    }
+
     /// Flowery patches (about one area in three).
     fn meadow(&self, x: i32, z: i32) -> bool {
         splitmix64(
@@ -641,6 +651,27 @@ mod tests {
             let g = WorldGenerator::new(seed);
             let (x, y, z) = g.find_spawn();
             assert!(y > SEA_LEVEL, "seed {seed} spawns at {x},{y},{z}");
+        }
+    }
+
+    #[test]
+    fn spawn_is_out_in_the_open() {
+        let reg = crate::block::BlockRegistry::with_builtin_blocks();
+        for seed in 0..40 {
+            let g = WorldGenerator::new(seed);
+            let (x, y, z) = g.find_spawn();
+            let col = g.generate_column(ColumnPos::from_block(x, z));
+            let at = |dx: i32, dy: i32, dz: i32| {
+                let (bx, by, bz) = (x + dx, y + dy, z + dz);
+                let (lx, lz) = (bx.rem_euclid(16) as usize, bz.rem_euclid(16) as usize);
+                let chunk = &col[(by / CHUNK_SIZE_I32) as usize];
+                chunk.get(lx, by.rem_euclid(16) as usize, lz)
+            };
+            // Nothing solid where the player stands or above their head.
+            for dy in 1..=8 {
+                let b = at(0, dy, 0);
+                assert!(!reg.is_solid(b), "seed {seed}: {b:?} at {x},{},{z}", y + dy);
+            }
         }
     }
 
