@@ -51,6 +51,17 @@ jobs:
         with:
           key: ${{ matrix.name }}
 
+      # The notices of every library (and the font) the game is built with,
+      # shipped in each download. Settings: about.toml.
+      - name: Third-party licenses
+        shell: bash
+        run: |
+          cargo install cargo-about --locked --features cli --version 0.9.2
+          mkdir -p out
+          cargo about generate -m crates/client/Cargo.toml .github/licenses/about.hbs \
+            -o out/THIRD_PARTY_LICENSES.html
+          cp LICENSE out/LICENSE.txt
+
       # One app that runs on both Apple Silicon and Intel Macs.
       - name: Build (macOS)
         if: matrix.name == 'macos'
@@ -97,23 +108,28 @@ jobs:
           codesign --force --deep --sign - $app
           codesign --force --sign - out/ourcraft-server
           mkdir -p dist
-          (cd out && ditto -c -k --keepParent Ourcraft.app ../dist/ourcraft-macos.zip)
-          (cd out && zip ../dist/ourcraft-server-macos.zip ourcraft-server)
+          mkdir -p pkg/game pkg/server
+          cp -R $app pkg/game/
+          cp out/ourcraft-server pkg/server/
+          for d in pkg/game pkg/server; do cp out/THIRD_PARTY_LICENSES.html out/LICENSE.txt $d/; done
+          (cd pkg/game && ditto -c -k . ../../dist/ourcraft-macos.zip)
+          (cd pkg/server && zip -r ../../dist/ourcraft-server-macos.zip .)
 
       - name: Package (Windows)
         if: matrix.name == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path out/ourcraft.exe -DestinationPath dist/ourcraft-windows.zip
-          Compress-Archive -Path out/ourcraft-server.exe -DestinationPath dist/ourcraft-server-windows.zip
+          $notices = "out/THIRD_PARTY_LICENSES.html", "out/LICENSE.txt"
+          Compress-Archive -Path (@("out/ourcraft.exe") + $notices) -DestinationPath dist/ourcraft-windows.zip
+          Compress-Archive -Path (@("out/ourcraft-server.exe") + $notices) -DestinationPath dist/ourcraft-server-windows.zip
 
       - name: Package (Linux)
         if: matrix.name == 'linux'
         run: |
           mkdir -p dist
-          tar -C out -czf dist/ourcraft-linux.tar.gz ourcraft
-          tar -C out -czf dist/ourcraft-server-linux.tar.gz ourcraft-server
+          tar -C out -czf dist/ourcraft-linux.tar.gz ourcraft THIRD_PARTY_LICENSES.html LICENSE.txt
+          tar -C out -czf dist/ourcraft-server-linux.tar.gz ourcraft-server THIRD_PARTY_LICENSES.html LICENSE.txt
 
       - uses: actions/upload-artifact@v4
         with:

@@ -161,3 +161,11 @@ renet 2.0, wasmtime 49.0.3, fastnoise-lite 1.1, postcard 1.1, lz4_flex 0.14.
 
 MIT. See [LICENSE](LICENSE). All textures, sounds, models and names in the
 game are original.
+
+The game is built on open-source libraries (Bevy and others) under their
+own licenses; each download includes their notices in
+`THIRD_PARTY_LICENSES.html` (made by `cargo about`, see `about.toml`).
+
+Ourcraft is an independent project. It is not affiliated with, endorsed
+by or connected to Mojang Studios or Microsoft. Minecraft is a trademark
+of Mojang Synergies AB.
