@@ -281,6 +281,12 @@ fn builtin_items(blocks: &BlockRegistry) -> Vec<ItemDef> {
                 tier,
             ));
         }
+        items.push(ItemDef::new_tool(
+            &format!("core:{key}_sword"),
+            &format!("{material} Sword"),
+            ToolKind::Sword,
+            tier,
+        ));
     }
     // ---- Milestone 23: honey ----
     items.push(ItemDef {
@@ -586,6 +592,23 @@ mod tests {
         assert!(stick.0 as usize >= b.len(), "items come after blocks");
         assert_eq!(i.get(stick).unwrap().block(), None);
         assert_eq!(i.max_stack(i.by_name("core:iron_pickaxe").unwrap()), 1);
+    }
+
+    #[test]
+    fn swords_in_four_tiers() {
+        let (b, i) = setup();
+        for (key, tier) in [("wood", 1), ("stone", 2), ("iron", 3), ("diamond", 4)] {
+            let sword = i.by_name(&format!("core:{key}_sword")).unwrap();
+            assert_eq!(i.get(sword).unwrap().tool(), Some((ToolKind::Sword, tier)));
+            assert_eq!(i.max_stack(sword), 1);
+        }
+        // A sword is no help with stone.
+        let sword = i.by_name("core:iron_sword");
+        assert_eq!(i.drop_for(&b, blocks::STONE, sword), None);
+        assert_eq!(
+            i.break_time(&b, blocks::STONE, sword),
+            i.break_time(&b, blocks::STONE, None)
+        );
     }
 
     #[test]

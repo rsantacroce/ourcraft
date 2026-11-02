@@ -1170,14 +1170,12 @@ fn hit_mobs(
             );
             continue;
         };
-        // Tools hit harder: hand 2, wood 3, stone 4, iron 5, diamond 6.
-        let tier = open
+        let tool = open
             .items
             .get(ourcraft_common::item::ItemId(*held))
-            .and_then(|d| d.tool())
-            .map_or(0, |(_, t)| t);
+            .and_then(|d| d.tool());
         let health = s.health.get_or_insert(h.health);
-        *health -= 2.0 + tier as f32;
+        *health -= hit_damage(tool);
         let gone = *health <= 0.0;
         net.broadcast(
             Channel::Reliable,
@@ -1607,9 +1605,32 @@ fn despawn_far(
     }
 }
 
+/// How much one bop takes off a monster's health. Bare hands 2; tools
+/// 2 + tier (wood 3 … diamond 6); swords 4 + tier (wood 5, stone 6, iron 7, diamond 8).
+fn hit_damage(tool: Option<(ourcraft_common::block::ToolKind, u8)>) -> f32 {
+    match tool {
+        Some((ourcraft_common::block::ToolKind::Sword, tier)) => 4.0 + tier as f32,
+        Some((_, tier)) => 2.0 + tier as f32,
+        None => 2.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn swords_hit_hardest() {
+        use ourcraft_common::block::ToolKind::{Pickaxe, Sword};
+        assert_eq!(hit_damage(None), 2.0);
+        assert_eq!(hit_damage(Some((Pickaxe, 1))), 3.0);
+        assert_eq!(hit_damage(Some((Sword, 1))), 5.0);
+        assert_eq!(hit_damage(Some((Sword, 3))), 7.0);
+        assert_eq!(hit_damage(Some((Sword, 4))), 8.0);
+        // Each sword beats the next tier's tools; iron beats diamond.
+        assert!(hit_damage(Some((Sword, 1))) > hit_damage(Some((Pickaxe, 2))));
+        assert!(hit_damage(Some((Sword, 3))) > hit_damage(Some((Pickaxe, 4))));
+    }
 
     #[test]
     fn turning_takes_the_short_way() {

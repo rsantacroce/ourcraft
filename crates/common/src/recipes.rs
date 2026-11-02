@@ -172,6 +172,12 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             &format!("core:{key}_hoe"),
             1,
         ));
+        r.push(shaped(
+            &["X", "X", "#"],
+            &k,
+            &format!("core:{key}_sword"),
+            1,
+        ));
     }
     // ---- Milestone 24: our own magic ----
     r.extend([
