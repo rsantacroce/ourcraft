@@ -110,5 +110,7 @@ with `fill` 1.1%. Plenty for commands and game rules. For big builds use
 mods/eelisp_runner/build.sh   # writes mods/runtimes/eelisp.wasm
 ```
 
-It needs `eelisp-rs` checked out next to this repo, built with its
-`sqlite` feature off (just the language).
+It gets EELisp from [eelisp-rs](https://github.com/santacroce-tech/eelisp-rs)
+(pinned to one commit in `Cargo.toml`), with its default features off: just
+the language, no SQLite or network. The built `mods/runtimes/eelisp.wasm` is
+committed, so building the game doesn't need this step.

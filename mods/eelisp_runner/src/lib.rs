@@ -18,7 +18,8 @@ use eelisp::value::OrderedDict;
 use eelisp::{Interpreter, LispError, Value};
 use ourcraft_mod_api::guest::{self, Mod};
 use ourcraft_mod_api::{
-    BlockSpec, EffectKind, Event, EventReply, HostCall, HostReply, ItemSpec, RecipeSpec, Render, Rgba, speckled,
+    BlockSpec, EffectKind, Event, EventReply, HostCall, HostReply, ItemSpec, RecipeSpec, Render,
+    Rgba, speckled,
 };
 
 /// Most blocks one `fill` may change.
@@ -149,7 +150,12 @@ impl Runner {
         let it = Interpreter::new();
         it.set_echo(false);
         add_game_functions(&it);
-        stir(script.len() as u64 ^ script.bytes().fold(0u64, |h, b| h.wrapping_mul(31) ^ b as u64));
+        stir(
+            script.len() as u64
+                ^ script
+                    .bytes()
+                    .fold(0u64, |h, b| h.wrapping_mul(31) ^ b as u64),
+        );
         if let Err(e) = it.eval_str(&script) {
             let text = format!("The script has a problem: {}", says(&e));
             guest::log(&text);
@@ -168,7 +174,9 @@ fn catch(v: &Value) -> Option<(String, u16)> {
     match v {
         Value::Str(s) => Some((s.clone(), 1)),
         Value::List(l) => match (l.first(), l.get(1)) {
-            (Some(Value::Str(s)), Some(Value::Number(n))) => Some((s.clone(), n.clamp(1.0, 64.0) as u16)),
+            (Some(Value::Str(s)), Some(Value::Number(n))) => {
+                Some((s.clone(), n.clamp(1.0, 64.0) as u16))
+            }
             (Some(Value::Str(s)), None) => Some((s.clone(), 1)),
             _ => None,
         },
@@ -553,7 +561,10 @@ fn add_game_functions(it: &Interpreter) {
     // ---- Chance ----
     // (random 6): a whole number from 0 to 5.
     it.define_fn("random", |a| {
-        let n = num(a, 0, "how many numbers").unwrap_or(2.0).floor().max(1.0) as u64;
+        let n = num(a, 0, "how many numbers")
+            .unwrap_or(2.0)
+            .floor()
+            .max(1.0) as u64;
         Ok(Value::Number((next_random() % n) as f64))
     });
     // (chance 25): true 25 times out of 100.
@@ -620,15 +631,21 @@ fn add_game_functions(it: &Interpreter) {
         };
         let count = whole(d, "count", 1.0, 64.0, 1.0) as u16;
         let strings = |v: Option<&Value>| match v {
-            Some(Value::List(l)) => l.iter().map(|v| match v {
-                Value::Str(s) => s.clone(),
-                v => v.to_string(),
-            }).collect(),
+            Some(Value::List(l)) => l
+                .iter()
+                .map(|v| match v {
+                    Value::Str(s) => s.clone(),
+                    v => v.to_string(),
+                })
+                .collect(),
             _ => Vec::new(),
         };
         let spec = if let Some(Value::Dict(k)) = field(d, "key") {
             let pattern: Vec<String> = strings(field(d, "pattern"));
-            if pattern.is_empty() || pattern.len() > 3 || pattern.iter().any(|r| r.chars().count() > 3) {
+            if pattern.is_empty()
+                || pattern.len() > 3
+                || pattern.iter().any(|r| r.chars().count() > 3)
+            {
                 return Err(LispError::Runtime(
                     "a recipe's :pattern has 1 to 3 rows of up to 3 letters".into(),
                 ));
@@ -644,7 +661,12 @@ fn add_game_functions(it: &Interpreter) {
                     }
                 })
                 .collect();
-            RecipeSpec::Shaped { pattern, key, result: result.clone(), count }
+            RecipeSpec::Shaped {
+                pattern,
+                key,
+                result: result.clone(),
+                count,
+            }
         } else {
             let ingredients = strings(field(d, "ingredients"));
             if ingredients.is_empty() || ingredients.len() > 9 {
@@ -652,7 +674,11 @@ fn add_game_functions(it: &Interpreter) {
                     "a recipe needs :ingredients (1 to 9) or a :pattern and :key".into(),
                 ));
             }
-            RecipeSpec::Shapeless { ingredients, result: result.clone(), count }
+            RecipeSpec::Shapeless {
+                ingredients,
+                result: result.clone(),
+                count,
+            }
         };
         registered(HostCall::RegisterRecipe(spec))?;
         Ok(Value::Str(result))
@@ -660,7 +686,11 @@ fn add_game_functions(it: &Interpreter) {
     // (give-item player "fish:trout" 3): count is 1 if you leave it out.
     it.define_fn("give-item", |a| {
         let count = num(a, 2, "how many").unwrap_or(1.0).clamp(1.0, 2304.0) as u16;
-        Ok(Value::Bool(guest::give_item(num(a, 0, "the player")? as u64, &text(a, 1), count)))
+        Ok(Value::Bool(guest::give_item(
+            num(a, 0, "the player")? as u64,
+            &text(a, 1),
+            count,
+        )))
     });
     // (take-item player "fish:trout" 3): takes up to 3; returns how many it took.
     it.define_fn("take-item", |a| {

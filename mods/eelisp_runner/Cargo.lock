@@ -23,6 +23,7 @@ dependencies = [
 [[package]]
 name = "eelisp"
 version = "0.4.0"
+source = "git+https://github.com/santacroce-tech/eelisp-rs?rev=85a80b2#85a80b29407d7e7b6ce95eca2448287cbd8113eb"
 dependencies = [
  "regex",
  "serde_json",

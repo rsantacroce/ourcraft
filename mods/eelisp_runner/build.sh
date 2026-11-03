@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the EELisp runner and copy it to mods/runtimes/eelisp.wasm, where
 # the game finds it (and bundles it, so phones and tablets get it too).
-# Needs: rustup target add wasm32-unknown-unknown, and eelisp-rs checked
-# out next to this repo (../eelisp-rs from the repo root).
+# Needs: rustup target add wasm32-unknown-unknown. (Cargo fetches EELisp
+# from github.com/santacroce-tech/eelisp-rs.)
 set -euo pipefail
 cd "$(dirname "$0")"
 cargo build --release --target wasm32-unknown-unknown

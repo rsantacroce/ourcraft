@@ -109,7 +109,6 @@ fn join(addr: SocketAddr, id: u64, name: &str) -> Bot {
     bot
 }
 
-
 fn block_id(bot: &Bot, name: &str) -> Option<u16> {
     bot.received.iter().find_map(|m| match m {
         ServerMessage::Welcome { content, .. } => content
@@ -133,14 +132,38 @@ fn changed_to(bot: &Bot, block: u16) -> Vec<[i32; 3]> {
 }
 
 const STEPS: [(&str, &str); 8] = [
-    ("1-hello", include_str!("../../../mods/tutorials/fishing/steps/1-hello.el")),
-    ("2-draw-a-fish", include_str!("../../../mods/tutorials/fishing/steps/2-draw-a-fish.el")),
-    ("3-catch-and-cook", include_str!("../../../mods/tutorials/fishing/steps/3-catch-and-cook.el")),
-    ("4-many-fish", include_str!("../../../mods/tutorials/fishing/steps/4-many-fish.el")),
-    ("5-fishing-places", include_str!("../../../mods/tutorials/fishing/steps/5-fishing-places.el")),
-    ("6-better-rods", include_str!("../../../mods/tutorials/fishing/steps/6-better-rods.el")),
-    ("7-fish-market", include_str!("../../../mods/tutorials/fishing/steps/7-fish-market.el")),
-    ("8-feast", include_str!("../../../mods/tutorials/fishing/steps/8-feast.el")),
+    (
+        "1-hello",
+        include_str!("../../../mods/tutorials/fishing/steps/1-hello.el"),
+    ),
+    (
+        "2-draw-a-fish",
+        include_str!("../../../mods/tutorials/fishing/steps/2-draw-a-fish.el"),
+    ),
+    (
+        "3-catch-and-cook",
+        include_str!("../../../mods/tutorials/fishing/steps/3-catch-and-cook.el"),
+    ),
+    (
+        "4-many-fish",
+        include_str!("../../../mods/tutorials/fishing/steps/4-many-fish.el"),
+    ),
+    (
+        "5-fishing-places",
+        include_str!("../../../mods/tutorials/fishing/steps/5-fishing-places.el"),
+    ),
+    (
+        "6-better-rods",
+        include_str!("../../../mods/tutorials/fishing/steps/6-better-rods.el"),
+    ),
+    (
+        "7-fish-market",
+        include_str!("../../../mods/tutorials/fishing/steps/7-fish-market.el"),
+    ),
+    (
+        "8-feast",
+        include_str!("../../../mods/tutorials/fishing/steps/8-feast.el"),
+    ),
 ];
 
 /// A little helper mod for the test: /pond digs a pool of water next to
@@ -164,7 +187,15 @@ fn runner_built() -> bool {
 
 /// Start a server running these scripts; returns its address and how to
 /// stop it.
-fn serve(tag: &str, scripts: &[(&str, &str)]) -> (SocketAddr, StopFlag, std::thread::JoinHandle<()>, std::path::PathBuf) {
+fn serve(
+    tag: &str,
+    scripts: &[(&str, &str)],
+) -> (
+    SocketAddr,
+    StopFlag,
+    std::thread::JoinHandle<()>,
+    std::path::PathBuf,
+) {
     let dir = std::env::temp_dir().join(format!("ourcraft-fishing-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let mods = dir.join("mods");
@@ -198,7 +229,10 @@ fn serve(tag: &str, scripts: &[(&str, &str)]) -> (SocketAddr, StopFlag, std::thr
 }
 
 fn problems(b: &Bot) -> Vec<String> {
-    chats(b).into_iter().filter(|c| c.starts_with('⚠')).collect()
+    chats(b)
+        .into_iter()
+        .filter(|c| c.starts_with('⚠'))
+        .collect()
 }
 
 fn item_id(bot: &Bot, name: &str) -> Option<u16> {
@@ -272,7 +306,14 @@ fn catch_sell_and_buy() {
     }
     let (addr, stop, server, dir) = serve("play", &[("fishing", STEPS[7].1), ("pond", POND)]);
     let mut kit = join(addr, 801, "Kit");
-    for name in ["fish:perch", "fish:cooked_perch", "fish:lucky_rod", "fish:golden_rod", "fish:coin", "fish:feast"] {
+    for name in [
+        "fish:perch",
+        "fish:cooked_perch",
+        "fish:lucky_rod",
+        "fish:golden_rod",
+        "fish:coin",
+        "fish:feast",
+    ] {
         assert!(item_id(&kit, name).is_some(), "no {name}");
     }
     assert!(block_id(&kit, "fish:market").is_some());
@@ -280,7 +321,9 @@ fn catch_sell_and_buy() {
 
     // Dig a pond and cast into it.
     say(&mut kit, "/pond");
-    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0]).iter().any(|c| c.starts_with("pond "))));
+    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0])
+        .iter()
+        .any(|c| c.starts_with("pond "))));
     let spot: Vec<i32> = chats(&kit)
         .iter()
         .find(|c| c.starts_with("pond "))
@@ -303,22 +346,33 @@ fn catch_sell_and_buy() {
     let (caught, _) = given(&kit)[0].clone();
     assert!(caught.starts_with("fish:"), "caught {caught}");
     assert!(
-        chats(&kit).iter().any(|c| c.starts_with("You caught a") || c.contains("Old Boot")),
+        chats(&kit)
+            .iter()
+            .any(|c| c.starts_with("You caught a") || c.contains("Old Boot")),
         "{:?}",
         chats(&kit)
     );
 
     // Selling away from a market doesn't work…
     say(&mut kit, "/sell");
-    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0]).iter().any(|c| c.starts_with("Stand next to a Fish Market"))));
+    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0])
+        .iter()
+        .any(|c| c.starts_with("Stand next to a Fish Market"))));
     // …next to one it does.
     let market = block_id(&kit, "fish:market").unwrap();
     say(&mut kit, "/market");
-    assert!(run_until(&mut [&mut kit], 3.0, |b| changed_to(b[0], market).len() == 1));
-    kit.received.retain(|m| !matches!(m, ServerMessage::GiveItems(_)));
+    assert!(run_until(&mut [&mut kit], 3.0, |b| changed_to(
+        b[0], market
+    )
+    .len()
+        == 1));
+    kit.received
+        .retain(|m| !matches!(m, ServerMessage::GiveItems(_)));
     say(&mut kit, "/sell");
     assert!(
-        run_until(&mut [&mut kit], 3.0, |b| chats(b[0]).iter().any(|c| c.starts_with("You sold your fish for"))),
+        run_until(&mut [&mut kit], 3.0, |b| chats(b[0])
+            .iter()
+            .any(|c| c.starts_with("You sold your fish for"))),
         "{:?}",
         chats(&kit)
     );
@@ -328,20 +382,35 @@ fn catch_sell_and_buy() {
         .map(|(_, c)| c)
         .sum();
     assert!(coins >= 1);
-    assert!(kit.has(|m| matches!(m, ServerMessage::TakeItems(s) if item_name(&kit, s.item) == caught)));
+    assert!(
+        kit.has(|m| matches!(m, ServerMessage::TakeItems(s) if item_name(&kit, s.item) == caught))
+    );
 
     // Spend them: bread costs 2.
-    kit.received.retain(|m| !matches!(m, ServerMessage::GiveItems(_)));
+    kit.received
+        .retain(|m| !matches!(m, ServerMessage::GiveItems(_)));
     say(&mut kit, "/buy 3");
     if coins >= 2 {
-        assert!(run_until(&mut [&mut kit], 3.0, |b| given(b[0]).iter().any(|(n, _)| n == "core:bread")), "{:?}", chats(&kit));
+        assert!(
+            run_until(&mut [&mut kit], 3.0, |b| given(b[0])
+                .iter()
+                .any(|(n, _)| n == "core:bread")),
+            "{:?}",
+            chats(&kit)
+        );
     } else {
-        assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0]).iter().any(|c| c.starts_with("You need 2"))));
+        assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0])
+            .iter()
+            .any(|c| c.starts_with("You need 2"))));
     }
     say(&mut kit, "/buy 9");
-    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0]).iter().any(|c| c.starts_with("There's nothing with that number"))));
+    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0])
+        .iter()
+        .any(|c| c.starts_with("There's nothing with that number"))));
     say(&mut kit, "/journal");
-    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0]).iter().any(|c| c.starts_with("You have found"))));
+    assert!(run_until(&mut [&mut kit], 3.0, |b| chats(b[0])
+        .iter()
+        .any(|c| c.starts_with("You have found"))));
 
     assert!(problems(&kit).is_empty(), "{:?}", problems(&kit));
     stop.0.store(true, Ordering::Relaxed);
@@ -373,6 +442,9 @@ fn a_mistake_in_a_script_is_shown_in_the_chat() {
         p.iter().any(|c| c.contains("letter z")),
         "the picture mistake: {p:?}"
     );
-    assert!(p.iter().any(|c| c.contains("on-chat")), "the /oops mistake: {p:?}");
+    assert!(
+        p.iter().any(|c| c.contains("on-chat")),
+        "the /oops mistake: {p:?}"
+    );
     eprintln!("{p:#?}");
 }

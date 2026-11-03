@@ -1,6 +1,6 @@
 [package]
 name = "eelisp_runner"
-description = "Experiment: Ourcraft mods written in EELisp, run by the EELisp interpreter inside the mod sandbox."
+description = "Ourcraft mods written in EELisp, run by the EELisp interpreter inside the mod sandbox."
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
@@ -12,10 +12,10 @@ crate-type = ["cdylib"]
 [dependencies]
 ourcraft_mod_api = { path = "../../crates/mod_api" }
 # The language alone: no SQLite, no HTTP, no JavaScript.
-eelisp = { path = "../../../eelisp-rs", default-features = false }
+eelisp = { git = "https://github.com/santacroce-tech/eelisp-rs", rev = "85a80b2", default-features = false }
 
-# Its own workspace while it's an experiment, so mods/build.sh doesn't
-# bundle it into the game.
+# Its own workspace, so mods/build.sh doesn't bundle it into the game as
+# a mod (the game loads it once for each .el file instead).
 [workspace]
 
 [profile.release]
