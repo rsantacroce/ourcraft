@@ -47,6 +47,8 @@ pub struct LoadedMod<H: Host> {
     event: TypedFunc<(u32, u32), u64>,
     pub failures: u32,
     pub enabled: bool,
+    /// How much of its [`FUEL_PER_EVENT`] the last event used.
+    pub last_fuel_used: u64,
 }
 
 /// All loaded mods.
@@ -54,6 +56,9 @@ pub struct ModRuntime<H: Host> {
     engine: Engine,
     linker: Linker<Ctx<H>>,
     pub mods: Vec<LoadedMod<H>>,
+    /// Compiled modules by a hash of their bytes: a runner loaded once per
+    /// script is compiled only once.
+    compiled: std::collections::HashMap<u64, Module>,
 }
 
 impl<H: Host> ModRuntime<H> {
@@ -73,12 +78,27 @@ impl<H: Host> ModRuntime<H> {
             engine,
             linker,
             mods: Vec::new(),
+            compiled: Default::default(),
         })
     }
 
     /// Load a mod from its `.wasm` bytes.
     pub fn load(&mut self, name: &str, wasm: &[u8]) -> Result<(), String> {
-        let module = Module::new(&self.engine, wasm).map_err(|e| format!("invalid wasm: {e}"))?;
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            wasm.hash(&mut h);
+            h.finish()
+        };
+        let module = match self.compiled.get(&key) {
+            Some(m) => m.clone(),
+            None => {
+                let m =
+                    Module::new(&self.engine, wasm).map_err(|e| format!("invalid wasm: {e}"))?;
+                self.compiled.insert(key, m.clone());
+                m
+            }
+        };
         for import in module.imports() {
             if (import.module(), import.name()) != ("ourcraft", "call") {
                 return Err(format!(
@@ -133,6 +153,7 @@ impl<H: Host> ModRuntime<H> {
             event,
             failures: 0,
             enabled: true,
+            last_fuel_used: 0,
         });
         Ok(())
     }
@@ -163,6 +184,14 @@ impl<H: Host> ModRuntime<H> {
         (host, EventReply::Ok)
     }
 
+    /// Send an event to one mod, by name.
+    pub fn dispatch_to(&mut self, name: &str, host: H, event: &Event) -> (H, EventReply) {
+        match self.mods.iter_mut().find(|m| m.name == name) {
+            Some(m) => m.dispatch(host, event),
+            None => (host, EventReply::Ok),
+        }
+    }
+
     pub fn enabled_count(&self) -> usize {
         self.mods.iter().filter(|m| m.enabled).count()
     }
@@ -175,6 +204,7 @@ impl<H: Host> LoadedMod<H> {
         }
         self.store.data_mut().host = Some(host);
         let result = self.call_event(event);
+        self.last_fuel_used = FUEL_PER_EVENT - self.store.get_fuel().unwrap_or(0);
         let host = self
             .store
             .data_mut()

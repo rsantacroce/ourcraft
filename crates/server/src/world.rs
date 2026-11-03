@@ -178,10 +178,16 @@ fn open_world(
         Some(meta) => meta.game_mode.clone(),
         None => config.game_mode.clone(),
     };
+    // Single player: just the mods switched on for this world.
+    let only = config.per_world_mods.then(|| {
+        ourcraft_common::save::load_world_mods(&config.world_dir)
+            .unwrap_or_else(crate::mods::default_world_mods)
+    });
     let (mods, registry, content) = crate::mods::load_mods(
         config.mods_dir.as_deref(),
         config.bundled_mods,
         game_mode.clone(),
+        only.as_deref(),
     );
     let registry_ref = &registry;
     let (meta, remap) = match existing {

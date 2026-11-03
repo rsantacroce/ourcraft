@@ -15,7 +15,10 @@ rustup target add wasm32-unknown-unknown   # once
 This writes `dist/*.wasm`. The game bundles everything in `dist/` into its
 own binary when it's built (so phones and tablets get the mods too).
 Dedicated servers also load extra mods from a `mods/` folder next to them
-(`ourcraft-server --mods FOLDER` to change it).
+(`ourcraft-server --mods FOLDER` to change it). In single player, extra
+mods go in the `mods` folder next to your worlds, and each world runs the
+ones switched on for it: **Mods** next to a world in the list, or when
+making one.
 
 **Full guide:** the [Modding Guide](https://rsantacroce.github.io/ourcraft-site/modding.html)
 has a step-by-step tutorial, recipes and the complete API reference.
@@ -33,6 +36,14 @@ has a step-by-step tutorial, recipes and the complete API reference.
   badges from "Meh" to "WOW!". `/start` (or `/start 3` for three minutes)
   begins a round. Pick "Game: Build Contest" when making a world, or
   `--mode build_contest`.
+
+## Mods in EELisp
+
+A mod can also be one text file in EELisp: put `something.el` in the mods
+folder. See [`eelisp_runner/README.md`](eelisp_runner/README.md) for the
+events, the game functions and two examples, and
+[`tutorials/fishing`](tutorials/fishing) for a tutorial that a 10-year-old
+can follow: a fishing mod, built in 8 steps.
 
 ## Write your own
 

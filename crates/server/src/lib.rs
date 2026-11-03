@@ -71,10 +71,14 @@ pub struct ServerConfig {
     pub max_players: usize,
     /// Game mode for a new world (a mod's name for it, e.g. `"team_shooter"`).
     pub game_mode: Option<String>,
-    /// Extra mods (`*.wasm`) to load from this folder.
+    /// Extra mods (`*.wasm`, and EELisp `*.el`) to load from this folder.
     pub mods_dir: Option<PathBuf>,
     /// Load the mods built into the game.
     pub bundled_mods: bool,
+    /// Load only the mods switched on for this world (its `mods.txt`; by
+    /// default, the built-in ones), as single player does. Off, every mod
+    /// loads, as on a dedicated server, whose mods folder is its choice.
+    pub per_world_mods: bool,
 }
 
 impl Default for ServerConfig {
@@ -92,6 +96,7 @@ impl Default for ServerConfig {
             game_mode: None,
             mods_dir: None,
             bundled_mods: true,
+            per_world_mods: false,
         }
     }
 }

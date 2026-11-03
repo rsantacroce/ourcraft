@@ -3,6 +3,8 @@
 [workspace]
 resolver = "3"
 members = ["build_contest", "paint_blocks", "snow_fun", "team_shooter"]
+# An experiment, built on its own (not bundled into the game yet).
+exclude = ["eelisp_runner"]
 
 [workspace.package]
 version = "0.1.0"

@@ -265,8 +265,10 @@ impl Connection {
         let config = ServerConfig {
             game_mode: opts.mode.clone(),
             creative: opts.creative,
-            // Extra mods can be dropped in here (next to the worlds folder).
+            // Extra mods can be dropped in here (next to the worlds folder),
+            // and each world uses the ones switched on for it in the menu.
             mods_dir: saves_dir().parent().map(|p| p.join("mods")),
+            per_world_mods: true,
             world_dir: saves_dir().join(&opts.folder),
             world_name: world.to_owned(),
             seed: opts.seed,

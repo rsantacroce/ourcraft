@@ -281,7 +281,7 @@ fn use_blocks(
         return;
     }
     // A fishing rod casts into the water you point at (or reels in).
-    if items.name(held) == "core:fishing_rod" {
+    if ourcraft_common::adventure::is_fishing_rod(items.name(held)) {
         let Some(mut conn) = conn else { return };
         let spot = source.0.or(target.0).map_or(IVec3::ZERO, |h| h.block);
         if survival {

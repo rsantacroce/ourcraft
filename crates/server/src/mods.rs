@@ -59,6 +59,18 @@ pub struct ModQueue {
     pub edits: Vec<PendingEdit>,
     /// (client, player name, text)
     pub chats: Vec<(ClientId, String, String)>,
+    /// Fish that bit this tick.
+    pub bites: Vec<FishBite>,
+}
+
+/// A fish bit someone's line: mods may give a catch of their own.
+#[derive(Debug, Clone)]
+pub struct FishBite {
+    pub client: ClientId,
+    pub rod: String,
+    pub water: IVec3,
+    /// What the player gets if no mod gives anything.
+    pub catch: ourcraft_common::item::ItemId,
 }
 
 /// Something a mod asked for that needs other parts of the server.
@@ -80,6 +92,8 @@ pub enum ModCommand {
     Title(Option<ClientId>, String, f32),
     Tools(ClientId, Vec<String>),
     Broadcast(Box<ServerMessage>),
+    Give(ClientId, ourcraft_common::item::ItemId, u16),
+    Take(ClientId, ourcraft_common::item::ItemId, u16),
 }
 
 enum Phase {
@@ -104,6 +118,8 @@ pub struct ServerHost {
     open: Option<OpenWorld>,
     entities: Option<Entities>,
     players: Vec<api::PlayerInfo>,
+    /// The players' inventories, kept up to date as mods give and take.
+    inventories: HashMap<ClientId, ourcraft_common::inventory::Inventory>,
     pub out: Vec<ModCommand>,
 }
 
@@ -123,6 +139,7 @@ impl ServerHost {
             open: None,
             entities: None,
             players: Vec::new(),
+            inventories: HashMap::new(),
             out: Vec::new(),
         }
     }
@@ -168,6 +185,11 @@ impl ServerHost {
             }
         }
         best.map(|(_, h)| h)
+    }
+
+    /// An item (or block) by name, while the world is running.
+    fn item(&self, name: &str) -> Option<ourcraft_common::item::ItemId> {
+        self.open.as_ref()?.items.by_name(name)
     }
 
     /// Change a block on behalf of a mod or an approved player edit.
@@ -450,6 +472,47 @@ impl Host for ServerHost {
                 Some(o) => HostReply::Position(o.spawn.to_array()),
                 None => error("the world isn't open"),
             },
+            // ---- Items ----
+            HostCall::GiveItem {
+                player,
+                item,
+                count,
+            } => {
+                let Some(id) = self.item(&item) else {
+                    return error("there's no item with that name");
+                };
+                let count = count.min(64 * 36);
+                if let (Some(inv), Some(open)) =
+                    (self.inventories.get_mut(&player), self.open.as_ref())
+                {
+                    inv.add(&open.items, id, count);
+                }
+                self.out.push(ModCommand::Give(player, id, count));
+                HostReply::Ok
+            }
+            HostCall::TakeItem {
+                player,
+                item,
+                count,
+            } => {
+                let Some(id) = self.item(&item) else {
+                    return error("there's no item with that name");
+                };
+                let taken = self
+                    .inventories
+                    .get_mut(&player)
+                    .map_or(0, |inv| inv.take(id, count));
+                if taken > 0 {
+                    self.out.push(ModCommand::Take(player, id, taken));
+                }
+                HostReply::Count(taken as u32)
+            }
+            HostCall::CountItem { player, item } => {
+                let Some(id) = self.item(&item) else {
+                    return error("there's no item with that name");
+                };
+                HostReply::Count(self.inventories.get(&player).map_or(0, |inv| inv.count(id)))
+            }
             HostCall::Sound { name, at } => {
                 self.out
                     .push(ModCommand::Broadcast(Box::new(ServerMessage::Sound {
@@ -462,12 +525,99 @@ impl Host for ServerHost {
     }
 }
 
+/// Where a mod comes from: a WebAssembly module, or an EELisp script that
+/// the EELisp runner runs.
+enum ModSource {
+    Wasm(Vec<u8>),
+    Script(String),
+}
+
+/// A mod that can be switched on for a world (for the menu's list).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableMod {
+    pub name: String,
+    /// Built into the game (rather than a file in the mods folder).
+    pub built_in: bool,
+    /// Written in EELisp (an `.el` file).
+    pub script: bool,
+}
+
+/// Every mod: built in, and in `mods_dir` (which win over built-in ones of
+/// the same name), by name.
+fn mod_sources(mods_dir: Option<&Path>, use_bundled: bool) -> HashMap<String, (ModSource, bool)> {
+    let mut sources = HashMap::new();
+    if use_bundled {
+        for (name, bytes) in BUNDLED_MODS {
+            sources.insert((*name).to_owned(), (ModSource::Wasm(bytes.to_vec()), true));
+        }
+        for (name, script) in BUNDLED_SCRIPTS {
+            sources.insert(
+                (*name).to_owned(),
+                (ModSource::Script((*script).to_owned()), true),
+            );
+        }
+    }
+    if let Some(dir) = mods_dir
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            match path.extension().and_then(|e| e.to_str()) {
+                Some("wasm") => {
+                    if let Ok(bytes) = std::fs::read(&path) {
+                        sources.insert(stem, (ModSource::Wasm(bytes), false));
+                    }
+                }
+                Some("el") => match std::fs::read_to_string(&path) {
+                    Ok(script) => {
+                        sources.insert(stem, (ModSource::Script(script), false));
+                    }
+                    Err(e) => error!("Mod '{stem}' wasn't loaded: {e}"),
+                },
+                _ => {}
+            }
+        }
+    }
+    sources
+}
+
+/// The mods that could be switched on for a world, sorted by name.
+pub fn available_mods(mods_dir: Option<&Path>) -> Vec<AvailableMod> {
+    let mut list: Vec<AvailableMod> = mod_sources(mods_dir, true)
+        .into_iter()
+        .map(|(name, (source, built_in))| AvailableMod {
+            name,
+            built_in,
+            script: matches!(source, ModSource::Script(_)),
+        })
+        .collect();
+    list.sort_by(|a, b| a.name.cmp(&b.name));
+    list
+}
+
+/// The mods a world has until someone chooses: the ones built into the
+/// game. Mods dropped in the mods folder start switched off.
+pub fn default_world_mods() -> Vec<String> {
+    let mut names: Vec<String> = BUNDLED_MODS
+        .iter()
+        .map(|(n, _)| (*n).to_owned())
+        .chain(BUNDLED_SCRIPTS.iter().map(|(n, _)| (*n).to_owned()))
+        .collect();
+    names.sort();
+    names
+}
+
 /// Load bundled mods and any in `mods_dir`, give them `Init`, and return the
-/// runtime plus the content they registered.
+/// runtime plus the content they registered. With `only`, just those mods
+/// load (plus the one providing the game mode, if any).
 pub fn load_mods(
     mods_dir: Option<&Path>,
     use_bundled: bool,
     game_mode: Option<String>,
+    only: Option<&[String]>,
 ) -> (Mods, BlockRegistry, ContentPack) {
     let mut runtime = match ModRuntime::new() {
         Ok(r) => r,
@@ -488,35 +638,38 @@ pub fn load_mods(
         }
     };
 
-    // Files in the mods folder override bundled mods with the same name.
-    let mut sources: HashMap<String, Vec<u8>> = HashMap::new();
-    if use_bundled {
-        for (name, bytes) in BUNDLED_MODS {
-            sources.insert((*name).to_owned(), bytes.to_vec());
-        }
-    }
-    if let Some(dir) = mods_dir
-        && let Ok(entries) = std::fs::read_dir(dir)
-    {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "wasm")
-                && let (Some(stem), Ok(bytes)) = (path.file_stem(), std::fs::read(&path))
-            {
-                sources.insert(stem.to_string_lossy().into_owned(), bytes);
-            }
-        }
-    }
-    let mut names: Vec<String> = sources.keys().cloned().collect();
+    let sources = mod_sources(mods_dir, use_bundled);
+    let mut names: Vec<String> = sources
+        .keys()
+        .filter(|n| only.is_none_or(|o| o.contains(n)) || game_mode.as_deref() == Some(n.as_str()))
+        .cloned()
+        .collect();
     names.sort();
+    let mut host = ServerHost::init(BlockRegistry::with_builtin_blocks());
     for name in names {
-        match runtime.load(&name, &sources[&name]) {
+        let loaded = match &sources[&name].0 {
+            ModSource::Wasm(bytes) => runtime.load(&name, bytes),
+            // An EELisp mod: its own copy of the runner, given the script.
+            ModSource::Script(script) => match EELISP_RUNNER {
+                None => Err("the EELisp runner isn't built (mods/eelisp_runner/build.sh)".into()),
+                Some(runner) => {
+                    let loaded = runtime.load(&name, runner);
+                    if loaded.is_ok() {
+                        let event = Event::Script {
+                            source: script.clone(),
+                        };
+                        host = runtime.dispatch_to(&name, host, &event).0;
+                    }
+                    loaded
+                }
+            },
+        };
+        match loaded {
             Ok(()) => info!("Loaded mod '{name}'"),
             Err(e) => error!("Mod '{name}' wasn't loaded: {e}"),
         }
     }
 
-    let host = ServerHost::init(BlockRegistry::with_builtin_blocks());
     let (host, _) = runtime.dispatch(
         host,
         &Event::Init {
@@ -550,7 +703,12 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
     *tick += 1;
     let send_tick = (*tick).is_multiple_of(TICK_EVERY);
     let queue = std::mem::take(&mut *world.resource_mut::<ModQueue>());
-    if queue.events.is_empty() && queue.edits.is_empty() && queue.chats.is_empty() && !send_tick {
+    if queue.events.is_empty()
+        && queue.edits.is_empty()
+        && queue.chats.is_empty()
+        && queue.bites.is_empty()
+        && !send_tick
+    {
         return;
     }
 
@@ -569,6 +727,10 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
             })
         })
         .collect();
+    let inventories = players_q
+        .iter(world)
+        .map(|p| (p.client, p.inventory.clone()))
+        .collect();
 
     // Lend the world to the mods.
     let registry = world.resource::<Registry>().0.clone();
@@ -586,6 +748,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         open: world.remove_resource::<OpenWorld>(),
         entities: world.remove_resource::<Entities>(),
         players,
+        inventories,
         out: Vec::new(),
     };
     let mods = world.remove_resource::<Mods>().expect("mods resource");
@@ -636,6 +799,18 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
                 });
             }
         }
+        for bite in &queue.bites {
+            let event = Event::FishBite {
+                player: bite.client,
+                rod: bite.rod.clone(),
+                water: bite.water.to_array(),
+            };
+            let (h, reply) = rt.dispatch_until_handled(host, &event);
+            host = h;
+            if reply != EventReply::Handled {
+                host.out.push(ModCommand::Give(bite.client, bite.catch, 1));
+            }
+        }
         if send_tick {
             let event = Event::Tick {
                 tick: *tick / TICK_EVERY,
@@ -672,6 +847,7 @@ fn carry_out(world: &mut World, commands: Vec<ModCommand>) {
         return;
     }
     let time = world.resource::<OpenWorld>().meta.time_of_day;
+    let items = world.resource::<OpenWorld>().items.clone();
     let mut players_q = world.query::<&mut ConnectedPlayer>();
     let mut players: Vec<Mut<ConnectedPlayer>> = players_q.iter_mut(world).collect();
     let mut outgoing: Vec<(Option<ClientId>, Channel, ServerMessage)> = Vec::new();
@@ -746,6 +922,40 @@ fn carry_out(world: &mut World, commands: Vec<ModCommand>) {
                 outgoing.push((Some(client), Channel::Reliable, ServerMessage::Tools(tools)));
             }
             ModCommand::Broadcast(msg) => outgoing.push((None, Channel::Reliable, *msg)),
+            ModCommand::Give(client, item, count) => {
+                if let Some(p) = players.iter_mut().find(|p| p.client == client) {
+                    p.inventory.add(&items, item, count);
+                }
+                // In stacks the player's game can take in one go.
+                let mut left = count;
+                while left > 0 {
+                    let n = left.min(items.max_stack(item));
+                    left -= n;
+                    outgoing.push((
+                        Some(client),
+                        Channel::Reliable,
+                        ServerMessage::GiveItems(ourcraft_common::protocol::NetStack {
+                            item: item.0,
+                            count: n,
+                            wear: 0,
+                        }),
+                    ));
+                }
+            }
+            ModCommand::Take(client, item, count) => {
+                if let Some(p) = players.iter_mut().find(|p| p.client == client) {
+                    p.inventory.take(item, count);
+                }
+                outgoing.push((
+                    Some(client),
+                    Channel::Reliable,
+                    ServerMessage::TakeItems(ourcraft_common::protocol::NetStack {
+                        item: item.0,
+                        count,
+                        wear: 0,
+                    }),
+                ));
+            }
         }
     }
     drop(players);

@@ -69,6 +69,8 @@ pub enum Screen {
     Settings,
     /// Making your own skin (from Settings).
     SkinMaker,
+    /// Which mods a world uses (see [`Forms::mods_for`]).
+    Mods,
     Pause,
     /// Lost the connection (with the reason).
     Disconnected(String),
@@ -103,6 +105,13 @@ struct Forms {
     sort: WorldSort,
     /// The world (folder) whose Delete was pressed once: asking "really?".
     confirm_delete: Option<String>,
+    /// The world whose mods are being chosen: its folder and name, or
+    /// `None` for the new world being made.
+    mods_for: Option<(String, String)>,
+    /// The mods switched on: for `mods_for`, or for the new world.
+    mods_on: Vec<String>,
+    /// The mods there are to choose from (read when the Mods screen opens).
+    mods_available: Vec<ourcraft_server::mods::AvailableMod>,
 }
 
 /// Orders for the world list.
@@ -158,6 +167,9 @@ impl Default for Forms {
             settings_from: Screen::Title,
             sort: WorldSort::default(),
             confirm_delete: None,
+            mods_for: None,
+            mods_on: ourcraft_server::mods::default_world_mods(),
+            mods_available: Vec::new(),
         }
     }
 }
@@ -203,6 +215,9 @@ enum Action {
     MakerRandom,
     TogglePick,
     ToggleWheel,
+    /// Choose the mods of a world (folder and name), or of the new world.
+    OpenMods(Option<(String, String)>),
+    ToggleMod(String),
 }
 
 /// The games a new world can be: (mode name, what the button says).
@@ -390,7 +405,36 @@ fn button_actions(
             Action::NewWorld => {
                 forms.world_name = random_world_name(time.elapsed().as_nanos() as u64);
                 forms.seed.clear();
+                forms.mods_on = ourcraft_server::mods::default_world_mods();
                 *screen = Screen::NewWorld;
+            }
+            Action::OpenMods(world) => {
+                let dir = mods_dir();
+                // Made now, so there's a folder to drop mods into.
+                let _ = std::fs::create_dir_all(&dir);
+                forms.mods_available = ourcraft_server::mods::available_mods(Some(&dir));
+                if let Some((folder, _)) = &world {
+                    forms.mods_on =
+                        ourcraft_common::save::load_world_mods(&saves_dir().join(folder))
+                            .unwrap_or_else(ourcraft_server::mods::default_world_mods);
+                }
+                forms.mods_for = world.clone();
+                *screen = Screen::Mods;
+            }
+            Action::ToggleMod(name) => {
+                if let Some(i) = forms.mods_on.iter().position(|m| *m == *name) {
+                    forms.mods_on.remove(i);
+                } else {
+                    forms.mods_on.push(name.clone());
+                    forms.mods_on.sort();
+                }
+                // An existing world's choice is kept straight away.
+                if let Some((folder, _)) = &forms.mods_for {
+                    let dir = saves_dir().join(folder);
+                    if let Err(e) = ourcraft_common::save::save_world_mods(&dir, &forms.mods_on) {
+                        forms.message = Some(format!("Couldn't save the mods: {e}"));
+                    }
+                }
             }
             Action::RandomName => {
                 forms.world_name = random_world_name(time.elapsed().as_nanos() as u64);
@@ -401,8 +445,15 @@ fn button_actions(
                 } else {
                     forms.world_name.trim().to_owned()
                 };
+                let folder = free_folder(&world);
+                if let Err(e) = ourcraft_common::save::save_world_mods(
+                    &saves_dir().join(&folder),
+                    &forms.mods_on,
+                ) {
+                    warn!("Couldn't save the new world's mods: {e}");
+                }
                 let opts = SinglePlayer {
-                    folder: free_folder(&world),
+                    folder,
                     world_name: world,
                     seed: forms.seed.parse().ok(),
                     lan: forms.lan,
@@ -838,7 +889,7 @@ fn world_list(
                                 format!("{}\n{mode}, played {when}", meta.name),
                                 Action::Play {
                                     folder: folder.clone(),
-                                    name: meta.name,
+                                    name: meta.name.clone(),
                                 },
                                 400.0,
                             );
@@ -852,6 +903,12 @@ fn world_list(
                                 border_radius: BorderRadius::all(px(8)),
                                 ..default()
                             });
+                            button_node(
+                                row,
+                                "Mods",
+                                Action::OpenMods(Some((folder.clone(), meta.name))),
+                                70.0,
+                            );
                             let delete =
                                 button_node(row, "Delete", Action::AskDelete(folder), 80.0);
                             row.commands()
@@ -879,6 +936,32 @@ fn world_list(
                 },
             ));
     });
+}
+
+/// Where mods are added: `mods/` next to the worlds folder.
+fn mods_dir() -> std::path::PathBuf {
+    saves_dir()
+        .parent()
+        .map_or_else(|| "mods".into(), |p| p.join("mods"))
+}
+
+/// Mods that provide a game mode come with the "Game:" choice instead.
+fn is_game_mode_mod(name: &str) -> bool {
+    GAME_MODES.iter().any(|(mode, _)| *mode == Some(name))
+}
+
+/// `paint_blocks` → "Paint Blocks".
+fn pretty_mod_name(name: &str) -> String {
+    name.split(['_', '-'])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            c.next()
+                .map(|f| f.to_uppercase().chain(c).collect::<String>())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn onoff(b: bool) -> &'static str {
@@ -1068,8 +1151,56 @@ fn rebuild_menu(
                         Action::ToggleLan,
                         480.0,
                     );
+                    let on = forms
+                        .mods_on
+                        .iter()
+                        .filter(|m| !is_game_mode_mod(m))
+                        .count();
+                    button_sized(ui, format!("Mods: {on} on"), Action::OpenMods(None), 420.0);
                     button(ui, "Create and play", Action::CreateWorld);
                     button(ui, "Back", Action::Go(Screen::Worlds));
+                }
+                Screen::Mods => {
+                    let title = match &forms.mods_for {
+                        Some((_, name)) => format!("Mods for {name}"),
+                        None => "Mods for the new world".to_owned(),
+                    };
+                    heading(ui, &title);
+                    let choices: Vec<_> = forms
+                        .mods_available
+                        .iter()
+                        .filter(|m| !is_game_mode_mod(&m.name))
+                        .collect();
+                    for m in choices {
+                        let kind = match (m.built_in, m.script) {
+                            (true, _) => "built in",
+                            (false, true) => "EELisp",
+                            (false, false) => "added",
+                        };
+                        let on = forms.mods_on.contains(&m.name);
+                        button_sized(
+                            ui,
+                            format!("{} ({kind}): {}", pretty_mod_name(&m.name), onoff(on)),
+                            Action::ToggleMod(m.name.clone()),
+                            480.0,
+                        );
+                    }
+                    note(ui, "Add your own: put .el or .wasm files in", Color::WHITE);
+                    note(ui, mods_dir().display().to_string(), grey);
+                    if forms.mods_for.is_some() {
+                        note(
+                            ui,
+                            "Changes count next time you play. Switching a mod off\n\
+                             takes its blocks out of this world.",
+                            grey,
+                        );
+                    }
+                    let back = if forms.mods_for.is_some() {
+                        Screen::Worlds
+                    } else {
+                        Screen::NewWorld
+                    };
+                    button(ui, "Back", Action::Go(back));
                 }
                 Screen::Join => {
                     heading(ui, "Join a friend");

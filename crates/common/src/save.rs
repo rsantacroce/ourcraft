@@ -1403,3 +1403,55 @@ mod tests {
         assert!(BlockRemap::new(&full, &reg).is_identity());
     }
 }
+
+/// The file in a world's folder listing the mods switched on for it.
+pub const WORLD_MODS_FILE: &str = "mods.txt";
+
+/// The mods switched on for a world (its `mods.txt`, one name per line), or
+/// `None` if it has no list yet (then it gets the default: the mods built
+/// into the game).
+pub fn load_world_mods(world_dir: &Path) -> Option<Vec<String>> {
+    let text = fs::read_to_string(world_dir.join(WORLD_MODS_FILE)).ok()?;
+    Some(
+        text.lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// Save the mods switched on for a world.
+pub fn save_world_mods(world_dir: &Path, mods: &[String]) -> io::Result<()> {
+    fs::create_dir_all(world_dir)?;
+    let mut text = String::from("# Mods switched on for this world, one per line.\n");
+    for m in mods {
+        text.push_str(m);
+        text.push('\n');
+    }
+    fs::write(world_dir.join(WORLD_MODS_FILE), text)
+}
+
+#[cfg(test)]
+mod world_mods_tests {
+    use super::*;
+
+    #[test]
+    fn a_worlds_mod_list_round_trips() {
+        let dir = std::env::temp_dir().join(format!("ourcraft-world-mods-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(load_world_mods(&dir), None, "no list yet");
+        save_world_mods(&dir, &["paint_blocks".into(), "glow_garden".into()]).unwrap();
+        assert_eq!(
+            load_world_mods(&dir),
+            Some(vec!["paint_blocks".into(), "glow_garden".into()])
+        );
+        save_world_mods(&dir, &[]).unwrap();
+        assert_eq!(
+            load_world_mods(&dir),
+            Some(vec![]),
+            "an empty list is a list"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

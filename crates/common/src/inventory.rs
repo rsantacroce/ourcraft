@@ -211,6 +211,29 @@ impl Inventory {
         self.slots.swap(a, b);
     }
 
+    /// Take up to `count` of an item, from the hand first, then anywhere.
+    /// Returns how many were taken.
+    pub fn take(&mut self, item: ItemId, count: u16) -> u16 {
+        let mut left = count;
+        let order = std::iter::once(self.selected)
+            .chain((0..self.slots.len()).filter(|i| *i != self.selected))
+            .collect::<Vec<_>>();
+        for i in order {
+            if left == 0 {
+                break;
+            }
+            if let Some(s) = self.slots[i].as_mut().filter(|s| s.item == item) {
+                let n = left.min(s.count);
+                s.count -= n;
+                left -= n;
+                if s.count == 0 {
+                    self.slots[i] = None;
+                }
+            }
+        }
+        count - left
+    }
+
     /// Total count of an item across all slots.
     pub fn count(&self, item: ItemId) -> u32 {
         self.slots
