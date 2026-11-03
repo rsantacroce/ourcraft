@@ -47,6 +47,8 @@ pub struct LoadedMod<H: Host> {
     event: TypedFunc<(u32, u32), u64>,
     pub failures: u32,
     pub enabled: bool,
+    /// How much of its [`FUEL_PER_EVENT`] the last event used.
+    pub last_fuel_used: u64,
 }
 
 /// All loaded mods.
@@ -133,6 +135,7 @@ impl<H: Host> ModRuntime<H> {
             event,
             failures: 0,
             enabled: true,
+            last_fuel_used: 0,
         });
         Ok(())
     }
@@ -175,6 +178,7 @@ impl<H: Host> LoadedMod<H> {
         }
         self.store.data_mut().host = Some(host);
         let result = self.call_event(event);
+        self.last_fuel_used = FUEL_PER_EVENT - self.store.get_fuel().unwrap_or(0);
         let host = self
             .store
             .data_mut()

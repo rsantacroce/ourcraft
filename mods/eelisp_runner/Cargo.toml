@@ -1,0 +1,26 @@
+[package]
+name = "eelisp_runner"
+description = "Experiment: Ourcraft mods written in EELisp, run by the EELisp interpreter inside the mod sandbox."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ourcraft_mod_api = { path = "../../crates/mod_api" }
+# The language alone: no SQLite, no HTTP, no JavaScript.
+eelisp = { path = "../../../eelisp-rs", default-features = false }
+
+# Its own workspace while it's an experiment, so mods/build.sh doesn't
+# bundle it into the game.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
