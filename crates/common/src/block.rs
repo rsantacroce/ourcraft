@@ -212,6 +212,9 @@ pub enum ToolKind {
     Shovel,
     /// Turns dirt into farmland (and cuts plants quickly).
     Hoe,
+    /// Bops monsters harder than anything else. No block is quicker with
+    /// one.
+    Sword,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

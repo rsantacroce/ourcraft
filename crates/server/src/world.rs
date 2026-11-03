@@ -102,6 +102,8 @@ pub struct OpenWorld {
     pub banners: HashMap<IVec3, Vec<(u8, u8)>>,
     /// Where each player last slept (their respawn point).
     pub beds: HashMap<String, IVec3>,
+    /// Each player's achievements, by id (see `achievements`).
+    pub achievements: HashMap<String, std::collections::BTreeSet<String>>,
     /// No monsters and no hunger.
     pub peaceful: bool,
     /// Animals players look after: loaded with the world, then kept up to
@@ -124,6 +126,7 @@ struct Snapshot {
     frames: Vec<([i32; 3], String)>,
     banners: Vec<([i32; 3], Vec<(u8, u8)>)>,
     beds: Vec<(String, [i32; 3])>,
+    achievements: Vec<(String, Vec<String>)>,
     rules: Vec<(String, bool)>,
     animals: Vec<SavedAnimal>,
     vehicles: Vec<SavedVehicle>,
@@ -259,6 +262,15 @@ fn open_world(
         .into_iter()
         .map(|(n, p)| (n, IVec3::from_array(p)))
         .collect();
+    let achievements = storage
+        .load_achievements()
+        .unwrap_or_else(|e| {
+            error!("Can't read achievements ({e})");
+            Vec::new()
+        })
+        .into_iter()
+        .map(|(n, ids)| (n, ids.into_iter().collect()))
+        .collect();
     let snapshot = Snapshot {
         meta: meta.clone(),
         containers: Vec::new(),
@@ -266,6 +278,7 @@ fn open_world(
         frames: Vec::new(),
         banners: Vec::new(),
         beds: Vec::new(),
+        achievements: Vec::new(),
         rules: Vec::new(),
         animals: Vec::new(),
         vehicles: Vec::new(),
@@ -303,6 +316,7 @@ fn open_world(
         frames,
         banners,
         beds,
+        achievements,
         peaceful,
         animals,
         boats,
@@ -381,6 +395,11 @@ impl OpenWorld {
                 .beds
                 .iter()
                 .map(|(n, p)| (n.clone(), p.to_array()))
+                .collect(),
+            achievements: self
+                .achievements
+                .iter()
+                .map(|(n, ids)| (n.clone(), ids.iter().cloned().collect()))
                 .collect(),
             rules: vec![("peaceful".into(), self.peaceful)],
             animals: self.animals.clone(),
@@ -569,6 +588,9 @@ fn save_now(storage: &WorldStorage, sky_storage: &WorldStorage, snapshot: &Mutex
     }
     if let Err(e) = storage.save_beds(snapshot.beds) {
         error!("Saving beds failed: {e}");
+    }
+    if let Err(e) = storage.save_achievements(snapshot.achievements) {
+        error!("Saving achievements failed: {e}");
     }
     if let Err(e) = storage.save_rules(snapshot.rules) {
         error!("Saving world rules failed: {e}");

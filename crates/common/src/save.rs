@@ -1006,6 +1006,15 @@ impl WorldStorage {
         self.save_list("rules.dat", rules)
     }
 
+    /// Each player's achievements, by id (`achievements.dat`).
+    pub fn load_achievements(&self) -> io::Result<Vec<(String, Vec<String>)>> {
+        self.load_list("achievements.dat")
+    }
+
+    pub fn save_achievements(&self, list: Vec<(String, Vec<String>)>) -> io::Result<()> {
+        self.save_list("achievements.dat", list)
+    }
+
     fn load_list<T: serde::de::DeserializeOwned>(&self, file: &str) -> io::Result<Vec<T>> {
         let path = self.dir.join(file);
         if !path.exists() {
@@ -1194,6 +1203,9 @@ mod tests {
         let beds = vec![("Kim".to_string(), [5, 70, 5])];
         storage.save_beds(beds.clone()).unwrap();
         assert_eq!(storage.load_beds().unwrap(), beds);
+        let done = vec![("Kim".to_string(), vec!["wood".to_string()])];
+        storage.save_achievements(done.clone()).unwrap();
+        assert_eq!(storage.load_achievements().unwrap(), done);
         assert!(storage.load_animals().unwrap().is_empty());
         let animals = vec![SavedAnimal {
             kind: "core:sheep".into(),

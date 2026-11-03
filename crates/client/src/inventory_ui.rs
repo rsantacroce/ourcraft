@@ -475,6 +475,8 @@ impl PaletteKind {
                 def.name.as_str(),
                 "core:fishing_rod"
                     | "core:bow"
+                    | "core:slingshot"
+                    | "core:shield"
                     | "core:compass"
                     | "core:clock"
                     | "core:map"

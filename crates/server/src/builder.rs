@@ -336,7 +336,7 @@ fn command(
                 Ok((min, max)) => {
                     let s = max - min + IVec3::ONE;
                     format!(
-                        " The box is {}×{}×{} ({} blocks).",
+                        " The box is {}x{}x{} ({} blocks).",
                         s.x,
                         s.y,
                         s.z,
@@ -351,7 +351,7 @@ fn command(
             let (min, max) = state.selection()?;
             let s = max - min + IVec3::ONE;
             Ok(format!(
-                "From {} to {}: {}×{}×{} ({} blocks).",
+                "From {} to {}: {}x{}x{} ({} blocks).",
                 show(min),
                 show(max),
                 s.x,

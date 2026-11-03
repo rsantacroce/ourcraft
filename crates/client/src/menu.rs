@@ -39,9 +39,22 @@ impl Plugin for MenuPlugin {
                     button_hover,
                     rebuild_menu,
                     remember_world_scroll,
+                    report_text_focus,
                 )
                     .chain(),
             );
+    }
+}
+
+/// Tell the on-screen keyboard whether a field is being typed into.
+fn report_text_focus(
+    forms: Res<Forms>,
+    screen: Res<Screen>,
+    mut text: ResMut<crate::soft_keyboard::TextFocus>,
+) {
+    let typing = forms.focused.is_some() && *screen != Screen::None;
+    if text.menu_field != typing {
+        text.menu_field = typing;
     }
 }
 
@@ -54,6 +67,8 @@ pub enum Screen {
     NewWorld,
     Join,
     Settings,
+    /// Making your own skin (from Settings).
+    SkinMaker,
     Pause,
     /// Lost the connection (with the reason).
     Disconnected(String),
@@ -74,7 +89,8 @@ enum Field {
 struct Forms {
     world_name: String,
     seed: String,
-    splat_squad: bool,
+    /// Which of [`GAME_MODES`] a new world gets.
+    game_mode: usize,
     survival: bool,
     lan: bool,
     address: String,
@@ -133,7 +149,7 @@ impl Default for Forms {
         Self {
             world_name: String::new(),
             seed: String::new(),
-            splat_squad: false,
+            game_mode: 0,
             survival: false,
             lan: false,
             address: format!("localhost:{DEFAULT_PORT}"),
@@ -161,7 +177,7 @@ enum Action {
     /// "Yes, delete it."
     Delete(String),
     KeepWorld,
-    ToggleSplat,
+    CycleGameMode,
     ToggleSurvival,
     ToggleLan,
     RandomName,
@@ -181,8 +197,28 @@ enum Action {
     ToggleDebug,
     ToggleMusic,
     Skin(i32),
+    OpenSkinMaker,
+    /// Change one of the skin maker's choices (which, and which way).
+    MakerPart(usize, i32),
+    MakerRandom,
     TogglePick,
     ToggleWheel,
+}
+
+/// The games a new world can be: (mode name, what the button says).
+const GAME_MODES: [(Option<&str>, &str); 3] = [
+    (None, "Build (free play)"),
+    (Some("team_shooter"), "Splat Squad (team flag game)"),
+    (Some("build_contest"), "Build Contest (vote!)"),
+];
+
+/// A game mode's short name, for lists.
+fn game_mode_name(mode: &str) -> &'static str {
+    match mode {
+        "team_shooter" => "Splat Squad",
+        "build_contest" => "Build Contest",
+        _ => "game mode",
+    }
 }
 
 #[derive(Component)]
@@ -256,7 +292,7 @@ fn type_into_fields(
             Field::Address => &mut forms.address,
             Field::PlayerName => &mut settings.name,
         };
-        match &ev.logical_key {
+        match &crate::soft_keyboard::key_of(ev) {
             Key::Backspace => {
                 text.pop();
             }
@@ -370,8 +406,9 @@ fn button_actions(
                     world_name: world,
                     seed: forms.seed.parse().ok(),
                     lan: forms.lan,
-                    mode: forms.splat_squad.then(|| "team_shooter".to_owned()),
-                    creative: !forms.survival,
+                    mode: GAME_MODES[forms.game_mode].0.map(str::to_owned),
+                    // Game modes are played in creative.
+                    creative: !forms.survival || forms.game_mode != 0,
                 };
                 commands.insert_resource(Connection::single_player(&opts, &name));
                 forms.focused = None;
@@ -384,7 +421,7 @@ fn button_actions(
                 forms.confirm_delete = None;
                 forms.message = delete_world(&folder).err();
             }
-            Action::ToggleSplat => forms.splat_squad = !forms.splat_squad,
+            Action::CycleGameMode => forms.game_mode = (forms.game_mode + 1) % GAME_MODES.len(),
             Action::ToggleSurvival => forms.survival = !forms.survival,
             Action::ToggleLan => forms.lan = !forms.lan,
             Action::Focus(f) => forms.focused = Some(f),
@@ -449,7 +486,42 @@ fn button_actions(
             Action::ToggleFilter => settings.chat_filter = !settings.chat_filter,
             Action::ToggleMusic => settings.music = !settings.music,
             Action::ToggleDebug => settings.show_debug = !settings.show_debug,
-            Action::Skin(d) => settings.skin = crate::skins::cycle_skin(&settings.skin, d),
+            Action::Skin(d) => {
+                settings.skin = crate::skins::cycle_skin(&settings.skin, d, &settings.made_skin)
+            }
+            Action::OpenSkinMaker => {
+                // Wear the made skin while making it.
+                settings.skin = settings.made_skin.clone();
+                *screen = Screen::SkinMaker;
+            }
+            Action::MakerPart(part, d) => {
+                use crate::render::skin_textures::{
+                    MAKER_PARTS, made_skin_choices, made_skin_name,
+                };
+                let mut choices = made_skin_choices(&settings.made_skin).unwrap_or([0; 9]);
+                let n = MAKER_PARTS[part].1.len() as i32;
+                choices[part] = (choices[part] as i32 + d).rem_euclid(n) as u8;
+                settings.made_skin = made_skin_name(choices);
+                settings.skin = settings.made_skin.clone();
+            }
+            Action::MakerRandom => {
+                use crate::render::skin_textures::{MAKER_PARTS, made_skin_name};
+                let mut r = ourcraft_common::worldgen::splitmix64(
+                    time.elapsed().as_nanos() as u64 ^ 0x736b_696e,
+                );
+                let choices = std::array::from_fn(|i| {
+                    r = ourcraft_common::worldgen::splitmix64(r);
+                    // Hats now and then, not every time.
+                    let n = if i == 8 && !r.is_multiple_of(3) {
+                        1
+                    } else {
+                        MAKER_PARTS[i].1.len() as u64
+                    };
+                    ((r >> 16) % n) as u8
+                });
+                settings.made_skin = made_skin_name(choices);
+                settings.skin = settings.made_skin.clone();
+            }
             Action::TogglePick => settings.middle_click_pick = !settings.middle_click_pick,
             Action::ToggleWheel => settings.wheel_hotbar = !settings.wheel_hotbar,
         }
@@ -623,6 +695,54 @@ fn text_field(
         ));
 }
 
+/// A setting with − and + buttons either side.
+fn setting_row(ui: &mut ChildSpawnerCommands, label: String, minus: Action, plus: Action) {
+    setting_row_sized(ui, label, minus, plus, 300.0);
+}
+
+fn setting_row_sized(
+    ui: &mut ChildSpawnerCommands,
+    label: String,
+    minus: Action,
+    plus: Action,
+    width: f32,
+) {
+    ui.spawn(Node {
+        column_gap: px(8),
+        align_items: AlignItems::Center,
+        ..default()
+    })
+    .with_children(|r| {
+        button_sized(r, "-", minus, 50.0);
+        r.spawn(Node {
+            width: px(width),
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+            ..default()
+        })
+        .with_child((
+            Text::new(label),
+            TextFont::from_font_size(18.0),
+            TextColor(Color::WHITE),
+            TextLayout::justify(Justify::Center),
+        ));
+        button_sized(r, "+", plus, 50.0);
+    });
+}
+
+/// The skin you're wearing, from the front.
+fn skin_preview(ui: &mut ChildSpawnerCommands, preview: &crate::skins::SkinPreview, scale: f32) {
+    ui.spawn((
+        ImageNode::new(preview.0.clone()),
+        Node {
+            width: px(16.0 * scale),
+            height: px(32.0 * scale),
+            ..default()
+        },
+        Pickable::IGNORE,
+    ));
+}
+
 fn heading(parent: &mut ChildSpawnerCommands, text: &str) {
     parent.spawn((
         Text::new(text),
@@ -686,8 +806,7 @@ fn world_list(
             .with_children(|list| {
                 for (folder, meta, saved, _) in worlds {
                     let mode = match meta.game_mode.as_deref() {
-                        Some("team_shooter") => "Splat Squad",
-                        Some(_) => "game mode",
+                        Some(m) => game_mode_name(m),
                         None if meta.creative => "creative",
                         None => "survival",
                     };
@@ -716,7 +835,7 @@ fn world_list(
                         } else {
                             let play = button_node(
                                 row,
-                                format!("{}\n{mode} · played {when}", meta.name),
+                                format!("{}\n{mode}, played {when}", meta.name),
                                 Action::Play {
                                     folder: folder.clone(),
                                     name: meta.name,
@@ -777,6 +896,7 @@ fn rebuild_menu(
     mut focus: ResMut<UiFocus>,
     existing: Query<Entity, With<MenuRoot>>,
     scroll: Res<WorldListScroll>,
+    preview: Option<Res<crate::skins::SkinPreview>>,
 ) {
     // The local network list only listens while the Join screen is open.
     let want_lan = *screen == Screen::Join;
@@ -805,7 +925,8 @@ fn rebuild_menu(
     // In game (pause), the world stays visible behind a dark veil; on the
     // title screens a sky-blue background.
     let in_game = matches!(*screen, Screen::Pause | Screen::Disconnected(_))
-        || (*screen == Screen::Settings && forms.settings_from == Screen::Pause);
+        || (matches!(*screen, Screen::Settings | Screen::SkinMaker)
+            && forms.settings_from == Screen::Pause);
     let bg = if in_game {
         Color::srgba(0.0, 0.0, 0.0, 0.55)
     } else {
@@ -918,13 +1039,9 @@ fn rebuild_menu(
                         Field::Seed,
                         f == Some(Field::Seed),
                     );
-                    let mode = if forms.splat_squad {
-                        "Game: Splat Squad (team flag game)"
-                    } else {
-                        "Game: Build (free play)"
-                    };
-                    button_sized(ui, mode, Action::ToggleSplat, 420.0);
-                    if !forms.splat_squad {
+                    let mode = format!("Game: {}", GAME_MODES[forms.game_mode].1);
+                    button_sized(ui, mode, Action::CycleGameMode, 420.0);
+                    if forms.game_mode == 0 {
                         let survival = if forms.survival {
                             "Survival: collect what you break"
                         } else {
@@ -955,11 +1072,12 @@ fn rebuild_menu(
                         );
                     }
                     for s in servers {
-                        let mode = if s.beacon.game_mode.as_deref() == Some("team_shooter") {
-                            " - Splat Squad"
-                        } else {
-                            ""
-                        };
+                        let mode = s
+                            .beacon
+                            .game_mode
+                            .as_deref()
+                            .map(|m| format!(" - {}", game_mode_name(m)))
+                            .unwrap_or_default();
                         button_sized(
                             ui,
                             format!(
@@ -995,32 +1113,7 @@ fn rebuild_menu(
                         Field::PlayerName,
                         f == Some(Field::PlayerName),
                     );
-                    let row = |ui: &mut ChildSpawnerCommands,
-                               label: String,
-                               minus: Action,
-                               plus: Action| {
-                        ui.spawn(Node {
-                            column_gap: px(8),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        })
-                        .with_children(|r| {
-                            button_sized(r, "-", minus, 50.0);
-                            r.spawn(Node {
-                                width: px(300),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                ..default()
-                            })
-                            .with_child((
-                                Text::new(label),
-                                TextFont::from_font_size(18.0),
-                                TextColor(Color::WHITE),
-                                TextLayout::justify(Justify::Center),
-                            ));
-                            button_sized(r, "+", plus, 50.0);
-                        });
-                    };
+                    let row = setting_row;
                     // Two columns where there's room (one on narrow screens),
                     // so everything fits without scrolling.
                     let columns = Node {
@@ -1061,6 +1154,17 @@ fn rebuild_menu(
                             Action::Volume(-1),
                             Action::Volume(1),
                         );
+                    });
+                    ui.spawn(Node {
+                        column_gap: px(16),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|ui| {
+                        if let Some(p) = &preview {
+                            skin_preview(ui, p, 2.0);
+                        }
+                        button(ui, "Make your own skin", Action::OpenSkinMaker);
                     });
                     if let Some(problem) = &my_skin.problem {
                         note(ui, problem.clone(), red);
@@ -1113,6 +1217,50 @@ fn rebuild_menu(
                     });
                     button(ui, "Done", Action::CloseSettings);
                 }
+                Screen::SkinMaker => {
+                    use crate::render::skin_textures::{MAKER_PARTS, made_skin_choices};
+                    heading(ui, "Make your own skin");
+                    let choices = made_skin_choices(&settings.made_skin).unwrap_or([0; 9]);
+                    ui.spawn(Node {
+                        column_gap: px(24),
+                        align_items: AlignItems::Center,
+                        flex_wrap: FlexWrap::Wrap,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    })
+                    .with_children(|ui| {
+                        if let Some(p) = &preview {
+                            skin_preview(ui, p, 5.0);
+                        }
+                        // Two columns of choices, so it all fits on a phone.
+                        ui.spawn(Node {
+                            flex_wrap: FlexWrap::Wrap,
+                            column_gap: px(16),
+                            row_gap: px(6),
+                            max_width: px(730),
+                            ..default()
+                        })
+                        .with_children(|ui| {
+                            for (i, (part, options)) in MAKER_PARTS.iter().enumerate() {
+                                setting_row_sized(
+                                    ui,
+                                    format!("{part}: {}", options[choices[i] as usize]),
+                                    Action::MakerPart(i, -1),
+                                    Action::MakerPart(i, 1),
+                                    240.0,
+                                );
+                            }
+                        });
+                    });
+                    ui.spawn(Node {
+                        column_gap: px(12),
+                        ..default()
+                    })
+                    .with_children(|ui| {
+                        button_sized(ui, "Surprise me!", Action::MakerRandom, 200.0);
+                        button_sized(ui, "Done", Action::Go(Screen::Settings), 200.0);
+                    });
+                }
                 Screen::Pause => {
                     heading(ui, "Paused");
                     button(ui, "Back to game", Action::Resume);
@@ -1127,6 +1275,37 @@ fn rebuild_menu(
                 Screen::None => {}
             }
         });
+
+    // On phones and tablets the on-screen keyboard covers the bottom half,
+    // where the field being typed in may be: show it again up top.
+    if let (true, Some(field)) = (mobile, forms.focused) {
+        let (label, value) = match field {
+            Field::WorldName => ("Name", forms.world_name.as_str()),
+            Field::Seed => ("Seed", forms.seed.as_str()),
+            Field::Address => ("Address", forms.address.as_str()),
+            Field::PlayerName => ("Your name", settings.name.as_str()),
+        };
+        commands.spawn((
+            MenuRoot,
+            Text::new(format!("{label}: {value}_")),
+            TextFont::from_font_size(20.0),
+            TextColor(Color::WHITE),
+            Node {
+                position_type: PositionType::Absolute,
+                top: px(12),
+                left: px(16),
+                right: px(16),
+                padding: UiRect::axes(px(12), px(8)),
+                border: UiRect::all(px(2)),
+                border_radius: BorderRadius::all(px(6)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.1, 0.12, 0.2, 0.95)),
+            BorderColor::all(Color::srgb(1.0, 0.85, 0.3)),
+            GlobalZIndex(11),
+            Pickable::IGNORE,
+        ));
+    }
 }
 
 #[cfg(test)]

@@ -46,6 +46,8 @@ pub struct ClientSettings {
     /// How you look: a built-in skin's name, or `file:<name>.png` from the
     /// skins folder (see [`crate::skins`]).
     pub skin: String,
+    /// The skin made in the skin maker (kept while wearing another).
+    pub made_skin: String,
     /// Middle click picks the block you're looking at (switching the slot).
     pub middle_click_pick: bool,
     /// The mouse wheel moves along the hotbar.
@@ -71,6 +73,8 @@ impl Default for ClientSettings {
             chat_filter: true,
             show_debug: !mobile,
             skin: "explorer".into(),
+            // Brown hair, a cyan shirt and blue trousers to start from.
+            made_skin: crate::render::skin_textures::made_skin_name([0, 0, 0, 0, 0, 10, 12, 0, 0]),
             middle_click_pick: true,
             wheel_hotbar: true,
         }
@@ -127,6 +131,11 @@ impl ClientSettings {
                 "music" => s.music = value != "off",
                 "show_debug" => s.show_debug = value == "on",
                 "skin" => s.skin = crate::skins::sanitize_skin_setting(value),
+                "made_skin" => {
+                    if crate::render::skin_textures::made_skin_choices(value).is_some() {
+                        s.made_skin = value.to_owned();
+                    }
+                }
                 "middle_click_pick" => s.middle_click_pick = value != "off",
                 "wheel_hotbar" => s.wheel_hotbar = value != "off",
                 _ => {}
@@ -141,7 +150,7 @@ impl ClientSettings {
             "# Ourcraft settings (you can edit this file)\n\
              name = {}\nrender_distance = {}\nmouse_sensitivity = {:.2}\nvolume = {:.2}\n\
              music = {}\ntouch_controls = {}\nchat_filter = {}\nshow_debug = {}\n\
-             skin = {}\nmiddle_click_pick = {}\n\
+             skin = {}\nmade_skin = {}\nmiddle_click_pick = {}\n\
              wheel_hotbar = {}\n",
             self.name,
             self.render_distance,
@@ -156,6 +165,7 @@ impl ClientSettings {
             onoff(self.chat_filter),
             onoff(self.show_debug),
             self.skin,
+            self.made_skin,
             onoff(self.middle_click_pick),
             onoff(self.wheel_hotbar),
         )
@@ -266,6 +276,7 @@ mod tests {
             chat_filter: false,
             show_debug: true,
             skin: "file:My Skin.png".into(),
+            made_skin: "made_391541c54".into(),
             middle_click_pick: false,
             wheel_hotbar: false,
         };
@@ -275,6 +286,11 @@ mod tests {
             ..s
         };
         assert_eq!(ClientSettings::parse(&knight.to_text()), knight);
+        let made = ClientSettings {
+            skin: "made_391541c54".into(),
+            ..knight
+        };
+        assert_eq!(ClientSettings::parse(&made.to_text()), made);
     }
 
     #[test]

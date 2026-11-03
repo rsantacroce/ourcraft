@@ -121,6 +121,25 @@ const HOE: [&str; 16] = [
     "................",
 ];
 
+const SWORD: [&str; 16] = [
+    "................",
+    ".............hh.",
+    "............hHh.",
+    "...........hHh..",
+    "..........hHh...",
+    ".........hHh....",
+    "........hHh.....",
+    "...hh..hHh......",
+    "....hhhHh.......",
+    ".....hhh........",
+    ".....SsSh.......",
+    "....SsS.hh......",
+    "..sSsS..........",
+    ".ss.............",
+    "................",
+    "................",
+];
+
 fn tool(shape: &[&str; 16], head: Rgba) -> Vec<u8> {
     draw(
         shape,
@@ -179,6 +198,7 @@ pub fn item_icon(name: &str) -> Option<Vec<u8>> {
             "axe" => Some(&AXE),
             "shovel" => Some(&SHOVEL),
             "hoe" => Some(&HOE),
+            "sword" => Some(&SWORD),
             _ => None,
         };
         if let (Some(shape), Some(c)) = (shape, tier_color(tier)) {

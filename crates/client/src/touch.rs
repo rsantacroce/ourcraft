@@ -4,7 +4,8 @@
 //!   left and drag to walk.
 //! - **Right side:** drag to look around. A quick *tap* places a block at the
 //!   crosshair; *press and hold* breaks it.
-//! - **Buttons:** jump, down (fly/swim down), fly toggle and inventory.
+//! - **Buttons:** jump, down (fly/swim down), fly toggle, inventory and
+//!   chat (which brings up the on-screen keyboard).
 //! - **Hotbar:** tap a slot to select it.
 //!
 //! All of this just fills in [`Actions`], exactly like the keyboard does, so
@@ -80,6 +81,8 @@ enum TouchButton {
     Eat,
     /// Switch camera view (top, next to the bag).
     View,
+    /// Open or close chat (top left, next to the menu).
+    Chat,
 }
 
 const JOYSTICK_RADIUS: f32 = 70.0;
@@ -116,10 +119,11 @@ fn button_layout(button: TouchButton) -> (Vec2, f32) {
         TouchButton::Menu => (Vec2::ZERO, 30.0),                 // top left
         TouchButton::Eat => (Vec2::new(-215.0, -105.0), 36.0),
         TouchButton::View => (Vec2::new(-140.0, 0.0), 28.0), // placed at the top
+        TouchButton::Chat => (Vec2::ZERO, 28.0),             // top left, by the menu
     }
 }
 
-const BUTTONS: [TouchButton; 7] = [
+const BUTTONS: [TouchButton; 8] = [
     TouchButton::Jump,
     TouchButton::Down,
     TouchButton::Fly,
@@ -127,6 +131,7 @@ const BUTTONS: [TouchButton; 7] = [
     TouchButton::Menu,
     TouchButton::Eat,
     TouchButton::View,
+    TouchButton::Chat,
 ];
 
 /// Screen-space centre of a button for a window of `size`.
@@ -136,6 +141,8 @@ fn button_center(button: TouchButton, size: Vec2) -> Vec2 {
         Vec2::new(size.x + offset.x, 60.0)
     } else if button == TouchButton::Menu {
         Vec2::new(56.0, 56.0)
+    } else if button == TouchButton::Chat {
+        Vec2::new(130.0, 56.0)
     } else {
         size + offset
     }
@@ -181,9 +188,14 @@ fn touch_actions(
         let p = touch.position();
         let on_bag = p.distance(button_center(TouchButton::Inventory, size))
             <= button_layout(TouchButton::Inventory).1 * 1.2;
+        let on_chat = p.distance(button_center(TouchButton::Chat, size))
+            <= button_layout(TouchButton::Chat).1 * 1.2;
         let role = if on_bag && !focus.menu_open {
             // The bag button works even while the inventory is open, to close it.
             Role::Button(TouchButton::Inventory)
+        } else if on_chat && !focus.menu_open && !focus.inventory_open {
+            // Likewise the chat button, while chat is open.
+            Role::Button(TouchButton::Chat)
         } else if focus.gameplay_blocked() {
             Role::Ui
         } else if let Some(b) = BUTTONS.iter().copied().find(|b| {
@@ -211,6 +223,7 @@ fn touch_actions(
                 TouchButton::Inventory => actions.toggle_inventory = true,
                 TouchButton::Menu => actions.open_menu = true,
                 TouchButton::View => actions.cycle_view = true,
+                TouchButton::Chat => actions.open_chat = true,
                 TouchButton::Down | TouchButton::Eat => {}
             }
         }
@@ -334,6 +347,7 @@ fn spawn_touch_ui(mut commands: Commands) {
                 TouchButton::Menu => "Menu",
                 TouchButton::Eat => "Eat",
                 TouchButton::View => "View",
+                TouchButton::Chat => "Chat",
             };
             ui.spawn((
                 circle(r, Color::srgba(0.0, 0.0, 0.0, 0.3)),

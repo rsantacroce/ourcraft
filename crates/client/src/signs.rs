@@ -390,7 +390,7 @@ fn edit_signs(
     let Some(writing) = open else { return };
     let mut pressed: Vec<SignKey> = Vec::new();
     for e in typed.read().filter(|e| e.state == ButtonState::Pressed) {
-        match &e.logical_key {
+        match &crate::soft_keyboard::key_of(e) {
             Key::Enter | Key::ArrowDown => pressed.push(SignKey::Next),
             Key::ArrowUp => editor.line = editor.line.saturating_sub(1),
             Key::Escape => pressed.push(SignKey::Done),

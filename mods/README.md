@@ -28,6 +28,11 @@ has a step-by-step tutorial, recipes and the complete API reference.
   lantern, `/snowman`, and a snowball thrower (`/snowballs`).
 - **team_shooter**: *Splat Squad*, a two-team game mode. Start a world with
   it using `--mode team_shooter`.
+- **build_contest**: *Build Contest*. Everyone builds the same secret
+  theme on a plot of their own, then visits each build and votes with
+  badges from "Meh" to "WOW!". `/start` (or `/start 3` for three minutes)
+  begins a round. Pick "Game: Build Contest" when making a world, or
+  `--mode build_contest`.
 
 ## Write your own
 

@@ -56,6 +56,7 @@ pub struct MobsPlugin;
 impl Plugin for MobsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MobStates>()
+            .add_message::<PebbleShot>()
             .insert_resource(Rng(0x9E37_79B9))
             .add_systems(
                 Update,
@@ -1123,19 +1124,82 @@ fn walk(
     }
 }
 
+/// A slingshot was flicked: from where, which way, by whom.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PebbleShot {
+    pub client: renet::ClientId,
+    pub from: Vec3,
+    pub dir: Vec3,
+}
+
+/// A shield in hand: monsters' bonks hurt this much (after armour).
+const SHIELD_SOFTENS: f32 = 0.5;
+/// How much of a monster's bonk gets through armour (`points`) and a
+/// shield in hand.
+fn bonk_softening(points: f32, shield: bool) -> f32 {
+    (1.0 - points * ourcraft_common::adventure::PROTECTION_PER_POINT).max(0.2)
+        * if shield { SHIELD_SOFTENS } else { 1.0 }
+}
+
+/// How far a slingshot's pebble reaches.
+const PEBBLE_RANGE: f32 = 24.0;
+/// A pebble bops as hard as a bare hand.
+const PEBBLE_DAMAGE: f32 = 2.0;
+
+/// The first animal or monster along a line, before anything solid.
+fn first_mob_along(
+    from: Vec3,
+    dir: Vec3,
+    entities: &Entities,
+    open: &OpenWorld,
+    world: &ServerWorld,
+    registry: &Registry,
+) -> Option<u64> {
+    let mut t = 0.5;
+    while t < PEBBLE_RANGE {
+        let at = from + dir * t;
+        let b = at.floor().as_ivec3();
+        if world
+            .get_block(b.x, b.y, b.z)
+            .is_some_and(|id| registry.0.is_solid(id))
+        {
+            return None;
+        }
+        for (id, e) in &entities.list {
+            let Some(kind) = parse_mob_model(&e.model).and_then(|(name, _, _)| def(open, name))
+            else {
+                continue;
+            };
+            let [w, h] = kind.size;
+            let r = w / 2.0 + 0.1;
+            let d = at - e.position;
+            if d.x.abs() <= r && d.z.abs() <= r && d.y >= -0.1 && d.y <= h + 0.1 {
+                return Some(*id);
+            }
+        }
+        t += 0.2;
+    }
+    None
+}
+
 /// Bopping animals (they hop away) and monsters (they lose health, and
-/// go away in a puff of confetti when it runs out).
+/// go away in a puff of confetti when it runs out), up close or with a
+/// slingshot.
 #[allow(clippy::too_many_arguments)]
 fn hit_mobs(
     mut messages: MessageReader<FromClient>,
+    mut shots: MessageReader<PebbleShot>,
     players_map: Res<Players>,
     players: Query<&ConnectedPlayer>,
-    open: Res<OpenWorld>,
+    (open, world, registry): (Res<OpenWorld>, Res<ServerWorld>, Res<Registry>),
     mut entities: ResMut<Entities>,
     mut states: ResMut<MobStates>,
     mut net: ResMut<Network>,
     mut rng: ResMut<Rng>,
+    mut deeds: MessageWriter<crate::achievements::DeedDone>,
 ) {
+    // (who, which mob, bopped from where, how hard)
+    let mut bops: Vec<(renet::ClientId, u64, Vec3, f32)> = Vec::new();
     for FromClient { client, msg } in messages.read() {
         let ClientMessage::HitEntity { id, held } = msg else {
             continue;
@@ -1143,17 +1207,41 @@ fn hit_mobs(
         let Some(p) = players_map.0.get(client).and_then(|e| players.get(*e).ok()) else {
             continue;
         };
-        let (Some(e), Some(s)) = (entities.list.get_mut(id), states.0.get_mut(id)) else {
+        let Some(e) = entities.list.get(id) else {
             continue;
         };
         if p.position().distance(e.position) > USE_REACH || p.name.is_none() {
             continue;
         }
+        let tool = open
+            .items
+            .get(ourcraft_common::item::ItemId(*held))
+            .and_then(|d| d.tool());
+        bops.push((*client, *id, p.position(), hit_damage(tool)));
+    }
+    for shot in shots.read() {
+        if let Some(id) = first_mob_along(shot.from, shot.dir, &entities, &open, &world, &registry)
+        {
+            bops.push((shot.client, id, shot.from, PEBBLE_DAMAGE));
+        }
+    }
+    for (client, id, from, damage) in bops {
+        let Some(e) = entities.list.get_mut(&id) else {
+            continue;
+        };
+        // Just summoned: it may not have a state yet (see `spawn_naturally`).
+        let Some((name, baby, _)) = parse_mob_model(&e.model) else {
+            continue;
+        };
+        let s = states
+            .0
+            .entry(id)
+            .or_insert_with(|| MobState::new(name, false, baby, &mut rng));
         let Some(kind) = def(&open, &s.kind) else {
             continue;
         };
         // Knocked back a little, and runs off.
-        let away = (e.position - p.position()).with_y(0.0).normalize_or_zero();
+        let away = (e.position - from).with_y(0.0).normalize_or_zero();
         e.position += away * 0.6;
         e.moved = true;
         s.vy = 4.0;
@@ -1170,14 +1258,8 @@ fn hit_mobs(
             );
             continue;
         };
-        // Tools hit harder: hand 2, wood 3, stone 4, iron 5, diamond 6.
-        let tier = open
-            .items
-            .get(ourcraft_common::item::ItemId(*held))
-            .and_then(|d| d.tool())
-            .map_or(0, |(_, t)| t);
         let health = s.health.get_or_insert(h.health);
-        *health -= 2.0 + tier as f32;
+        *health -= damage;
         let gone = *health <= 0.0;
         net.broadcast(
             Channel::Reliable,
@@ -1187,8 +1269,12 @@ fn hit_mobs(
             },
         );
         if gone {
-            states.0.remove(id);
-            entities.remove(*id);
+            deeds.write(crate::achievements::DeedDone {
+                client,
+                deed: ourcraft_common::achievements::Deed::BopMonster,
+            });
+            states.0.remove(&id);
+            entities.remove(id);
             net.broadcast(
                 Channel::Reliable,
                 &ServerMessage::Effect {
@@ -1252,10 +1338,13 @@ fn monsters(
                 e.position.cmpge(body.min - Vec3::Y).all() && e.position.cmple(body.max).all();
             if close {
                 s.attack_cd = 1.2;
-                // Armour softens the bonk.
+                // Armour softens the bonk, and so does a shield in hand.
                 let points = p.inventory.armour_points(&open.items) as f32;
-                let soften =
-                    (1.0 - points * ourcraft_common::adventure::PROTECTION_PER_POINT).max(0.2);
+                let shield = p
+                    .inventory
+                    .held()
+                    .is_some_and(|i| open.items.name(i) == "core:shield");
+                let soften = bonk_softening(points, shield);
                 p.needs.hurt(h.damage * soften);
                 net.broadcast(
                     Channel::Reliable,
@@ -1607,9 +1696,41 @@ fn despawn_far(
     }
 }
 
+/// How much one bop takes off a monster's health. Bare hands 2; tools
+/// 2 + tier (wood 3 … diamond 6); swords 4 + tier (wood 5, stone 6, iron 7, diamond 8).
+fn hit_damage(tool: Option<(ourcraft_common::block::ToolKind, u8)>) -> f32 {
+    match tool {
+        Some((ourcraft_common::block::ToolKind::Sword, tier)) => 4.0 + tier as f32,
+        Some((_, tier)) => 2.0 + tier as f32,
+        None => 2.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shield_halves_bonks() {
+        assert_eq!(bonk_softening(0.0, false), 1.0);
+        assert_eq!(bonk_softening(0.0, true), 0.5);
+        // On top of armour, and never below a tenth.
+        assert!(bonk_softening(100.0, true) >= 0.1);
+        assert!(bonk_softening(4.0, true) < bonk_softening(4.0, false));
+    }
+
+    #[test]
+    fn swords_hit_hardest() {
+        use ourcraft_common::block::ToolKind::{Pickaxe, Sword};
+        assert_eq!(hit_damage(None), 2.0);
+        assert_eq!(hit_damage(Some((Pickaxe, 1))), 3.0);
+        assert_eq!(hit_damage(Some((Sword, 1))), 5.0);
+        assert_eq!(hit_damage(Some((Sword, 3))), 7.0);
+        assert_eq!(hit_damage(Some((Sword, 4))), 8.0);
+        // Each sword beats the next tier's tools; iron beats diamond.
+        assert!(hit_damage(Some((Sword, 1))) > hit_damage(Some((Pickaxe, 2))));
+        assert!(hit_damage(Some((Sword, 3))) > hit_damage(Some((Pickaxe, 4))));
+    }
 
     #[test]
     fn turning_takes_the_short_way() {

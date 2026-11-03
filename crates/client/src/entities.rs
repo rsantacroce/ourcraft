@@ -664,9 +664,15 @@ fn handle_messages(
                     }
                     continue;
                 }
-                // An arrow, or a fishing bobber.
-                if model == "@arrow" || model == "@bobber" {
-                    let parts: Vec<([f32; 3], [f32; 3], [u8; 4])> = if model == "@arrow" {
+                // An arrow, a slingshot's pebble, or a fishing bobber.
+                if model == "@arrow" || model == "@bobber" || model == "@pebble" {
+                    let parts: Vec<([f32; 3], [f32; 3], [u8; 4])> = if model == "@pebble" {
+                        vec![(
+                            [-0.07, -0.07, -0.07],
+                            [0.07, 0.07, 0.07],
+                            [130, 130, 136, 255],
+                        )]
+                    } else if model == "@arrow" {
                         vec![
                             (
                                 [-0.03, -0.03, -0.35],

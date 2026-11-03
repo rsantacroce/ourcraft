@@ -1,5 +1,6 @@
 //! Types shared by every part of Ourcraft.
 
+pub mod achievements;
 pub mod adventure;
 pub mod block;
 pub mod chunk;
@@ -25,6 +26,7 @@ pub mod save;
 pub mod shapes;
 pub mod skin;
 pub mod stones;
+pub mod villages;
 pub mod woods;
 pub mod world;
 pub mod worldgen;

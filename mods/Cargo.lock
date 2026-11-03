@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "build_contest"
+version = "0.1.0"
+dependencies = [
+ "ourcraft_mod_api",
+]
+
+[[package]]
 name = "cobs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

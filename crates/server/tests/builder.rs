@@ -145,7 +145,7 @@ fn building_tools_fill_undo_and_spawn() {
         "{:?}",
         replies(&bot)
     );
-    // "Corner 2 at x y z. The box is 1×1×1 (1 blocks)."
+    // "Corner 2 at x y z. The box is 1x1x1 (1 blocks)."
     let corner = corner2(&bot).unwrap();
     let nums: Vec<i32> = corner["Corner 2 at ".len()..]
         .split('.')
@@ -155,7 +155,7 @@ fn building_tools_fill_undo_and_spawn() {
         .filter_map(|w| w.parse().ok())
         .collect();
     let pos = [nums[0], nums[1], nums[2]];
-    assert!(corner.contains("1×1×1"), "{corner}");
+    assert!(corner.contains("1x1x1"), "{corner}");
 
     say(&mut bot, "/fill glass");
     assert!(

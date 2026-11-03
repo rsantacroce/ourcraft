@@ -54,6 +54,10 @@ pub fn items() -> Vec<ItemDef> {
         one("core:spyglass", "Spyglass", 0),
         ItemDef::material("core:rope", "Rope"),
         one("core:saddle", "Saddle", 0),
+        // Gentle weapons: a slingshot bops from afar (no ammo needed), and
+        // a shield held in hand halves monsters' bonks.
+        one("core:slingshot", "Slingshot", 250),
+        one("core:shield", "Shield", 0),
     ];
     for (key, display, _, points, durability) in ARMOUR_MATERIALS {
         for (slot, (piece, piece_display)) in ARMOUR_PIECES.iter().enumerate() {
