@@ -196,6 +196,22 @@ pub fn next_state(reg: &BlockRegistry, get: impl Fn([i32; 3]) -> BlockId) -> Opt
         return None;
     }
 
+    // A gap between two or more still-water blocks, on something solid
+    // (or more still water), fills back in as still water. Otherwise a
+    // block placed in a lake and broken again would leave a dip of flowing
+    // water that drains away. Lava doesn't do this.
+    let water_source = |b: BlockId| {
+        reg.fluid(b)
+            .is_some_and(|f| f.family == "core:water" && f.level == 0 && !f.falling)
+    };
+    let below = get([0, -1, 0]);
+    if sides.iter().filter(|o| water_source(get(**o))).count() >= 2
+        && (water_source(below) || !reg.is_replaceable(below))
+        && !touches("core:lava")
+    {
+        return Some(blocks::WATER).filter(|n| *n != here);
+    }
+
     // What would flow in here? Pouring from above beats spreading.
     let mut best: Option<(String, u8, bool)> = None;
     if let Some(f) = reg.fluid(get([0, 1, 0])) {
@@ -306,6 +322,30 @@ mod tests {
         w.0.insert([0, 5, 0], BlockId::AIR);
         w.settle(&reg);
         assert!((-10..=10).all(|x| reg.fluid(w.get([x, 1, 0])).is_none()));
+    }
+
+    #[test]
+    fn a_hole_in_a_lake_fills_back_in() {
+        let reg = BlockRegistry::with_builtin_blocks();
+        // A 5x5 lake, then a block placed in the middle and broken again.
+        let mut w = Mini(HashMap::new());
+        for x in -2..=2 {
+            for z in -2..=2 {
+                w.0.insert([x, 1, z], blocks::WATER);
+            }
+        }
+        w.0.insert([0, 1, 0], BlockId::AIR);
+        w.settle(&reg);
+        assert_eq!(w.get([0, 1, 0]), blocks::WATER, "the lake heals");
+        // A bucket scooped from the edge, touching only one source, stays
+        // scooped (or water would be endless from a single bucket).
+        let mut w = Mini(HashMap::from([
+            ([0, 1, 0], blocks::WATER),
+            ([1, 1, 0], blocks::WATER),
+        ]));
+        w.0.insert([1, 1, 0], BlockId::AIR);
+        w.settle(&reg);
+        assert_ne!(w.get([1, 1, 0]), blocks::WATER);
     }
 
     #[test]
