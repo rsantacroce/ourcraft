@@ -105,6 +105,12 @@ pub fn register_blocks(reg: &mut BlockRegistry) {
     });
 }
 
+/// Does this item cast a fishing line? The game's rod, and any mod item
+/// whose name ends in `_rod` (`"fish:golden_rod"`).
+pub fn is_fishing_rod(name: &str) -> bool {
+    name == "core:fishing_rod" || (!name.starts_with("core:") && name.ends_with("_rod"))
+}
+
 /// What a campfire cooks a food into (the same as a furnace would).
 pub fn campfire_result<'a>(items: &'a crate::item::ItemRegistry, item: &str) -> Option<&'a str> {
     let def = items.get(items.by_name(item)?)?;

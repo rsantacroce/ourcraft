@@ -42,6 +42,9 @@ struct Line {
     client: ClientId,
     bobber: u64,
     bite_in: f32,
+    /// The rod they cast with, and the water the bobber floats on.
+    rod: String,
+    water: IVec3,
 }
 
 #[derive(Resource, Default)]
@@ -172,7 +175,7 @@ fn use_items(
                 let held = ItemId(*held);
                 let name = open.items.name(held);
                 // ---- Fishing: cast (or reel in). ----
-                if name == "core:fishing_rod" {
+                if ourcraft_common::adventure::is_fishing_rod(name) {
                     if let Some(i) = fishing.0.iter().position(|l| l.client == *client) {
                         let line = fishing.0.remove(i);
                         entities.remove(line.bobber);
@@ -201,6 +204,8 @@ fn use_items(
                         client: *client,
                         bobber,
                         bite_in: 4.0 + (next(&mut seed) % 800) as f32 / 100.0,
+                        rod: name.to_owned(),
+                        water: pos,
                     });
                     continue;
                 }
@@ -246,6 +251,7 @@ fn fish_bite(
     mut fishing: ResMut<Fishing>,
     mut net: ResMut<Network>,
     mut seed: Local<u32>,
+    mut queue: ResMut<crate::mods::ModQueue>,
 ) {
     let dt = time.delta_secs();
     let mut done = Vec::new();
@@ -273,27 +279,20 @@ fn fish_bite(
                 92..97 => "core:feather",
                 _ => "core:saddle",
             };
-            done.push((
-                i,
-                open.items
-                    .by_name(catch)
-                    .map(|item| (line.client, item, at)),
-            ));
+            done.push((i, open.items.by_name(catch).map(|item| (item, at))));
         }
     }
     for (i, catch) in done.into_iter().rev() {
         let line = fishing.0.remove(i);
         entities.remove(line.bobber);
-        if let Some((client, item, at)) = catch {
-            net.send(
-                client,
-                Channel::Reliable,
-                &ServerMessage::GiveItems(NetStack {
-                    item: item.0,
-                    count: 1,
-                    wear: 0,
-                }),
-            );
+        if let Some((item, at)) = catch {
+            // Mods may give a catch of their own; if none does, this one.
+            queue.bites.push(crate::mods::FishBite {
+                client: line.client,
+                rod: line.rod,
+                water: line.water,
+                catch: item,
+            });
             net.broadcast(
                 Channel::Reliable,
                 &ServerMessage::Sound {

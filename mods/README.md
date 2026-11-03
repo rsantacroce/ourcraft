@@ -41,7 +41,9 @@ has a step-by-step tutorial, recipes and the complete API reference.
 
 A mod can also be one text file in EELisp: put `something.el` in the mods
 folder. See [`eelisp_runner/README.md`](eelisp_runner/README.md) for the
-events, the game functions and two examples.
+events, the game functions and two examples, and
+[`tutorials/fishing`](tutorials/fishing) for a tutorial that a 10-year-old
+can follow: a fishing mod, built in 8 steps.
 
 ## Write your own
 

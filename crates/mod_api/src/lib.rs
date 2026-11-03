@@ -443,6 +443,25 @@ pub enum HostCall {
     },
     /// Add an item. *Init only.*
     RegisterItem(ItemSpec),
+    /// Put items in a player's inventory (an item or block name). What
+    /// doesn't fit falls on the ground.
+    GiveItem {
+        player: PlayerId,
+        item: String,
+        count: u16,
+    },
+    /// Take up to `count` of an item from a player. Replies
+    /// `HostReply::Count` with how many were taken.
+    TakeItem {
+        player: PlayerId,
+        item: String,
+        count: u16,
+    },
+    /// How many of an item a player has. Replies `HostReply::Count`.
+    CountItem {
+        player: PlayerId,
+        item: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -457,6 +476,8 @@ pub enum HostReply {
     /// The call failed; the text says why.
     Error(String),
     Position(BlockPos),
+    /// How many items (for `TakeItem` and `CountItem`).
+    Count(u32),
 }
 
 /// Things that happen, sent to every mod.
@@ -514,6 +535,16 @@ pub enum Event {
     /// of the runner should run. Sent once, before `Init`.
     Script {
         source: String,
+    },
+    /// A fish bit a player's line. `rod` is the item they cast with (the
+    /// game's `core:fishing_rod`, or any item whose name ends in `_rod`),
+    /// `water` the water block the bobber floats on. Reply `Handled` if
+    /// the mod gave the player their catch; otherwise the game gives a
+    /// plain fish (or now and then some string or a feather).
+    FishBite {
+        player: PlayerId,
+        rod: String,
+        water: BlockPos,
     },
 }
 

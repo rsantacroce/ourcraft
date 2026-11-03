@@ -11,12 +11,15 @@
 //! changes the game with functions this runner adds to the language
 //! (`set-block`, `chat`, `fill`, …). See `README.md` next to this file.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use eelisp::value::OrderedDict;
 use eelisp::{Interpreter, LispError, Value};
 use ourcraft_mod_api::guest::{self, Mod};
-use ourcraft_mod_api::{BlockSpec, EffectKind, Event, EventReply, Render, Rgba, speckled};
+use ourcraft_mod_api::{
+    BlockSpec, EffectKind, Event, EventReply, HostCall, HostReply, ItemSpec, RecipeSpec, Render, Rgba, speckled,
+};
 
 /// Most blocks one `fill` may change.
 const MAX_FILL: i64 = 32 * 32 * 32;
@@ -28,6 +31,33 @@ struct Runner {
     it: Option<Interpreter>,
     /// Does the script have an `on-tick`? (Checked once: ticks are often.)
     ticks: bool,
+    /// What went wrong while the script first ran, to tell players when
+    /// they join (they can't read the server log).
+    problem: Option<String>,
+    /// Problems already shown in the chat (each is shown once).
+    shown: Vec<String>,
+}
+
+thread_local! {
+    /// The state of `random`'s number generator.
+    static SEED: Cell<u64> = const { Cell::new(0x9E37_79B9_7F4A_7C15) };
+}
+
+/// Stir something into the random numbers (the tick, the script).
+fn stir(v: u64) {
+    SEED.with(|s| s.set(s.get() ^ v.wrapping_mul(0x2545_F491_4F6C_DD1D)));
+    next_random();
+}
+
+fn next_random() -> u64 {
+    SEED.with(|s| {
+        let mut x = s.get();
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        s.set(x);
+        x
+    })
 }
 
 impl Mod for Runner {
@@ -43,14 +73,25 @@ impl Mod for Runner {
             }
             _ => {}
         }
+        if let Event::Tick { tick, .. } = event {
+            stir(tick);
+        }
         let Some(it) = &self.it else {
             return EventReply::Ok;
         };
         let n = |v: u64| Value::Number(v as f64);
+        if let (Event::PlayerJoined { player, .. }, Some(p)) = (&event, &self.problem) {
+            guest::chat(Some(*player), &format!("⚠ {p}"));
+        }
         let (name, args) = match event {
             Event::Start => ("on-start", vec![]),
             Event::Tick { tick, .. } if self.ticks => ("on-tick", vec![n(tick)]),
             Event::PlayerJoined { player, name } => ("on-join", vec![n(player), Value::Str(name)]),
+            Event::FishBite { player, rod, water } => {
+                let mut args = vec![n(player), Value::Str(rod)];
+                args.extend(water.map(|v| Value::Number(v as f64)));
+                ("on-fish-bite", args)
+            }
             Event::PlayerLeft { player } => ("on-leave", vec![n(player)]),
             Event::Chat { player, text } => ("on-chat", vec![n(player), Value::Str(text)]),
             Event::BlockChange {
@@ -66,11 +107,32 @@ impl Mod for Runner {
             }
             _ => return EventReply::Ok,
         };
-        let result = call(it, name, &args);
+        let result = match it.call(name, &args) {
+            // The script doesn't handle this event.
+            None => None,
+            Some(Ok(v)) => Some(v),
+            Some(Err(e)) => {
+                let text = format!("({name} …) failed: {}", says(&e));
+                guest::log(&text);
+                // Shown in the chat once, so whoever wrote it can see it.
+                if !self.shown.contains(&text) {
+                    guest::chat(None, &format!("⚠ {text}"));
+                    self.shown.push(text);
+                }
+                None
+            }
+        };
         print_output(it);
-        match (name, result) {
-            ("on-chat", Some(v)) if truthy(&v) => EventReply::Handled,
-            ("on-block-change", Some(v)) if is_deny(&v) => EventReply::Deny,
+        match (name, result, &args[..]) {
+            ("on-chat", Some(v), _) if truthy(&v) => EventReply::Handled,
+            ("on-block-change", Some(v), _) if is_deny(&v) => EventReply::Deny,
+            // The catch: an item's name, or [name count].
+            ("on-fish-bite", Some(v), [Value::Number(p), ..]) => match catch(&v) {
+                Some((item, count)) if guest::give_item(*p as u64, &item, count) => {
+                    EventReply::Handled
+                }
+                _ => EventReply::Ok,
+            },
             _ => EventReply::Ok,
         }
     }
@@ -87,8 +149,11 @@ impl Runner {
         let it = Interpreter::new();
         it.set_echo(false);
         add_game_functions(&it);
+        stir(script.len() as u64 ^ script.bytes().fold(0u64, |h, b| h.wrapping_mul(31) ^ b as u64));
         if let Err(e) = it.eval_str(&script) {
-            guest::log(&format!("The script has a problem: {e}"));
+            let text = format!("The script has a problem: {}", says(&e));
+            guest::log(&text);
+            self.problem = Some(text);
         }
         print_output(&it);
         self.ticks = it.eval_str("(fn? on-tick)").is_ok_and(|v| truthy(&v));
@@ -98,17 +163,23 @@ impl Runner {
 
 ourcraft_mod_api::export_mod!(Runner);
 
-/// Call the script's function `name`, if it has one, and return what it
-/// returned.
-fn call(it: &Interpreter, name: &str, args: &[Value]) -> Option<Value> {
-    // None if the script doesn't handle this event.
-    match it.call(name, args)? {
-        Ok(v) => Some(v),
-        Err(e) => {
-            guest::log(&format!("({name} …) failed: {e}"));
-            None
-        }
+/// What `on-fish-bite` returned: `"fish:trout"` or `["fish:trout" 2]`.
+fn catch(v: &Value) -> Option<(String, u16)> {
+    match v {
+        Value::Str(s) => Some((s.clone(), 1)),
+        Value::List(l) => match (l.first(), l.get(1)) {
+            (Some(Value::Str(s)), Some(Value::Number(n))) => Some((s.clone(), n.clamp(1.0, 64.0) as u16)),
+            (Some(Value::Str(s)), None) => Some((s.clone(), 1)),
+            _ => None,
+        },
+        _ => None,
     }
+}
+
+/// An error as a sentence (without EELisp's "Error: " in front).
+fn says(e: &LispError) -> String {
+    let text = e.to_string();
+    text.strip_prefix("Error: ").unwrap_or(&text).to_owned()
 }
 
 fn truthy(v: &Value) -> bool {
@@ -194,6 +265,88 @@ fn color(v: Option<&Value>) -> Rgba {
             [c(0), c(1), c(2), 255]
         }
         _ => [128, 128, 128, 255],
+    }
+}
+
+/// A 16×16 picture drawn with letters: `:picture` is a list of rows
+/// (`"..oo.."`) and `:colors` says which colour each letter is
+/// (`{:o [255 140 0]}`). `.` and spaces are see-through. A smaller
+/// picture is made bigger to fill the square (8 rows → each letter is
+/// 2×2 pixels).
+fn picture(d: &OrderedDict) -> Result<Option<Vec<u8>>, LispError> {
+    let Some(Value::List(rows)) = field(d, "picture") else {
+        return Ok(None);
+    };
+    let rows: Vec<Vec<char>> = rows
+        .iter()
+        .map(|r| match r {
+            Value::Str(s) => s.chars().collect(),
+            v => v.to_string().chars().collect(),
+        })
+        .collect();
+    let h = rows.len();
+    let w = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if h == 0 || h > 16 || w > 16 {
+        return Err(LispError::Runtime(
+            "a :picture has 1 to 16 rows, each at most 16 letters long".into(),
+        ));
+    }
+    let mut colors: Vec<(char, Rgba)> = Vec::new();
+    if let Some(Value::Dict(c)) = field(d, "colors") {
+        for k in &c.keys {
+            if let Some(ch) = k.trim_start_matches(':').chars().next() {
+                colors.push((ch, color(c.map.get(k))));
+            }
+        }
+    }
+    let scale = (16 / w.max(h)).max(1);
+    let (left, top) = ((16 - w * scale) / 2, (16 - h * scale) / 2);
+    let mut rgba = vec![0u8; 16 * 16 * 4];
+    for (y, row) in rows.iter().enumerate() {
+        for (x, ch) in row.iter().enumerate() {
+            if *ch == '.' || *ch == ' ' {
+                continue;
+            }
+            let Some((_, c)) = colors.iter().find(|(k, _)| k == ch) else {
+                return Err(LispError::Runtime(format!(
+                    "the picture uses the letter {ch} but :colors doesn't say what colour it is"
+                )));
+            };
+            for dy in 0..scale {
+                for dx in 0..scale {
+                    let (px, py) = (left + x * scale + dx, top + y * scale + dy);
+                    let i = (py * 16 + px) * 4;
+                    rgba[i..i + 4].copy_from_slice(c);
+                }
+            }
+        }
+    }
+    Ok(Some(rgba))
+}
+
+/// `:name "yourmod:thing"` from a dict.
+fn thing_name(d: &OrderedDict, what: &str) -> Result<String, LispError> {
+    match field(d, "name") {
+        Some(Value::Str(s)) if s.contains(':') => Ok(s.clone()),
+        _ => Err(LispError::Runtime(format!(
+            "{what} needs a :name like \"yourmod:thing\""
+        ))),
+    }
+}
+
+fn whole(d: &OrderedDict, key: &str, lo: f64, hi: f64, default: f64) -> f64 {
+    match field(d, key) {
+        Some(Value::Number(n)) => n.clamp(lo, hi),
+        _ => default,
+    }
+}
+
+/// Ask the game to add something; its "no" becomes the script's error
+/// (a name that's taken, or registering after the script first ran).
+fn registered(call: HostCall) -> Result<(), LispError> {
+    match guest::host(&call) {
+        HostReply::Error(e) => Err(LispError::Runtime(e)),
+        _ => Ok(()),
     }
 }
 
@@ -289,20 +442,23 @@ fn add_game_functions(it: &Interpreter) {
                     .into(),
             ));
         };
-        let name = match field(d, "name") {
-            Some(Value::Str(s)) if s.contains(':') => s.clone(),
-            _ => {
-                return Err(LispError::Runtime(
-                    "a block needs a :name like \"yourmod:thing\"".into(),
-                ));
-            }
-        };
+        let name = thing_name(d, "a block")?;
         let display = match field(d, "display") {
             Some(Value::Str(s)) => s.clone(),
             _ => name.clone(),
         };
         let glass = field(d, "glass").is_some_and(truthy);
-        let mut rgba = speckled(color(field(d, "color")), name.len() as u32);
+        let mut rgba = match picture(d)? {
+            // See-through bits of a block's picture are its :color.
+            Some(mut p) => {
+                let under = color(field(d, "color"));
+                for px in p.chunks_mut(4).filter(|px| px[3] == 0) {
+                    px.copy_from_slice(&under);
+                }
+                p
+            }
+            None => speckled(color(field(d, "color")), name.len() as u32),
+        };
         if glass {
             // Clear in the middle, coloured at the edges.
             for (i, px) in rgba.chunks_mut(4).enumerate() {
@@ -317,7 +473,7 @@ fn add_game_functions(it: &Interpreter) {
             Some(Value::Number(n)) => n.clamp(0.0, 15.0) as u8,
             _ => 0,
         };
-        guest::register_block(BlockSpec {
+        registered(HostCall::RegisterBlock(BlockSpec {
             render: if glass {
                 Render::Cutout
             } else {
@@ -325,7 +481,7 @@ fn add_game_functions(it: &Interpreter) {
             },
             light,
             ..BlockSpec::simple(&name, &display, &name)
-        });
+        }))?;
         Ok(Value::Str(name))
     });
     // (players): a list of {:id :name :x :y :z}.
@@ -392,5 +548,135 @@ fn add_game_functions(it: &Interpreter) {
             }
         }
         Ok(Value::Number(done as f64))
+    });
+
+    // ---- Chance ----
+    // (random 6): a whole number from 0 to 5.
+    it.define_fn("random", |a| {
+        let n = num(a, 0, "how many numbers").unwrap_or(2.0).floor().max(1.0) as u64;
+        Ok(Value::Number((next_random() % n) as f64))
+    });
+    // (chance 25): true 25 times out of 100.
+    it.define_fn("chance", |a| {
+        let pct = num(a, 0, "the percent")?;
+        Ok(Value::Bool(((next_random() % 10_000) as f64) < pct * 100.0))
+    });
+    // (pick ["a" "b" "c"]): one of them, any one.
+    it.define_fn("pick", |a| match a.first() {
+        Some(Value::List(l)) if !l.is_empty() => {
+            Ok(l[(next_random() % l.len() as u64) as usize].clone())
+        }
+        _ => Ok(Value::Null),
+    });
+
+    // ---- Items ----
+    // (register-item {:name "fish:trout" :display "Trout" :color [120 160 200]
+    //                 :picture [...] :colors {...} :food 2 :heals 0
+    //                 :cooks-into "fish:cooked_trout" :stack 64 :fuel 0}):
+    // something to carry. Only while the script first runs.
+    it.define_fn("register-item", |a| {
+        let Some(Value::Dict(d)) = a.first() else {
+            return Err(LispError::Runtime(
+                "register-item takes a dict, like {:name \"fish:trout\" :display \"Trout\" :color [120 160 200]}"
+                    .into(),
+            ));
+        };
+        let name = thing_name(d, "an item")?;
+        let display = match field(d, "display") {
+            Some(Value::Str(s)) => s.clone(),
+            _ => name.clone(),
+        };
+        let rgba = match picture(d)? {
+            Some(p) => p,
+            None => speckled(color(field(d, "color")), name.len() as u32),
+        };
+        guest::register_texture(&name, rgba);
+        let cooks_into = match field(d, "cooks-into") {
+            Some(Value::Str(s)) => Some(s.clone()),
+            _ => None,
+        };
+        registered(HostCall::RegisterItem(ItemSpec {
+            max_stack: whole(d, "stack", 1.0, 64.0, 64.0) as u16,
+            food: whole(d, "food", 0.0, 20.0, 0.0) as u8,
+            heals: whole(d, "heals", 0.0, 20.0, 0.0) as u8,
+            fuel: whole(d, "fuel", 0.0, 600.0, 0.0) as f32,
+            smelts_into: cooks_into,
+            ..ItemSpec::simple(&name, &display, &name)
+        }))?;
+        Ok(Value::Str(name))
+    });
+    // (register-recipe {:pattern [" S" "S "] :key {:S "core:stick"} :result "fish:rod"})
+    // or (register-recipe {:ingredients ["fish:trout" "core:bread"] :result "fish:sandwich"}).
+    // Add :count 2 to make two. Only while the script first runs.
+    it.define_fn("register-recipe", |a| {
+        let Some(Value::Dict(d)) = a.first() else {
+            return Err(LispError::Runtime(
+                "register-recipe takes a dict with :result and :pattern or :ingredients".into(),
+            ));
+        };
+        let result = match field(d, "result") {
+            Some(Value::Str(s)) => s.clone(),
+            _ => return Err(LispError::Runtime("a recipe needs a :result".into())),
+        };
+        let count = whole(d, "count", 1.0, 64.0, 1.0) as u16;
+        let strings = |v: Option<&Value>| match v {
+            Some(Value::List(l)) => l.iter().map(|v| match v {
+                Value::Str(s) => s.clone(),
+                v => v.to_string(),
+            }).collect(),
+            _ => Vec::new(),
+        };
+        let spec = if let Some(Value::Dict(k)) = field(d, "key") {
+            let pattern: Vec<String> = strings(field(d, "pattern"));
+            if pattern.is_empty() || pattern.len() > 3 || pattern.iter().any(|r| r.chars().count() > 3) {
+                return Err(LispError::Runtime(
+                    "a recipe's :pattern has 1 to 3 rows of up to 3 letters".into(),
+                ));
+            }
+            let key = k
+                .keys
+                .iter()
+                .filter_map(|name| {
+                    let ch = name.trim_start_matches(':').chars().next()?;
+                    match k.map.get(name) {
+                        Some(Value::Str(item)) => Some((ch, item.clone())),
+                        _ => None,
+                    }
+                })
+                .collect();
+            RecipeSpec::Shaped { pattern, key, result: result.clone(), count }
+        } else {
+            let ingredients = strings(field(d, "ingredients"));
+            if ingredients.is_empty() || ingredients.len() > 9 {
+                return Err(LispError::Runtime(
+                    "a recipe needs :ingredients (1 to 9) or a :pattern and :key".into(),
+                ));
+            }
+            RecipeSpec::Shapeless { ingredients, result: result.clone(), count }
+        };
+        registered(HostCall::RegisterRecipe(spec))?;
+        Ok(Value::Str(result))
+    });
+    // (give-item player "fish:trout" 3): count is 1 if you leave it out.
+    it.define_fn("give-item", |a| {
+        let count = num(a, 2, "how many").unwrap_or(1.0).clamp(1.0, 2304.0) as u16;
+        Ok(Value::Bool(guest::give_item(num(a, 0, "the player")? as u64, &text(a, 1), count)))
+    });
+    // (take-item player "fish:trout" 3): takes up to 3; returns how many it took.
+    it.define_fn("take-item", |a| {
+        let count = num(a, 2, "how many").unwrap_or(1.0).clamp(0.0, 2304.0) as u16;
+        Ok(Value::Number(
+            guest::take_item(num(a, 0, "the player")? as u64, &text(a, 1), count) as f64,
+        ))
+    });
+    // (count-item player "fish:trout"): how many they have.
+    it.define_fn("count-item", |a| {
+        Ok(Value::Number(
+            guest::count_item(num(a, 0, "the player")? as u64, &text(a, 1)) as f64,
+        ))
+    });
+    // (world-spawn): where new players appear, as [x y z].
+    it.define_fn("world-spawn", |_| {
+        Ok(guest::world_spawn().map_or(Value::Null, |p| list(p.map(|v| Value::Number(v as f64)))))
     });
 }

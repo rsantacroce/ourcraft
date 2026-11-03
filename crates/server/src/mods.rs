@@ -59,6 +59,18 @@ pub struct ModQueue {
     pub edits: Vec<PendingEdit>,
     /// (client, player name, text)
     pub chats: Vec<(ClientId, String, String)>,
+    /// Fish that bit this tick.
+    pub bites: Vec<FishBite>,
+}
+
+/// A fish bit someone's line: mods may give a catch of their own.
+#[derive(Debug, Clone)]
+pub struct FishBite {
+    pub client: ClientId,
+    pub rod: String,
+    pub water: IVec3,
+    /// What the player gets if no mod gives anything.
+    pub catch: ourcraft_common::item::ItemId,
 }
 
 /// Something a mod asked for that needs other parts of the server.
@@ -80,6 +92,8 @@ pub enum ModCommand {
     Title(Option<ClientId>, String, f32),
     Tools(ClientId, Vec<String>),
     Broadcast(Box<ServerMessage>),
+    Give(ClientId, ourcraft_common::item::ItemId, u16),
+    Take(ClientId, ourcraft_common::item::ItemId, u16),
 }
 
 enum Phase {
@@ -104,6 +118,8 @@ pub struct ServerHost {
     open: Option<OpenWorld>,
     entities: Option<Entities>,
     players: Vec<api::PlayerInfo>,
+    /// The players' inventories, kept up to date as mods give and take.
+    inventories: HashMap<ClientId, ourcraft_common::inventory::Inventory>,
     pub out: Vec<ModCommand>,
 }
 
@@ -123,6 +139,7 @@ impl ServerHost {
             open: None,
             entities: None,
             players: Vec::new(),
+            inventories: HashMap::new(),
             out: Vec::new(),
         }
     }
@@ -168,6 +185,11 @@ impl ServerHost {
             }
         }
         best.map(|(_, h)| h)
+    }
+
+    /// An item (or block) by name, while the world is running.
+    fn item(&self, name: &str) -> Option<ourcraft_common::item::ItemId> {
+        self.open.as_ref()?.items.by_name(name)
     }
 
     /// Change a block on behalf of a mod or an approved player edit.
@@ -450,6 +472,47 @@ impl Host for ServerHost {
                 Some(o) => HostReply::Position(o.spawn.to_array()),
                 None => error("the world isn't open"),
             },
+            // ---- Items ----
+            HostCall::GiveItem {
+                player,
+                item,
+                count,
+            } => {
+                let Some(id) = self.item(&item) else {
+                    return error("there's no item with that name");
+                };
+                let count = count.min(64 * 36);
+                if let (Some(inv), Some(open)) =
+                    (self.inventories.get_mut(&player), self.open.as_ref())
+                {
+                    inv.add(&open.items, id, count);
+                }
+                self.out.push(ModCommand::Give(player, id, count));
+                HostReply::Ok
+            }
+            HostCall::TakeItem {
+                player,
+                item,
+                count,
+            } => {
+                let Some(id) = self.item(&item) else {
+                    return error("there's no item with that name");
+                };
+                let taken = self
+                    .inventories
+                    .get_mut(&player)
+                    .map_or(0, |inv| inv.take(id, count));
+                if taken > 0 {
+                    self.out.push(ModCommand::Take(player, id, taken));
+                }
+                HostReply::Count(taken as u32)
+            }
+            HostCall::CountItem { player, item } => {
+                let Some(id) = self.item(&item) else {
+                    return error("there's no item with that name");
+                };
+                HostReply::Count(self.inventories.get(&player).map_or(0, |inv| inv.count(id)))
+            }
             HostCall::Sound { name, at } => {
                 self.out
                     .push(ModCommand::Broadcast(Box::new(ServerMessage::Sound {
@@ -640,7 +703,12 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
     *tick += 1;
     let send_tick = (*tick).is_multiple_of(TICK_EVERY);
     let queue = std::mem::take(&mut *world.resource_mut::<ModQueue>());
-    if queue.events.is_empty() && queue.edits.is_empty() && queue.chats.is_empty() && !send_tick {
+    if queue.events.is_empty()
+        && queue.edits.is_empty()
+        && queue.chats.is_empty()
+        && queue.bites.is_empty()
+        && !send_tick
+    {
         return;
     }
 
@@ -659,6 +727,10 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
             })
         })
         .collect();
+    let inventories = players_q
+        .iter(world)
+        .map(|p| (p.client, p.inventory.clone()))
+        .collect();
 
     // Lend the world to the mods.
     let registry = world.resource::<Registry>().0.clone();
@@ -676,6 +748,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         open: world.remove_resource::<OpenWorld>(),
         entities: world.remove_resource::<Entities>(),
         players,
+        inventories,
         out: Vec::new(),
     };
     let mods = world.remove_resource::<Mods>().expect("mods resource");
@@ -726,6 +799,18 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
                 });
             }
         }
+        for bite in &queue.bites {
+            let event = Event::FishBite {
+                player: bite.client,
+                rod: bite.rod.clone(),
+                water: bite.water.to_array(),
+            };
+            let (h, reply) = rt.dispatch_until_handled(host, &event);
+            host = h;
+            if reply != EventReply::Handled {
+                host.out.push(ModCommand::Give(bite.client, bite.catch, 1));
+            }
+        }
         if send_tick {
             let event = Event::Tick {
                 tick: *tick / TICK_EVERY,
@@ -762,6 +847,7 @@ fn carry_out(world: &mut World, commands: Vec<ModCommand>) {
         return;
     }
     let time = world.resource::<OpenWorld>().meta.time_of_day;
+    let items = world.resource::<OpenWorld>().items.clone();
     let mut players_q = world.query::<&mut ConnectedPlayer>();
     let mut players: Vec<Mut<ConnectedPlayer>> = players_q.iter_mut(world).collect();
     let mut outgoing: Vec<(Option<ClientId>, Channel, ServerMessage)> = Vec::new();
@@ -836,6 +922,40 @@ fn carry_out(world: &mut World, commands: Vec<ModCommand>) {
                 outgoing.push((Some(client), Channel::Reliable, ServerMessage::Tools(tools)));
             }
             ModCommand::Broadcast(msg) => outgoing.push((None, Channel::Reliable, *msg)),
+            ModCommand::Give(client, item, count) => {
+                if let Some(p) = players.iter_mut().find(|p| p.client == client) {
+                    p.inventory.add(&items, item, count);
+                }
+                // In stacks the player's game can take in one go.
+                let mut left = count;
+                while left > 0 {
+                    let n = left.min(items.max_stack(item));
+                    left -= n;
+                    outgoing.push((
+                        Some(client),
+                        Channel::Reliable,
+                        ServerMessage::GiveItems(ourcraft_common::protocol::NetStack {
+                            item: item.0,
+                            count: n,
+                            wear: 0,
+                        }),
+                    ));
+                }
+            }
+            ModCommand::Take(client, item, count) => {
+                if let Some(p) = players.iter_mut().find(|p| p.client == client) {
+                    p.inventory.take(item, count);
+                }
+                outgoing.push((
+                    Some(client),
+                    Channel::Reliable,
+                    ServerMessage::TakeItems(ourcraft_common::protocol::NetStack {
+                        item: item.0,
+                        count,
+                        wear: 0,
+                    }),
+                ));
+            }
         }
     }
     drop(players);

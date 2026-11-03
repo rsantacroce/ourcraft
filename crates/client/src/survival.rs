@@ -71,25 +71,7 @@ fn handle_messages(
                 }
             }
             ServerMessage::TakeItems(stack) => {
-                // Take from the hand first, then anywhere else.
-                let item = ourcraft_common::item::ItemId(stack.item);
-                let mut left = stack.count;
-                let selected = inventory.selected;
-                let order = std::iter::once(selected)
-                    .chain((0..inventory.slots.len()).filter(|i| *i != selected));
-                for i in order.collect::<Vec<_>>() {
-                    if left == 0 {
-                        break;
-                    }
-                    if let Some(s) = inventory.slots[i].as_mut().filter(|s| s.item == item) {
-                        let n = left.min(s.count);
-                        s.count -= n;
-                        left -= n;
-                        if s.count == 0 {
-                            inventory.slots[i] = None;
-                        }
-                    }
-                }
+                inventory.take(ourcraft_common::item::ItemId(stack.item), stack.count);
             }
             ServerMessage::ContainerClosed => {
                 if matches!(*screen, OpenScreen::Container(_)) {

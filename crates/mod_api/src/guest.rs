@@ -173,6 +173,41 @@ pub fn spawn_mob(name: &str, position: Vec3) -> Option<EntityId> {
     }
 }
 
+/// Put items in a player's inventory, e.g. `give_item(p, "core:bread", 2)`.
+pub fn give_item(player: PlayerId, item: &str, count: u16) -> bool {
+    matches!(
+        host(&HostCall::GiveItem {
+            player,
+            item: item.into(),
+            count,
+        }),
+        HostReply::Ok
+    )
+}
+
+/// Take up to `count` of an item from a player; returns how many were taken.
+pub fn take_item(player: PlayerId, item: &str, count: u16) -> u32 {
+    match host(&HostCall::TakeItem {
+        player,
+        item: item.into(),
+        count,
+    }) {
+        HostReply::Count(n) => n,
+        _ => 0,
+    }
+}
+
+/// How many of an item a player has.
+pub fn count_item(player: PlayerId, item: &str) -> u32 {
+    match host(&HostCall::CountItem {
+        player,
+        item: item.into(),
+    }) {
+        HostReply::Count(n) => n,
+        _ => 0,
+    }
+}
+
 /// The id of a block by name (`"core:stone"`, `"yourmod:thing"`).
 pub fn block_id(name: &str) -> Option<BlockId> {
     match host(&HostCall::BlockId(name.into())) {
