@@ -199,18 +199,24 @@
            here))))
 
 ;; ---------------------------------------------------------------
-;; Your fishing journal (forgotten when the world closes)
+;; Your fishing journal (kept with the world)
 ;; ---------------------------------------------------------------
 
-(def journals {})
+(def journals (or (load-data "journals") {}))
+
+;; A player's name, which stays the same every time they play.
+(defn name-of (player)
+  (dict-get (head (filter (fn (p) (= (dict-get p :id) player)) (players))) :name))
 
 (defn journal (player)
-  (or (dict-get journals (str player)) []))
+  (or (dict-get journals (name-of player)) []))
 
 (defn remember-catch (player f)
   (let (seen (journal player) id (dict-get f :id))
     (unless (some? (fn (s) (= s id)) seen)
-      (set! journals (dict-set journals (str player) (cons id seen)))
+      (set! journals (dict-set journals (name-of player) (cons id seen)))
+      ;; Remember it next time the world opens.
+      (save-data "journals" journals)
       (show-title (str "New fish: " (dict-get f :display) "!") 2 player)
       (confetti-on player))))
 

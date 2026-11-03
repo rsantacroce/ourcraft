@@ -120,11 +120,13 @@ pub struct ServerHost {
     players: Vec<api::PlayerInfo>,
     /// The players' inventories, kept up to date as mods give and take.
     inventories: HashMap<ClientId, ourcraft_common::inventory::Inventory>,
+    /// What mods keep with the world.
+    data: crate::mod_data::ModData,
     pub out: Vec<ModCommand>,
 }
 
 impl ServerHost {
-    fn init(registry: BlockRegistry) -> Self {
+    fn init(registry: BlockRegistry, data: crate::mod_data::ModData) -> Self {
         Self {
             phase: Phase::Init,
             registry,
@@ -140,6 +142,7 @@ impl ServerHost {
             entities: None,
             players: Vec::new(),
             inventories: HashMap::new(),
+            data,
             out: Vec::new(),
         }
     }
@@ -293,6 +296,12 @@ impl Host for ServerHost {
                 Some(id) => HostReply::Block(id.0),
                 None => error("no such block"),
             },
+            // ---- Kept data (Init too, so a script can read it as it starts) ----
+            HostCall::SaveData { key, value } => match self.data.save(mod_name, &key, value) {
+                Ok(()) => HostReply::Ok,
+                Err(e) => HostReply::Error(e),
+            },
+            HostCall::LoadData { key } => HostReply::Data(self.data.load(mod_name, &key)),
             _ if init => error("the world isn't running yet (wait for Event::Start)"),
 
             // ---- World ----
@@ -618,7 +627,9 @@ pub fn load_mods(
     use_bundled: bool,
     game_mode: Option<String>,
     only: Option<&[String]>,
-) -> (Mods, BlockRegistry, ContentPack) {
+    data: crate::mod_data::ModData,
+    kept: &KeptNames,
+) -> (Mods, BlockRegistry, ContentPack, crate::mod_data::ModData) {
     let mut runtime = match ModRuntime::new() {
         Ok(r) => r,
         Err(e) => {
@@ -634,7 +645,7 @@ pub fn load_mods(
                 ..default()
             };
             let rt = ModRuntime::new().expect("runtime");
-            return (Mods(Mutex::new(rt)), registry, content);
+            return (Mods(Mutex::new(rt)), registry, content, data);
         }
     };
 
@@ -645,7 +656,7 @@ pub fn load_mods(
         .cloned()
         .collect();
     names.sort();
-    let mut host = ServerHost::init(BlockRegistry::with_builtin_blocks());
+    let mut host = ServerHost::init(BlockRegistry::with_builtin_blocks(), data);
     for name in names {
         let loaded = match &sources[&name].0 {
             ModSource::Wasm(bytes) => runtime.load(&name, bytes),
@@ -670,13 +681,14 @@ pub fn load_mods(
         }
     }
 
-    let (host, _) = runtime.dispatch(
+    let (mut host, _) = runtime.dispatch(
         host,
         &Event::Init {
             api_version: API_VERSION,
             game_mode,
         },
     );
+    keep_missing(&mut host, kept);
     let items = ourcraft_common::item::ItemRegistry::build(&host.registry, &host.items);
     let mut recipes = ourcraft_common::recipes::builtin_recipes();
     recipes.extend(host.recipes);
@@ -695,7 +707,7 @@ pub fn load_mods(
         recipes,
         mobs,
     };
-    (Mods(Mutex::new(runtime)), host.registry, content)
+    (Mods(Mutex::new(runtime)), host.registry, content, host.data)
 }
 
 /// Run this tick's events through the mods, then carry out the results.
@@ -749,6 +761,9 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
         entities: world.remove_resource::<Entities>(),
         players,
         inventories,
+        data: world
+            .remove_resource::<crate::mod_data::ModData>()
+            .unwrap_or_default(),
         out: Vec::new(),
     };
     let mods = world.remove_resource::<Mods>().expect("mods resource");
@@ -838,6 +853,7 @@ pub fn run_mods(world: &mut World, mut tick: Local<u64>) {
     if let Some(e) = host.entities.take() {
         world.insert_resource(e);
     }
+    world.insert_resource(std::mem::take(&mut host.data));
     carry_out(world, host.out);
 }
 
@@ -971,4 +987,66 @@ fn carry_out(world: &mut World, commands: Vec<ModCommand>) {
 /// Shared registry as an `Arc`, for the `Registry` resource.
 pub fn registry_resource(registry: BlockRegistry) -> Registry {
     Registry(Arc::new(registry))
+}
+
+/// Mod blocks and items a world already has (its saved block list, and
+/// what's in players' inventories and containers).
+#[derive(Default, Debug, Clone)]
+pub struct KeptNames {
+    pub blocks: Vec<String>,
+    pub items: Vec<String>,
+}
+
+/// The picture of a block or item whose mod is switched off: a grey and
+/// purple checkerboard.
+fn waiting_texture() -> Vec<u8> {
+    let mut rgba = Vec::with_capacity(16 * 16 * 4);
+    for y in 0..16 {
+        for x in 0..16 {
+            let c: [u8; 4] = if (x / 4 + y / 4) % 2 == 0 {
+                [150, 150, 160, 255]
+            } else {
+                [140, 90, 190, 255]
+            };
+            rgba.extend_from_slice(&c);
+        }
+    }
+    rgba
+}
+
+/// A world's blocks and items from a mod that's switched off stay, as
+/// plain stand-ins with the same names, so switching the mod back on
+/// brings them back. (Otherwise they'd turn into air and be lost.)
+fn keep_missing(host: &mut ServerHost, kept: &KeptNames) {
+    let from_a_mod = |n: &&String| n.contains(':') && !n.starts_with("core:");
+    let mut added = 0;
+    for name in kept.blocks.iter().filter(from_a_mod) {
+        if host.registry.by_name(name).is_some() {
+            continue;
+        }
+        let texture = format!("{name}#waiting");
+        host.textures.push((texture.clone(), waiting_texture()));
+        let display = format!("{name} (its mod is off)");
+        if host
+            .registry
+            .register_spec(&api::BlockSpec::simple(name, &display, &texture))
+            .is_some()
+        {
+            added += 1;
+        }
+    }
+    for name in kept.items.iter().filter(from_a_mod) {
+        if host.registry.by_name(name).is_some() || host.items.iter().any(|d| &d.name == name) {
+            continue;
+        }
+        host.textures.push((name.clone(), waiting_texture()));
+        let display = format!("{name} (its mod is off)");
+        host.items.push(ourcraft_common::item::ItemDef::from_spec(
+            &api::ItemSpec::simple(name, &display, name),
+        ));
+        added += 1;
+    }
+    if added > 0 {
+        info!("Kept {added} blocks and items whose mods are switched off");
+    }
 }

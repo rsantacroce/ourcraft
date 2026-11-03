@@ -37,9 +37,10 @@ pub struct WorldPlugin;
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         let config = app.world().resource::<ServerConfig>().clone();
-        let (world, mods, registry, content) = open_world(&config);
+        let (world, (mods, mod_data), registry, content) = open_world(&config);
         app.insert_resource(world)
             .insert_resource(mods)
+            .insert_resource(mod_data)
             .insert_resource(content)
             .insert_resource(Registry(Arc::new(registry)))
             .init_resource::<ServerWorld>()
@@ -159,7 +160,7 @@ fn open_world(
     config: &ServerConfig,
 ) -> (
     OpenWorld,
-    crate::mods::Mods,
+    (crate::mods::Mods, crate::mod_data::ModData),
     BlockRegistry,
     crate::mods::Content,
 ) {
@@ -183,11 +184,17 @@ fn open_world(
         ourcraft_common::save::load_world_mods(&config.world_dir)
             .unwrap_or_else(crate::mods::default_world_mods)
     });
-    let (mods, registry, content) = crate::mods::load_mods(
+    let kept = existing
+        .as_ref()
+        .map(|meta| kept_names(&storage, meta))
+        .unwrap_or_default();
+    let (mods, registry, content, mod_data) = crate::mods::load_mods(
         config.mods_dir.as_deref(),
         config.bundled_mods,
         game_mode.clone(),
         only.as_deref(),
+        crate::mod_data::ModData::new(Some(&config.world_dir)),
+        &kept,
     );
     let registry_ref = &registry;
     let (meta, remap) = match existing {
@@ -330,7 +337,12 @@ fn open_world(
     };
     // The save guard must never write an empty furnace list over real ones.
     open.update_snapshot();
-    (open, mods, registry, crate::mods::Content(content))
+    (
+        open,
+        (mods, mod_data),
+        registry,
+        crate::mods::Content(content),
+    )
 }
 
 fn random_seed() -> u64 {
@@ -345,6 +357,31 @@ fn random_seed() -> u64 {
 /// Player files from before milestone 11 hold block ids, which only make
 /// sense with the block names the world was saved with. Convert them all
 /// now, before those names are replaced by the current ones.
+/// The blocks and items a saved world has, so ones from a mod that's now
+/// switched off can be kept.
+fn kept_names(storage: &WorldStorage, meta: &WorldMeta) -> crate::mods::KeptNames {
+    let mut items: Vec<String> = Vec::new();
+    for name in storage.player_names() {
+        if let Ok(Some(p)) = storage.load_player(&name, &meta.block_names) {
+            items.extend(p.inventory.iter().flatten().map(|s| s.item.clone()));
+        }
+    }
+    if let Ok(containers) = storage.load_containers() {
+        for c in containers {
+            items.extend(c.slots.iter().flatten().map(|s| s.item.clone()));
+        }
+    }
+    if let Ok(frames) = storage.load_frames() {
+        items.extend(frames.into_iter().map(|(_, item)| item));
+    }
+    items.sort();
+    items.dedup();
+    crate::mods::KeptNames {
+        blocks: meta.block_names.clone(),
+        items,
+    }
+}
+
 fn upgrade_players(storage: &WorldStorage, saved_block_names: &[String]) {
     for name in storage.player_names() {
         match storage.load_player(&name, saved_block_names) {

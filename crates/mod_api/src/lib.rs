@@ -462,7 +462,27 @@ pub enum HostCall {
         player: PlayerId,
         item: String,
     },
+    /// Keep some text with the world, under a name (`None` forgets it).
+    /// Each mod has its own: up to [`MAX_DATA_KEYS`] names of up to
+    /// [`MAX_DATA_KEY`] bytes, each holding up to [`MAX_DATA_VALUE`] bytes.
+    /// Saved straight away. Allowed during `Init` too.
+    SaveData {
+        key: String,
+        value: Option<String>,
+    },
+    /// Text kept with [`HostCall::SaveData`]. Replies `HostReply::Data`.
+    /// Allowed during `Init` too.
+    LoadData {
+        key: String,
+    },
 }
+
+/// Most names one mod may keep data under ([`HostCall::SaveData`]).
+pub const MAX_DATA_KEYS: usize = 256;
+/// Longest name for kept data, in bytes.
+pub const MAX_DATA_KEY: usize = 64;
+/// Most text kept under one name, in bytes.
+pub const MAX_DATA_VALUE: usize = 64 * 1024;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum HostReply {
@@ -478,6 +498,8 @@ pub enum HostReply {
     Position(BlockPos),
     /// How many items (for `TakeItem` and `CountItem`).
     Count(u32),
+    /// Kept text (for `LoadData`), if there is any.
+    Data(Option<String>),
 }
 
 /// Things that happen, sent to every mod.

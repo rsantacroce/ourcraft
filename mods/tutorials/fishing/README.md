@@ -427,6 +427,14 @@ The **fishing journal** remembers which fish you've found. The first
 time you catch a new kind, there's a big title and confetti! `/journal`
 lists them, and the corner of the screen shows "Fish found: 3 of 7".
 
+The journal is **kept with the world**, so it's still there next time you
+play. Two commands do that:
+
+```lisp
+(save-data "journals" journals)            ; keep it, under the name "journals"
+(def journals (or (load-data "journals") {}))  ; get it back (or {} the first time)
+```
+
 The finished mod is [`steps/8-feast.el`](steps/8-feast.el). Type
 `/fishing` in the game to see all its commands.
 
@@ -483,6 +491,7 @@ Things that often go wrong:
 | `(give-item player "fish:perch" 3)` | give items |
 | `(take-item player "fish:perch" 3)` | take up to 3 (and say how many it took) |
 | `(count-item player "fish:coin")` | how many they have |
+| `(save-data "name" value)` / `(load-data "name")` | keep something with the world / get it back |
 | `(register-item {...})` | a new item (only at the top of the file) |
 | `(register-block {...})` | a new block (only at the top of the file) |
 | `(register-recipe {...})` | a new crafting recipe (only at the top of the file) |

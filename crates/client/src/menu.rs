@@ -1190,8 +1190,8 @@ fn rebuild_menu(
                     if forms.mods_for.is_some() {
                         note(
                             ui,
-                            "Changes count next time you play. Switching a mod off\n\
-                             takes its blocks out of this world.",
+                            "Changes count next time you play. A mod switched off\n\
+                             keeps its blocks: they wait, grey, until it's back on.",
                             grey,
                         );
                     }

@@ -4534,6 +4534,7 @@ dependencies = [
  "ourcraft_common",
  "ourcraft_mod_api",
  "ourcraft_mod_host",
+ "postcard",
  "renet",
  "renet_netcode",
 ]
