@@ -223,13 +223,14 @@ fn update_debug_text(
         .unwrap_or_else(|| "nothing".into());
     let flying = if player.state.flying { ", flying" } else { "" };
     text.0 = format!(
-        "FPS: {fps:.0}   Time: {hh:02}:{mm:02}   Mode: {:?}{flying}\n\
+        "Ourcraft {}   FPS: {fps:.0}   Time: {hh:02}:{mm:02}   Mode: {:?}{flying}\n\
          Position: {:.1} / {:.1} / {:.1} in {}\n\
          Looking at: {looking_at}\n\
          Chunks: {} loaded, {} meshes, {} decoding, {} meshing\n\
          Render distance: {}\n\
          {}{}\n\
          Prediction: {} unconfirmed inputs, {} corrections, {} snaps (last {:.2} blocks)",
+        ourcraft_common::VERSION,
         *mode,
         p.x,
         p.y,

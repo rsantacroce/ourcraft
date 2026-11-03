@@ -24,11 +24,15 @@ fn main() {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("ourcraft-server {}", ourcraft_common::VERSION);
+        return;
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
             "Usage: ourcraft-server [--port {DEFAULT_PORT}] [--world NAME] [--dir FOLDER] \
              [--seed N] [--survival] [--name NAME] [--motd TEXT] [--view-distance N] \
-                          [--max-players N] [--mode GAME_MODE] [--mods FOLDER] [--no-bundled-mods]"
+                          [--max-players N] [--mode GAME_MODE] [--mods FOLDER] [--no-bundled-mods] [--version]"
         );
         return;
     }
@@ -66,5 +70,6 @@ fn main() {
         eprintln!("Couldn't install Ctrl+C handler ({e}); the world still autosaves");
     }
 
+    println!("Ourcraft server {}", ourcraft_common::VERSION);
     build_app(config, None, stop, SaveNowFlag::default(), true).run();
 }
