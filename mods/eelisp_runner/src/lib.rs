@@ -13,8 +13,7 @@
 
 use std::rc::Rc;
 
-use eelisp::env::{self, Env};
-use eelisp::value::{ArgMode, Builtin, OrderedDict};
+use eelisp::value::OrderedDict;
 use eelisp::{Interpreter, LispError, Value};
 use ourcraft_mod_api::guest::{self, Mod};
 use ourcraft_mod_api::{BlockSpec, EffectKind, Event, EventReply, Render, Rgba, speckled};
@@ -87,12 +86,12 @@ impl Runner {
         };
         let it = Interpreter::new();
         it.set_echo(false);
-        add_game_functions(&it.global);
+        add_game_functions(&it);
         if let Err(e) = it.eval_str(&script) {
             guest::log(&format!("The script has a problem: {e}"));
         }
         print_output(&it);
-        self.ticks = env::get(&it.global, "on-tick").is_ok();
+        self.ticks = it.eval_str("(fn? on-tick)").is_ok_and(|v| truthy(&v));
         self.it = Some(it);
     }
 }
@@ -102,8 +101,8 @@ ourcraft_mod_api::export_mod!(Runner);
 /// Call the script's function `name`, if it has one, and return what it
 /// returned.
 fn call(it: &Interpreter, name: &str, args: &[Value]) -> Option<Value> {
-    let f = env::get(&it.global, name).ok()?; // the script doesn't handle this event
-    match eelisp::eval::apply_value(&f, args, &it.global) {
+    // None if the script doesn't handle this event.
+    match it.call(name, args)? {
         Ok(v) => Some(v),
         Err(e) => {
             guest::log(&format!("({name} …) failed: {e}"));
@@ -134,18 +133,6 @@ fn print_output(it: &Interpreter) {
 }
 
 // ---- The game's functions, as EELisp builtins ----
-
-fn define(env: &Env, name: &str, f: impl Fn(&[Value]) -> Result<Value, LispError> + 'static) {
-    env::define(
-        env,
-        name,
-        Value::Builtin(Rc::new(Builtin {
-            name: name.into(),
-            arg_mode: ArgMode::Eval,
-            func: Box::new(move |args, _| f(args)),
-        })),
-    );
-}
 
 fn num(args: &[Value], i: usize, what: &str) -> Result<f64, LispError> {
     match args.get(i) {
@@ -214,30 +201,30 @@ fn list(items: impl IntoIterator<Item = Value>) -> Value {
     Value::List(Rc::new(items.into_iter().collect()))
 }
 
-fn add_game_functions(env: &Env) {
-    define(env, "log", |a| {
+fn add_game_functions(it: &Interpreter) {
+    it.define_fn("log", |a| {
         guest::log(&text(a, 0));
         Ok(Value::Null)
     });
     // (chat "text"): to everyone.
-    define(env, "chat", |a| {
+    it.define_fn("chat", |a| {
         guest::chat(None, &text(a, 0));
         Ok(Value::Null)
     });
     // (tell player "text"): to one player.
-    define(env, "tell", |a| {
+    it.define_fn("tell", |a| {
         guest::chat(Some(num(a, 0, "the player")? as u64), &text(a, 1));
         Ok(Value::Null)
     });
     // (show-title "text" seconds [player]): big text in the middle of the
     // screen, for everyone or one player.
-    define(env, "show-title", |a| {
+    it.define_fn("show-title", |a| {
         let secs = num(a, 1, "the seconds").unwrap_or(3.0) as f32;
         guest::show_title(who(a, 2), &text(a, 0), secs);
         Ok(Value::Null)
     });
     // (set-hud player-or-nil ("line" "line" …)): the panel in the corner.
-    define(env, "set-hud", |a| {
+    it.define_fn("set-hud", |a| {
         let lines = match a.get(1) {
             Some(Value::List(l)) => l
                 .iter()
@@ -252,7 +239,7 @@ fn add_game_functions(env: &Env) {
         Ok(Value::Null)
     });
     // (sound "name") for everyone, or (sound "name" x y z) from a place.
-    define(env, "sound", |a| {
+    it.define_fn("sound", |a| {
         guest::sound(&text(a, 0), pos3(a, 1).ok());
         Ok(Value::Null)
     });
@@ -262,40 +249,40 @@ fn add_game_functions(env: &Env) {
         ("hearts", EffectKind::Hearts),
         ("poof", EffectKind::Poof),
     ] {
-        define(env, name, move |a| {
+        it.define_fn(name, move |a| {
             guest::effect(kind, pos3(a, 0)?, [255, 255, 255, 255]);
             Ok(Value::Null)
         });
     }
     // (teleport player x y z)
-    define(env, "teleport", |a| {
+    it.define_fn("teleport", |a| {
         guest::teleport(num(a, 0, "the player")? as u64, pos3(a, 1)?);
         Ok(Value::Null)
     });
     // (spawn-mob "core:pig" x y z)
-    define(env, "spawn-mob", |a| {
+    it.define_fn("spawn-mob", |a| {
         Ok(match guest::spawn_mob(&text(a, 0), pos3(a, 1)?) {
             Some(id) => Value::Number(id as f64),
             None => Value::Null,
         })
     });
     // (ground-height x z): the y of the top solid block there, or nil.
-    define(env, "ground-height", |a| {
+    it.define_fn("ground-height", |a| {
         Ok(guest::ground_height(int(a, 0, "x")?, int(a, 1, "z")?)
             .map_or(Value::Null, |h| Value::Number(h as f64)))
     });
     // (time-of-day): 0 is midnight, 0.5 noon. (set-time-of-day 0.25): dawn.
-    define(env, "time-of-day", |_| {
+    it.define_fn("time-of-day", |_| {
         Ok(Value::Number(guest::time_of_day() as f64))
     });
-    define(env, "set-time-of-day", |a| {
+    it.define_fn("set-time-of-day", |a| {
         guest::set_time_of_day(num(a, 0, "the time")? as f32);
         Ok(Value::Null)
     });
     // (register-block {:name "fun:glow" :display "Glow Block" :color [255 200 50]
     //                  :light 15 :glass false}): a new block, speckled in
     // that colour. Only while the script first runs.
-    define(env, "register-block", |a| {
+    it.define_fn("register-block", |a| {
         let Some(Value::Dict(d)) = a.first() else {
             return Err(LispError::Runtime(
                 "register-block takes a dict, like {:name \"fun:glow\" :display \"Glow\" :color [255 200 50]}"
@@ -342,7 +329,7 @@ fn add_game_functions(env: &Env) {
         Ok(Value::Str(name))
     });
     // (players): a list of {:id :name :x :y :z}.
-    define(env, "players", |_| {
+    it.define_fn("players", |_| {
         Ok(list(guest::players().into_iter().map(|p| {
             let mut d = OrderedDict::default();
             d.insert("id".into(), Value::Number(p.id as f64));
@@ -354,7 +341,7 @@ fn add_game_functions(env: &Env) {
         })))
     });
     // (player-pos player): the block a player stands in, as (x y z).
-    define(env, "player-pos", |a| {
+    it.define_fn("player-pos", |a| {
         let id = num(a, 0, "the player")? as u64;
         let p = guest::players()
             .into_iter()
@@ -363,22 +350,22 @@ fn add_game_functions(env: &Env) {
         Ok(list(p.position.map(|v| Value::Number(v.floor() as f64))))
     });
     // (block-id "core:stone"): a block's id, or nil.
-    define(env, "block-id", |a| {
+    it.define_fn("block-id", |a| {
         Ok(guest::block_id(&text(a, 0)).map_or(Value::Null, |id| Value::Number(id as f64)))
     });
     // (get-block x y z): the id of the block there.
-    define(env, "get-block", |a| {
+    it.define_fn("get-block", |a| {
         let pos = [int(a, 0, "x")?, int(a, 1, "y")?, int(a, 2, "z")?];
         Ok(Value::Number(guest::get_block(pos) as f64))
     });
     // (set-block x y z block): true if it worked.
-    define(env, "set-block", |a| {
+    it.define_fn("set-block", |a| {
         let pos = [int(a, 0, "x")?, int(a, 1, "y")?, int(a, 2, "z")?];
         Ok(Value::Bool(guest::try_set_block(pos, block(a, 3)?)))
     });
     // (fill x1 y1 z1 x2 y2 z2 block): a whole box at once (done here, in
     // Rust, so big builds stay fast). Returns how many blocks it changed.
-    define(env, "fill", |a| {
+    it.define_fn("fill", |a| {
         let mut c = [0; 6];
         for (i, v) in c.iter_mut().enumerate() {
             *v = int(a, i, "a corner")?;
