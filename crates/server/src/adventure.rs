@@ -16,6 +16,9 @@ use crate::world::{OpenWorld, Registry, ServerWorld};
 
 /// How fast an arrow leaves the bow (blocks per second).
 const ARROW_SPEED: f32 = 28.0;
+/// How fast a slingshot's pebble flies, and how often it can be flicked.
+const PEBBLE_SPEED: f32 = 30.0;
+const SLINGSHOT_COOLDOWN: f32 = 0.5;
 /// Seconds food takes on a campfire.
 const COOK_TIME: f32 = 6.0;
 
@@ -71,12 +74,61 @@ fn use_items(
     mut cooking: ResMut<Cooking>,
     mut net: ResMut<Network>,
     mut seed: Local<u32>,
+    (time, mut last_shot, mut shots): (
+        Res<Time>,
+        Local<std::collections::HashMap<ClientId, f32>>,
+        MessageWriter<crate::mobs::PebbleShot>,
+    ),
 ) {
     for FromClient { client, msg } in messages.read() {
         let Some(p) = players_map.0.get(client).and_then(|e| players.get(*e).ok()) else {
             continue;
         };
         match msg {
+            // ---- The slingshot: a pebble that bops what it hits. ----
+            ClientMessage::UseItem { held, direction }
+                if open.items.name(ItemId(*held)) == "core:slingshot" =>
+            {
+                let dir = Vec3::from_array(*direction).normalize_or_zero();
+                let now = time.elapsed_secs();
+                let ready = last_shot
+                    .get(client)
+                    .is_none_or(|t| now - t >= SLINGSHOT_COOLDOWN);
+                if dir == Vec3::ZERO || !ready {
+                    continue;
+                }
+                last_shot.insert(*client, now);
+                let eye = p.position() + Vec3::Y * ourcraft_common::physics::EYE_HEIGHT;
+                // The pebble is for show; the bop is worked out straight away.
+                entities.spawn(ServerEntity {
+                    model: "@pebble".into(),
+                    position: eye + dir * 0.6,
+                    velocity: dir * PEBBLE_SPEED,
+                    motion: EntityMotion::Projectile {
+                        gravity: 6.0,
+                        radius: 0.07,
+                        hits_players: false,
+                    },
+                    lifetime: 1.5,
+                    age: 0.0,
+                    owner: Some(*client),
+                    moved: true,
+                    item: None,
+                    yaw: dir.x.atan2(dir.z),
+                });
+                shots.write(crate::mobs::PebbleShot {
+                    client: *client,
+                    from: eye,
+                    dir,
+                });
+                net.broadcast(
+                    Channel::Reliable,
+                    &ServerMessage::Sound {
+                        name: "click".into(),
+                        at: Some(eye.to_array()),
+                    },
+                );
+            }
             // ---- The bow: an arrow flies where you aim. ----
             ClientMessage::UseItem { held, direction } => {
                 if open.items.name(ItemId(*held)) != "core:bow" {

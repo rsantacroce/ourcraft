@@ -265,6 +265,21 @@ fn use_blocks(
         );
         return;
     }
+    // A slingshot flicks a pebble (no ammo needed).
+    if items.name(held) == "core:slingshot" {
+        let Some(mut conn) = conn else { return };
+        if survival {
+            inventory.wear_selected(&items);
+        }
+        conn.send(
+            Channel::Reliable,
+            &ClientMessage::UseItem {
+                held: held.0,
+                direction: player.look_direction().to_array(),
+            },
+        );
+        return;
+    }
     // A fishing rod casts into the water you point at (or reels in).
     if items.name(held) == "core:fishing_rod" {
         let Some(mut conn) = conn else { return };

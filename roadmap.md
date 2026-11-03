@@ -610,7 +610,10 @@ get new names and art, never copied ones.
   skin's name (`made_` and nine letters or digits), so everyone sees it
   without sending any pictures.
 - ~~A diamond sword to finish the set~~: done (wood, stone, iron and
-  diamond). Maybe other gentle weapons along the same lines.
+  diamond). ~~Other gentle weapons~~: done too: a slingshot (sticks and
+  string) flicks a pebble that bops whatever it hits up to 24 blocks
+  away, like a bare-handed bop, no ammo needed; a shield (planks and an
+  iron ingot) held in hand halves monsters' bonks.
 
 ## Housekeeping
 
