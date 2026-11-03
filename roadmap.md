@@ -600,8 +600,9 @@ get new names and art, never copied ones.
   from "Get some wood" to "Visit the Cloud Isles", each announced with a
   title, a cheer and a hint for the next one; `/goals` lists them, and
   they're saved per player in `achievements.dat`.
-- More game modes as mods: a racing course, hide and seek, a building
-  contest with voting.
+- More game modes as mods: a racing course, hide and seek. (~~A building
+  contest with voting~~: done, the Build Contest mod. Hide and seek
+  would need a way for mods to hide name tags.)
 - ~~Player skins: choose colours and a face~~: done. "Make your own skin"
   in Settings picks skin tone, hair colour and length, eyes, a face
   (smile, grin, surprised, freckles, glasses), shirt, trousers, shoes and

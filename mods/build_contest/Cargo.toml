@@ -1,0 +1,12 @@
+[package]
+name = "build_contest"
+description = "Build Contest: build to a theme on your own plot, then everyone votes."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ourcraft_mod_api = { path = "../../crates/mod_api" }

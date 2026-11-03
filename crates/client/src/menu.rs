@@ -89,7 +89,8 @@ enum Field {
 struct Forms {
     world_name: String,
     seed: String,
-    splat_squad: bool,
+    /// Which of [`GAME_MODES`] a new world gets.
+    game_mode: usize,
     survival: bool,
     lan: bool,
     address: String,
@@ -148,7 +149,7 @@ impl Default for Forms {
         Self {
             world_name: String::new(),
             seed: String::new(),
-            splat_squad: false,
+            game_mode: 0,
             survival: false,
             lan: false,
             address: format!("localhost:{DEFAULT_PORT}"),
@@ -176,7 +177,7 @@ enum Action {
     /// "Yes, delete it."
     Delete(String),
     KeepWorld,
-    ToggleSplat,
+    CycleGameMode,
     ToggleSurvival,
     ToggleLan,
     RandomName,
@@ -202,6 +203,22 @@ enum Action {
     MakerRandom,
     TogglePick,
     ToggleWheel,
+}
+
+/// The games a new world can be: (mode name, what the button says).
+const GAME_MODES: [(Option<&str>, &str); 3] = [
+    (None, "Build (free play)"),
+    (Some("team_shooter"), "Splat Squad (team flag game)"),
+    (Some("build_contest"), "Build Contest (vote!)"),
+];
+
+/// A game mode's short name, for lists.
+fn game_mode_name(mode: &str) -> &'static str {
+    match mode {
+        "team_shooter" => "Splat Squad",
+        "build_contest" => "Build Contest",
+        _ => "game mode",
+    }
 }
 
 #[derive(Component)]
@@ -389,8 +406,9 @@ fn button_actions(
                     world_name: world,
                     seed: forms.seed.parse().ok(),
                     lan: forms.lan,
-                    mode: forms.splat_squad.then(|| "team_shooter".to_owned()),
-                    creative: !forms.survival,
+                    mode: GAME_MODES[forms.game_mode].0.map(str::to_owned),
+                    // Game modes are played in creative.
+                    creative: !forms.survival || forms.game_mode != 0,
                 };
                 commands.insert_resource(Connection::single_player(&opts, &name));
                 forms.focused = None;
@@ -403,7 +421,7 @@ fn button_actions(
                 forms.confirm_delete = None;
                 forms.message = delete_world(&folder).err();
             }
-            Action::ToggleSplat => forms.splat_squad = !forms.splat_squad,
+            Action::CycleGameMode => forms.game_mode = (forms.game_mode + 1) % GAME_MODES.len(),
             Action::ToggleSurvival => forms.survival = !forms.survival,
             Action::ToggleLan => forms.lan = !forms.lan,
             Action::Focus(f) => forms.focused = Some(f),
@@ -788,8 +806,7 @@ fn world_list(
             .with_children(|list| {
                 for (folder, meta, saved, _) in worlds {
                     let mode = match meta.game_mode.as_deref() {
-                        Some("team_shooter") => "Splat Squad",
-                        Some(_) => "game mode",
+                        Some(m) => game_mode_name(m),
                         None if meta.creative => "creative",
                         None => "survival",
                     };
@@ -1022,13 +1039,9 @@ fn rebuild_menu(
                         Field::Seed,
                         f == Some(Field::Seed),
                     );
-                    let mode = if forms.splat_squad {
-                        "Game: Splat Squad (team flag game)"
-                    } else {
-                        "Game: Build (free play)"
-                    };
-                    button_sized(ui, mode, Action::ToggleSplat, 420.0);
-                    if !forms.splat_squad {
+                    let mode = format!("Game: {}", GAME_MODES[forms.game_mode].1);
+                    button_sized(ui, mode, Action::CycleGameMode, 420.0);
+                    if forms.game_mode == 0 {
                         let survival = if forms.survival {
                             "Survival: collect what you break"
                         } else {
@@ -1059,11 +1072,12 @@ fn rebuild_menu(
                         );
                     }
                     for s in servers {
-                        let mode = if s.beacon.game_mode.as_deref() == Some("team_shooter") {
-                            " - Splat Squad"
-                        } else {
-                            ""
-                        };
+                        let mode = s
+                            .beacon
+                            .game_mode
+                            .as_deref()
+                            .map(|m| format!(" - {}", game_mode_name(m)))
+                            .unwrap_or_default();
                         button_sized(
                             ui,
                             format!(
