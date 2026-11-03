@@ -1,0 +1,78 @@
+# Mods in EELisp
+
+Write a mod as one text file in [EELisp](https://eelisp.app), no Rust or
+build step needed. Put `something.el` in the server's mods folder (or in
+`mods/dist/` to bundle it into the game) and it's a mod called
+`something`.
+
+The game runs each script in its own copy of the EELisp runner
+(`mods/runtimes/eelisp.wasm`), inside the same sandbox as every other mod:
+a script can't touch files or the internet, and each event has a time
+limit.
+
+## Events
+
+Define any of these and the game calls them:
+
+| Function | When |
+|---|---|
+| `(on-start)` | the world is ready |
+| `(on-join player name)` | someone joined |
+| `(on-leave player)` | someone left |
+| `(on-chat player text)` | a chat line. Return `true` if it was your command (then nobody else sees it) |
+| `(on-tick tick)` | 20 times a second. Keep it short |
+| `(on-block-change player x y z old new)` | someone is changing a block. Return `:deny` to stop it |
+
+The rest of the script runs once, when the world loads. That's where you
+register blocks and set up your variables with `def`.
+
+## Game functions
+
+| Function | What it does |
+|---|---|
+| `(chat "text")` | a chat line for everyone |
+| `(tell player "text")` | a chat line for one player |
+| `(show-title "text" seconds [player])` | big text in the middle of the screen |
+| `(set-hud player-or-nil ["line" …])` | the panel in the corner |
+| `(players)` | everyone, as dicts `{:id :name :x :y :z}` |
+| `(player-pos player)` | the block a player stands in, `(x y z)` |
+| `(teleport player x y z)` | move a player |
+| `(block-id "core:stone")` | a block's id, or nil |
+| `(get-block x y z)` | the id of the block there |
+| `(set-block x y z block)` | change one block (a name or an id). True if it worked |
+| `(fill x1 y1 z1 x2 y2 z2 block)` | a whole box at once, much faster than `set-block` in a loop. Returns how many changed |
+| `(ground-height x z)` | the y of the top solid block |
+| `(register-block {:name "mod:thing" :display "Thing" :color [r g b] :light 0-15 :glass true})` | a new block. Only while the script first runs |
+| `(spawn-mob "core:pig" x y z)` | an animal |
+| `(sound "name" [x y z])` | a sound, for everyone or from a place |
+| `(confetti x y z)`, `(hearts x y z)`, `(poof x y z)` | a little celebration |
+| `(time-of-day)`, `(set-time-of-day t)` | 0 is midnight, 0.5 noon |
+| `(log "text")` | a line in the server log (so does `println`) |
+
+Everything else is plain EELisp: `defn`, `let`, `if`, `cond`, `for-each`,
+`range`, strings, lists `[1 2 3]` and dicts `{:a 1}`. Note that
+`(1 2 3)` is a function call: write lists with square brackets.
+
+## Examples
+
+- [`examples/glow_garden.el`](examples/glow_garden.el): two blocks, a
+  `/garden` command, and glow blocks only the gardener can break.
+- [`examples/builder.el`](examples/builder.el): `/tower`, `/wall` and
+  `/bigwall`, for comparing `set-block` in a loop with `fill`.
+
+## How fast is it?
+
+The language runs inside the sandbox, so it's slower than a Rust mod. From
+`crates/mod_host/tests/eelisp.rs`, as a share of one event's time budget:
+starting up 4%, 10 blocks 0.2%, 300 blocks one at a time 5.3%, 300 blocks
+with `fill` 1.1%. Plenty for commands and game rules. For big builds use
+`fill`.
+
+## Building the runner
+
+```sh
+mods/eelisp_runner/build.sh   # writes mods/runtimes/eelisp.wasm
+```
+
+It needs `eelisp-rs` checked out next to this repo, built with its
+`sqlite` feature off (just the language).

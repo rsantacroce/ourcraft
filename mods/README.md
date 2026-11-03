@@ -34,6 +34,12 @@ has a step-by-step tutorial, recipes and the complete API reference.
   begins a round. Pick "Game: Build Contest" when making a world, or
   `--mode build_contest`.
 
+## Mods in EELisp
+
+A mod can also be one text file in EELisp: put `something.el` in the mods
+folder. See [`eelisp_runner/README.md`](eelisp_runner/README.md) for the
+events, the game functions and two examples.
+
 ## Write your own
 
 1. Copy `paint_blocks` to a new folder and add it to `members` in

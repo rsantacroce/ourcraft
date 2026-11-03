@@ -1,7 +1,7 @@
-//! The EELisp runner experiment (`mods/eelisp_runner`): a mod whose logic
-//! is an EELisp script, run by the interpreter inside the sandbox. Skipped
-//! unless it's been built:
-//! `cd mods/eelisp_runner && cargo build --release --target wasm32-unknown-unknown`
+//! The EELisp runner (`mods/runtimes/eelisp.wasm`): a mod whose logic is
+//! an EELisp script, run by the interpreter inside the sandbox. Also
+//! measures how much of an event's time budget the language uses. Skipped
+//! unless it's been built (`mods/eelisp_runner/build.sh`).
 
 use ourcraft_mod_api::{API_VERSION, Event, EventReply, HostCall, HostReply, PlayerInfo};
 use ourcraft_mod_host::{FUEL_PER_EVENT, Host, ModRuntime};
@@ -57,17 +57,25 @@ fn percent(fuel: u64) -> String {
 fn an_eelisp_script_runs_as_a_mod() {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../mods/eelisp_runner/target/wasm32-unknown-unknown/release/eelisp_runner.wasm"
+        "/../../mods/runtimes/eelisp.wasm"
     );
+    let script = include_str!("../../../mods/eelisp_runner/examples/builder.el");
     let Ok(bytes) = std::fs::read(path) else {
         eprintln!("skipping: {path} not built");
         return;
     };
     let mut rt = ModRuntime::<World>::new().unwrap();
     // Loads: it needs nothing from outside but the game.
-    rt.load("eelisp_runner", &bytes).unwrap();
-    let (world, _) = rt.dispatch(
+    rt.load("builder", &bytes).unwrap();
+    let (world, _) = rt.dispatch_to(
+        "builder",
         World::default(),
+        &Event::Script {
+            source: script.into(),
+        },
+    );
+    let (world, _) = rt.dispatch(
+        world,
         &Event::Init {
             api_version: API_VERSION,
             game_mode: None,
@@ -75,11 +83,14 @@ fn an_eelisp_script_runs_as_a_mod() {
     );
     let init = rt.mods[0].last_fuel_used;
     assert!(
-        world.log.iter().any(|l| l.contains("script loaded")),
+        !world.log.iter().any(|l| l.contains("problem")),
         "{:?}",
         world.log
     );
-    eprintln!("start-up (interpreter + prelude + script): {}", percent(init));
+    eprintln!(
+        "start-up (interpreter + prelude + script): {}",
+        percent(init)
+    );
 
     let (world, _) = rt.dispatch(
         world,
@@ -110,7 +121,11 @@ fn an_eelisp_script_runs_as_a_mod() {
         world = w;
         assert_eq!(reply, EventReply::Handled);
         assert_eq!(world.blocks.len() - before, n * 3);
-        eprintln!("/wall {n} ({} blocks, one at a time): {}", n * 3, percent(fuel));
+        eprintln!(
+            "/wall {n} ({} blocks, one at a time): {}",
+            n * 3,
+            percent(fuel)
+        );
     }
     // …and with `fill` doing the loop.
     let before = world.blocks.len();

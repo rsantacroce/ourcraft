@@ -462,6 +462,13 @@ impl Host for ServerHost {
     }
 }
 
+/// Where a mod comes from: a WebAssembly module, or an EELisp script that
+/// the EELisp runner runs.
+enum ModSource {
+    Wasm(Vec<u8>),
+    Script(String),
+}
+
 /// Load bundled mods and any in `mods_dir`, give them `Init`, and return the
 /// runtime plus the content they registered.
 pub fn load_mods(
@@ -489,10 +496,13 @@ pub fn load_mods(
     };
 
     // Files in the mods folder override bundled mods with the same name.
-    let mut sources: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut sources: HashMap<String, ModSource> = HashMap::new();
     if use_bundled {
         for (name, bytes) in BUNDLED_MODS {
-            sources.insert((*name).to_owned(), bytes.to_vec());
+            sources.insert((*name).to_owned(), ModSource::Wasm(bytes.to_vec()));
+        }
+        for (name, script) in BUNDLED_SCRIPTS {
+            sources.insert((*name).to_owned(), ModSource::Script((*script).to_owned()));
         }
     }
     if let Some(dir) = mods_dir
@@ -500,23 +510,52 @@ pub fn load_mods(
     {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|e| e == "wasm")
-                && let (Some(stem), Ok(bytes)) = (path.file_stem(), std::fs::read(&path))
-            {
-                sources.insert(stem.to_string_lossy().into_owned(), bytes);
+            let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            match path.extension().and_then(|e| e.to_str()) {
+                Some("wasm") => {
+                    if let Ok(bytes) = std::fs::read(&path) {
+                        sources.insert(stem, ModSource::Wasm(bytes));
+                    }
+                }
+                Some("el") => match std::fs::read_to_string(&path) {
+                    Ok(script) => {
+                        sources.insert(stem, ModSource::Script(script));
+                    }
+                    Err(e) => error!("Mod '{stem}' wasn't loaded: {e}"),
+                },
+                _ => {}
             }
         }
     }
     let mut names: Vec<String> = sources.keys().cloned().collect();
     names.sort();
+    let mut host = ServerHost::init(BlockRegistry::with_builtin_blocks());
     for name in names {
-        match runtime.load(&name, &sources[&name]) {
+        let loaded = match &sources[&name] {
+            ModSource::Wasm(bytes) => runtime.load(&name, bytes),
+            // An EELisp mod: its own copy of the runner, given the script.
+            ModSource::Script(script) => match EELISP_RUNNER {
+                None => Err("the EELisp runner isn't built (mods/eelisp_runner/build.sh)".into()),
+                Some(runner) => {
+                    let loaded = runtime.load(&name, runner);
+                    if loaded.is_ok() {
+                        let event = Event::Script {
+                            source: script.clone(),
+                        };
+                        host = runtime.dispatch_to(&name, host, &event).0;
+                    }
+                    loaded
+                }
+            },
+        };
+        match loaded {
             Ok(()) => info!("Loaded mod '{name}'"),
             Err(e) => error!("Mod '{name}' wasn't loaded: {e}"),
         }
     }
 
-    let host = ServerHost::init(BlockRegistry::with_builtin_blocks());
     let (host, _) = runtime.dispatch(
         host,
         &Event::Init {

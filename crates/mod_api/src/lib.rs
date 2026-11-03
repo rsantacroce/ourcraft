@@ -510,6 +510,11 @@ pub enum Event {
         owner: Option<PlayerId>,
         hit: Hit,
     },
+    /// Only for script runners (like the EELisp one): the script this copy
+    /// of the runner should run. Sent once, before `Init`.
+    Script {
+        source: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
