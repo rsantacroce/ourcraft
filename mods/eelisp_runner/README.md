@@ -32,7 +32,7 @@ Define any of these and the game calls them:
 | `(on-fish-bite player rod x y z)` | a fish bit someone's line (`x y z` is the water). Return the catch: an item name, or `["name" count]`. Return nil for the game's usual catch |
 
 If the script has a mistake, the game says so in the chat (starting with
-⚠), as well as in the server log: when the world loads for a mistake in
+`(!)`), as well as in the server log: when the world loads for a mistake in
 the script itself, the first time it happens for one in an event.
 
 The rest of the script runs once, when the world loads. That's where you

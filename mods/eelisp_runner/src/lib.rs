@@ -82,7 +82,7 @@ impl Mod for Runner {
         };
         let n = |v: u64| Value::Number(v as f64);
         if let (Event::PlayerJoined { player, .. }, Some(p)) = (&event, &self.problem) {
-            guest::chat(Some(*player), &format!("⚠ {p}"));
+            guest::chat(Some(*player), &format!("(!) {p}"));
         }
         let (name, args) = match event {
             Event::Start => ("on-start", vec![]),
@@ -117,7 +117,7 @@ impl Mod for Runner {
                 guest::log(&text);
                 // Shown in the chat once, so whoever wrote it can see it.
                 if !self.shown.contains(&text) {
-                    guest::chat(None, &format!("⚠ {text}"));
+                    guest::chat(None, &format!("(!) {text}"));
                     self.shown.push(text);
                 }
                 None

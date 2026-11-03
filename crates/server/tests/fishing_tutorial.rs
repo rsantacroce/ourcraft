@@ -166,6 +166,77 @@ const STEPS: [(&str, &str); 8] = [
     ),
 ];
 
+/// The same tutorial in Brazilian Portuguese and in Spanish from Spain.
+const STEPS_PT_BR: [(&str, &str); 8] = [
+    (
+        "1-hello",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/1-hello.el"),
+    ),
+    (
+        "2-draw-a-fish",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/2-draw-a-fish.el"),
+    ),
+    (
+        "3-catch-and-cook",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/3-catch-and-cook.el"),
+    ),
+    (
+        "4-many-fish",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/4-many-fish.el"),
+    ),
+    (
+        "5-fishing-places",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/5-fishing-places.el"),
+    ),
+    (
+        "6-better-rods",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/6-better-rods.el"),
+    ),
+    (
+        "7-fish-market",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/7-fish-market.el"),
+    ),
+    (
+        "8-feast",
+        include_str!("../../../mods/tutorials/fishing/pt-BR/steps/8-feast.el"),
+    ),
+];
+
+const STEPS_ES: [(&str, &str); 8] = [
+    (
+        "1-hello",
+        include_str!("../../../mods/tutorials/fishing/es/steps/1-hello.el"),
+    ),
+    (
+        "2-draw-a-fish",
+        include_str!("../../../mods/tutorials/fishing/es/steps/2-draw-a-fish.el"),
+    ),
+    (
+        "3-catch-and-cook",
+        include_str!("../../../mods/tutorials/fishing/es/steps/3-catch-and-cook.el"),
+    ),
+    (
+        "4-many-fish",
+        include_str!("../../../mods/tutorials/fishing/es/steps/4-many-fish.el"),
+    ),
+    (
+        "5-fishing-places",
+        include_str!("../../../mods/tutorials/fishing/es/steps/5-fishing-places.el"),
+    ),
+    (
+        "6-better-rods",
+        include_str!("../../../mods/tutorials/fishing/es/steps/6-better-rods.el"),
+    ),
+    (
+        "7-fish-market",
+        include_str!("../../../mods/tutorials/fishing/es/steps/7-fish-market.el"),
+    ),
+    (
+        "8-feast",
+        include_str!("../../../mods/tutorials/fishing/es/steps/8-feast.el"),
+    ),
+];
+
 /// A little helper mod for the test: /pond digs a pool of water next to
 /// you, so there's somewhere to fish.
 const POND: &str = r#"
@@ -231,7 +302,7 @@ fn serve(
 fn problems(b: &Bot) -> Vec<String> {
     chats(b)
         .into_iter()
-        .filter(|c| c.starts_with('⚠'))
+        .filter(|c| c.starts_with("(!)"))
         .collect()
 }
 
@@ -272,30 +343,56 @@ fn say(bot: &mut Bot, text: &str) {
     bot.send(&ClientMessage::Chat { text: text.into() });
 }
 
+/// Each step of one language's tutorial loads and answers its help
+/// command (the first thing the tutorial tries).
+fn steps_load(lang: &str, steps: &[(&str, &str)], help: &str, first_id: u64) {
+    for (i, (name, source)) in steps.iter().enumerate() {
+        let (addr, stop, server, dir) = serve(&format!("{lang}-{name}"), &[("fishing", source)]);
+        let mut bot = join(addr, first_id + i as u64, "Kit");
+        say(&mut bot, help);
+        let answered = run_until(&mut [&mut bot], 3.0, |b| {
+            chats(b[0]).iter().filter(|c| !c.starts_with("(!)")).count() >= 2
+        });
+        run_until(&mut [&mut bot], 0.3, |_| false);
+        stop.0.store(true, Ordering::Relaxed);
+        let _ = server.join();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            problems(&bot).is_empty(),
+            "{lang} {name}: {:?}",
+            problems(&bot)
+        );
+        assert!(
+            answered,
+            "{lang} {name} didn't answer {help}: {:?}",
+            chats(&bot)
+        );
+        if i >= 1 {
+            assert!(
+                item_id(&bot, "fish:perch").is_some(),
+                "{lang} {name} has no perch"
+            );
+        }
+    }
+}
+
 #[test]
 fn every_step_of_the_tutorial_loads() {
     if !runner_built() {
         eprintln!("skipping: the EELisp runner isn't built");
         return;
     }
-    for (i, (name, source)) in STEPS.iter().enumerate() {
-        let (addr, stop, server, dir) = serve(name, &[("fishing", source)]);
-        let mut bot = join(addr, 700 + i as u64, "Kit");
-        say(&mut bot, "/fishing");
-        // Every step answers /fishing (the first thing the tutorial tries).
-        let answered = run_until(&mut [&mut bot], 3.0, |b| {
-            chats(b[0]).iter().filter(|c| !c.starts_with('⚠')).count() >= 2
-        });
-        run_until(&mut [&mut bot], 0.3, |_| false);
-        stop.0.store(true, Ordering::Relaxed);
-        let _ = server.join();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(problems(&bot).is_empty(), "{name}: {:?}", problems(&bot));
-        assert!(answered, "{name} didn't answer /fishing: {:?}", chats(&bot));
-        if i >= 1 {
-            assert!(item_id(&bot, "fish:perch").is_some(), "{name} has no perch");
-        }
+    steps_load("en", &STEPS, "/fishing", 700);
+}
+
+#[test]
+fn every_translated_step_loads() {
+    if !runner_built() {
+        eprintln!("skipping: the EELisp runner isn't built");
+        return;
     }
+    steps_load("pt-BR", &STEPS_PT_BR, "/pescar", 720);
+    steps_load("es", &STEPS_ES, "/pescar", 740);
 }
 
 #[test]
