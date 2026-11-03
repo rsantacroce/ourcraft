@@ -20,6 +20,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # The version the game shows (see crates/common/build.rs): the tag for a
+  # release; otherwise left empty, so git works it out.
+  OURCRAFT_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
 jobs:
   build:

@@ -1,5 +1,9 @@
 //! Types shared by every part of Ourcraft.
 
+/// This build's version: the release tag (`v0.2.0`), or for builds in
+/// between, `git describe` (`v0.1.2-10-gac539ac`). See `build.rs`.
+pub const VERSION: &str = env!("OURCRAFT_VERSION");
+
 pub mod achievements;
 pub mod adventure;
 pub mod block;

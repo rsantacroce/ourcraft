@@ -980,6 +980,19 @@ fn rebuild_menu(
                         button(ui, "Quit", Action::QuitGame);
                     }
                     note(ui, format!("Playing as {}", settings.name), Color::WHITE);
+                    // The version, small in the corner, so it can go in
+                    // bug reports.
+                    ui.spawn((
+                        Text::new(format!("Ourcraft {}", ourcraft_common::VERSION)),
+                        TextFont::from_font_size(13.0),
+                        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.6)),
+                        Node {
+                            position_type: PositionType::Absolute,
+                            right: px(12),
+                            bottom: px(10),
+                            ..default()
+                        },
+                    ));
                 }
                 Screen::Worlds => {
                     heading(ui, "Your worlds");

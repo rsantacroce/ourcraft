@@ -596,7 +596,7 @@ get new names and art, never copied ones.
   crafting table and a torch, round a well, joined by gravel paths. No
   trees grow inside. "Find a village" is an achievement. Other
   structures (ruins, towers) could follow the same pattern.
-- ~~Achievements to guide new players~~: done. Eighteen goals in survival,
+- ~~Achievements to guide new players~~: done. Nineteen goals in survival,
   from "Get some wood" to "Visit the Cloud Isles", each announced with a
   title, a cheer and a hint for the next one; `/goals` lists them, and
   they're saved per player in `achievements.dat`.

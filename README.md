@@ -3,9 +3,10 @@
 A blocky sandbox game in Rust: infinite generated worlds to explore and
 build in, survival with ores, tools, crafting and furnaces, friendly
 animals you can keep, gentle night (and cave) monsters, real light, flowing
-water you can carry in a bucket, the **Cloud Isles** (floating islands in
-a dreamy sky, through a portal you build), multiplayer, mods, and a cartoon
-team game mode called **Splat Squad**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
+water you can carry in a bucket, villages, gentle goals to guide new
+players, the **Cloud Isles** (floating islands in a dreamy sky, through a
+portal you build), a skin maker, multiplayer, mods, and two game modes: the
+cartoon team game **Splat Squad** and **Build Contest**. Runs on macOS, Windows, Linux, iPad/iPhone and Android.
 
 **Website and player manual:** https://rsantacroce.github.io/ourcraft-site/
 
@@ -21,15 +22,17 @@ cargo run --release            # main menu
 
 The first build takes a few minutes; after that it's quick.
 
-From the menu: **Play** (your worlds, or make a new one; pick *Build* or
-*Splat Squad*), **Join a friend** (games on your network, or type an
-address), **Settings**.
+From the menu: **Play** (your worlds, sorted by last played, name or
+date made, with a Delete button each; or make a new one and pick *Build*,
+*Splat Squad* or *Build Contest*), **Join a friend** (games on your
+network, or type an address), **Settings**.
 
 Shortcuts from the command line:
 
 ```sh
 cargo run --release -- --world "My World"                 # straight into a world
 cargo run --release -- --world Arena --mode team_shooter  # a Splat Squad world
+cargo run --release -- --world Plots --mode build_contest  # a Build Contest world
 cargo run --release -- --world "My World" --lan           # let your network join
 cargo run --release -- --connect 192.168.1.20 --name Sam  # join a server
 cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad network
@@ -50,7 +53,7 @@ cargo run --release -- --world Test --lag 150 --loss 5    # simulate a bad netwo
 | Q drop one (Ctrl+Q: the stack) | | |
 | Right click a crafting table / furnace: use it | left trigger | tap |
 | F5 camera: first person, behind, in front | D-pad down | View button |
-| Enter chat, Esc menu | | Menu button |
+| Enter chat, Esc menu | | Chat, Menu buttons |
 | F3 info text, F7 simulate lag, T skip an hour, [ ] view distance | | |
 
 ### Building tools (creative)
@@ -73,6 +76,38 @@ Stuck somewhere? `/spawn` takes you back to your bed (or the start of
 the world), in any mode. If you end up inside a block, the game lifts you
 out after a second.
 
+### Goals
+
+In survival, nineteen gentle goals guide you through the game, from
+*Get some wood* and *Make a crafting table* to *Find a village*, *Find a
+diamond* and *Visit the Cloud Isles*. Each one you reach gets a cheer and
+a hint for the next. Type `/goals` to see what's done and what's left.
+
+### Villages
+
+Out on open plains, deserts and snowfields you'll come across villages:
+four to seven little houses (oak, sandstone or pine) round a well with a
+lamp post, joined by gravel paths. Each house has a door, windows, a bed,
+a crafting table and a torch.
+
+### Swords, slingshot and shield
+
+Monsters are bopped away, never hurt for real. Bare hands bop for 2,
+tools a bit more, and **swords** most of all (wood 5, stone 6, iron 7,
+diamond 8; two of the material over a stick). The **slingshot** (two
+sticks and a string over a stick) flicks a pebble that bops whatever it
+hits up to 24 blocks away, no ammo needed. A **shield** (planks round an
+iron ingot) in your hand halves monsters' bonks.
+
+### Build Contest
+
+A game mode for friends: everyone gets a plot of their own and the same
+secret theme ("A rocket ship", "A house for a cat"…), builds it against
+the clock, then everyone visits each build and votes with badges from
+*Meh* to *WOW!*. The most points wins. Type `/start` to begin a round
+(`/start 3` for three minutes of building) and `/theme` to see the theme
+again. During a round you can only build on your own plot.
+
 ### The Cloud Isles
 
 1. Craft **sunstone**: eight glass round a gold ingot makes four.
@@ -88,8 +123,11 @@ monsters, no rain, and landing on a cloud never hurts.
 
 ### Skins
 
-Pick how you look under **Settings → Skin**: six built-in skins, or your
-own. Drop 64×64 skin PNGs (the classic layout, so existing skin files
+Pick how you look under **Settings → Skin**: six built-in skins, one you
+make yourself, or your own picture. **Make your own skin** (in Settings)
+picks skin tone, hair colour and length, eyes, a face (smile, grin,
+surprised, freckles or glasses), shirt, trousers, shoes and a hat, with a
+preview and a *Surprise me!* button; everyone you play with sees it. Drop 64×64 skin PNGs (the classic layout, so existing skin files
 work; old 64×32 ones too) into the `skins` folder next to `settings.txt`
 (on a Mac, `~/Library/Application Support/Ourcraft/skins`) and they appear
 in the list. Other players see your skin in multiplayer. Press F5 to see
@@ -99,7 +137,7 @@ yourself.
 
 ```sh
 cargo run --release -p ourcraft_server --bin ourcraft-server -- \
-    --world world --port 41700 [--mode team_shooter] [--survival]
+    --world world --port 41700 [--mode team_shooter|build_contest] [--survival]
 ```
 
 Worlds are saved in `./worlds/`, extra mods are loaded from `./mods/`.
@@ -126,6 +164,11 @@ git tag v0.1.0 && git push origin v0.1.0
   Android SDK + NDK, `rustup target add aarch64-linux-android` and
   `cargo install cargo-ndk`). Install with `adb install -r …`.
 
+Typing works on phones and tablets: the on-screen keyboard comes up for
+chat (the **Chat** button, next to Menu) and for menu fields like world
+names and seeds. While you type, chat moves to the top of the screen and
+the field you're typing in shows above the keyboard.
+
 ## Mods
 
 Mods are WebAssembly modules that run sandboxed on the server (no files,
@@ -144,7 +187,8 @@ crates/server    authoritative server: world, players, entities, mods;
                  dedicated binary or embedded for single player
 crates/mod_api   the versioned mod API (shared by game and mods)
 crates/mod_host  runs mods with wasmtime (fuel + memory limits)
-mods/            paint_blocks (example), team_shooter (Splat Squad)
+mods/            paint_blocks (example), snow_fun (the guide's tutorial),
+                 team_shooter (Splat Squad), build_contest (Build Contest)
 mobile/          iOS (Xcode) and Android (Gradle) launchers
 ```
 
@@ -169,7 +213,8 @@ mobile/          iOS (Xcode) and Android (Gradle) launchers
 ## Tests
 
 ```sh
-cargo test --workspace     # unit tests + an end-to-end Splat Squad test
+cargo test --workspace     # unit tests + end-to-end server tests (bots)
+cargo test -p ourcraft_server --test build_contest -- --ignored   # a whole contest round (slow)
 ```
 
 ## Versions
