@@ -1,9 +1,16 @@
 # Mods in EELisp
 
 Write a mod as one text file in [EELisp](https://eelisp.app), no Rust or
-build step needed. Put `something.el` in the server's mods folder (or in
-`mods/dist/` to bundle it into the game) and it's a mod called
-`something`.
+build step needed. Put `something.el` in the mods folder and it's a mod
+called `something`:
+
+- **Single player:** the `mods` folder next to your worlds (on a Mac,
+  `~/Library/Application Support/Ourcraft/mods`). Then switch it on for
+  the worlds you want: **Play → Mods** next to a world, or **Mods** when
+  making a new one. Mods you add start switched off, so a mod only runs
+  where you choose.
+- **A dedicated server:** its `--mods` folder. Every mod there runs.
+- **Built into the game:** `mods/dist/`.
 
 The game runs each script in its own copy of the EELisp runner
 (`mods/runtimes/eelisp.wasm`), inside the same sandbox as every other mod:

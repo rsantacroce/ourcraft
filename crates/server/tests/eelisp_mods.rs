@@ -244,3 +244,95 @@ fn an_eelisp_file_in_the_mods_folder_is_a_mod() {
     let _ = server.join();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Single player: a world runs only the mods switched on for it. Dropping a
+/// mod in the mods folder doesn't put it in every world.
+#[test]
+fn each_world_runs_only_its_own_mods() {
+    let dir = std::env::temp_dir().join(format!("ourcraft-world-mods-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mods = dir.join("mods");
+    std::fs::create_dir_all(&mods).unwrap();
+    std::fs::write(
+        mods.join("glow_garden.el"),
+        include_str!("../../../mods/eelisp_runner/examples/glow_garden.el"),
+    )
+    .unwrap();
+    let has_runner = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../mods/runtimes/eelisp.wasm"
+    ))
+    .exists();
+
+    // The blocks a world ends up with, given its mods.txt (if any).
+    let blocks_of = |world: &str, list: Option<&[&str]>, id: u64| {
+        let world_dir = dir.join(world);
+        if let Some(list) = list {
+            let list: Vec<String> = list.iter().map(|s| (*s).to_owned()).collect();
+            ourcraft_common::save::save_world_mods(&world_dir, &list).unwrap();
+        }
+        let port = UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+        let config = ServerConfig {
+            world_dir,
+            seed: Some(5),
+            bind: Some(addr),
+            max_view_distance: 2,
+            mods_dir: Some(mods.clone()),
+            per_world_mods: true,
+            ..Default::default()
+        };
+        let stop = StopFlag::default();
+        let server_stop = stop.clone();
+        let server = std::thread::spawn(move || {
+            build_app(config, None, server_stop, SaveNowFlag::default(), false).run();
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        let mut bot = Bot::connect(addr, id);
+        assert!(run_until(&mut [&mut bot], 5.0, |b| b[0]
+            .client
+            .is_connected()));
+        bot.send(&ClientMessage::Hello {
+            name: "Ada".into(),
+            view_distance: 2,
+            protocol_version: PROTOCOL_VERSION,
+        });
+        assert!(run_until(&mut [&mut bot], 10.0, |b| b[0]
+            .has(|m| matches!(m, ServerMessage::Welcome { .. }))));
+        let names: Vec<String> = bot
+            .received
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::Welcome { content, .. } => {
+                    Some(content.blocks.iter().map(|b| b.name.clone()).collect())
+                }
+                _ => None,
+            })
+            .unwrap();
+        stop.0.store(true, Ordering::Relaxed);
+        let _ = server.join();
+        names
+    };
+    let has = |names: &[String], prefix: &str| names.iter().any(|n| n.starts_with(prefix));
+
+    // No list yet: the built-in mods, but not the one dropped in the folder.
+    let plain = blocks_of("plain", None, 601);
+    assert!(has(&plain, "paint:"), "built-in mods are on by default");
+    assert!(!has(&plain, "garden:"), "folder mods start switched off");
+
+    // Switched on for this world (and the built-in ones off).
+    if has_runner {
+        let garden = blocks_of("garden", Some(&["glow_garden"]), 602);
+        assert!(has(&garden, "garden:glow"));
+        assert!(!has(&garden, "paint:"), "switched off for this world");
+    }
+
+    // Nothing at all.
+    let bare = blocks_of("bare", Some(&[]), 603);
+    assert!(!has(&bare, "paint:") && !has(&bare, "garden:"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

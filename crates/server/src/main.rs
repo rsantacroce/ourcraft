@@ -61,6 +61,8 @@ fn main() {
         game_mode: value("--mode"),
         mods_dir: Some(value("--mods").map_or_else(|| PathBuf::from("mods"), PathBuf::from)),
         bundled_mods: !args.iter().any(|a| a == "--no-bundled-mods"),
+        // A dedicated server runs every mod in its mods folder.
+        per_world_mods: false,
     };
 
     // Ctrl+C asks the server to save and stop instead of dying instantly.

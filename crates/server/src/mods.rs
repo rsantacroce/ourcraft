@@ -469,12 +469,92 @@ enum ModSource {
     Script(String),
 }
 
+/// A mod that can be switched on for a world (for the menu's list).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AvailableMod {
+    pub name: String,
+    /// Built into the game (rather than a file in the mods folder).
+    pub built_in: bool,
+    /// Written in EELisp (an `.el` file).
+    pub script: bool,
+}
+
+/// Every mod: built in, and in `mods_dir` (which win over built-in ones of
+/// the same name), by name.
+fn mod_sources(mods_dir: Option<&Path>, use_bundled: bool) -> HashMap<String, (ModSource, bool)> {
+    let mut sources = HashMap::new();
+    if use_bundled {
+        for (name, bytes) in BUNDLED_MODS {
+            sources.insert((*name).to_owned(), (ModSource::Wasm(bytes.to_vec()), true));
+        }
+        for (name, script) in BUNDLED_SCRIPTS {
+            sources.insert(
+                (*name).to_owned(),
+                (ModSource::Script((*script).to_owned()), true),
+            );
+        }
+    }
+    if let Some(dir) = mods_dir
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            match path.extension().and_then(|e| e.to_str()) {
+                Some("wasm") => {
+                    if let Ok(bytes) = std::fs::read(&path) {
+                        sources.insert(stem, (ModSource::Wasm(bytes), false));
+                    }
+                }
+                Some("el") => match std::fs::read_to_string(&path) {
+                    Ok(script) => {
+                        sources.insert(stem, (ModSource::Script(script), false));
+                    }
+                    Err(e) => error!("Mod '{stem}' wasn't loaded: {e}"),
+                },
+                _ => {}
+            }
+        }
+    }
+    sources
+}
+
+/// The mods that could be switched on for a world, sorted by name.
+pub fn available_mods(mods_dir: Option<&Path>) -> Vec<AvailableMod> {
+    let mut list: Vec<AvailableMod> = mod_sources(mods_dir, true)
+        .into_iter()
+        .map(|(name, (source, built_in))| AvailableMod {
+            name,
+            built_in,
+            script: matches!(source, ModSource::Script(_)),
+        })
+        .collect();
+    list.sort_by(|a, b| a.name.cmp(&b.name));
+    list
+}
+
+/// The mods a world has until someone chooses: the ones built into the
+/// game. Mods dropped in the mods folder start switched off.
+pub fn default_world_mods() -> Vec<String> {
+    let mut names: Vec<String> = BUNDLED_MODS
+        .iter()
+        .map(|(n, _)| (*n).to_owned())
+        .chain(BUNDLED_SCRIPTS.iter().map(|(n, _)| (*n).to_owned()))
+        .collect();
+    names.sort();
+    names
+}
+
 /// Load bundled mods and any in `mods_dir`, give them `Init`, and return the
-/// runtime plus the content they registered.
+/// runtime plus the content they registered. With `only`, just those mods
+/// load (plus the one providing the game mode, if any).
 pub fn load_mods(
     mods_dir: Option<&Path>,
     use_bundled: bool,
     game_mode: Option<String>,
+    only: Option<&[String]>,
 ) -> (Mods, BlockRegistry, ContentPack) {
     let mut runtime = match ModRuntime::new() {
         Ok(r) => r,
@@ -495,45 +575,16 @@ pub fn load_mods(
         }
     };
 
-    // Files in the mods folder override bundled mods with the same name.
-    let mut sources: HashMap<String, ModSource> = HashMap::new();
-    if use_bundled {
-        for (name, bytes) in BUNDLED_MODS {
-            sources.insert((*name).to_owned(), ModSource::Wasm(bytes.to_vec()));
-        }
-        for (name, script) in BUNDLED_SCRIPTS {
-            sources.insert((*name).to_owned(), ModSource::Script((*script).to_owned()));
-        }
-    }
-    if let Some(dir) = mods_dir
-        && let Ok(entries) = std::fs::read_dir(dir)
-    {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
-                continue;
-            };
-            match path.extension().and_then(|e| e.to_str()) {
-                Some("wasm") => {
-                    if let Ok(bytes) = std::fs::read(&path) {
-                        sources.insert(stem, ModSource::Wasm(bytes));
-                    }
-                }
-                Some("el") => match std::fs::read_to_string(&path) {
-                    Ok(script) => {
-                        sources.insert(stem, ModSource::Script(script));
-                    }
-                    Err(e) => error!("Mod '{stem}' wasn't loaded: {e}"),
-                },
-                _ => {}
-            }
-        }
-    }
-    let mut names: Vec<String> = sources.keys().cloned().collect();
+    let sources = mod_sources(mods_dir, use_bundled);
+    let mut names: Vec<String> = sources
+        .keys()
+        .filter(|n| only.is_none_or(|o| o.contains(n)) || game_mode.as_deref() == Some(n.as_str()))
+        .cloned()
+        .collect();
     names.sort();
     let mut host = ServerHost::init(BlockRegistry::with_builtin_blocks());
     for name in names {
-        let loaded = match &sources[&name] {
+        let loaded = match &sources[&name].0 {
             ModSource::Wasm(bytes) => runtime.load(&name, bytes),
             // An EELisp mod: its own copy of the runner, given the script.
             ModSource::Script(script) => match EELISP_RUNNER {

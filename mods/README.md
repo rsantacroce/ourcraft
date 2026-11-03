@@ -15,7 +15,10 @@ rustup target add wasm32-unknown-unknown   # once
 This writes `dist/*.wasm`. The game bundles everything in `dist/` into its
 own binary when it's built (so phones and tablets get the mods too).
 Dedicated servers also load extra mods from a `mods/` folder next to them
-(`ourcraft-server --mods FOLDER` to change it).
+(`ourcraft-server --mods FOLDER` to change it). In single player, extra
+mods go in the `mods` folder next to your worlds, and each world runs the
+ones switched on for it: **Mods** next to a world in the list, or when
+making one.
 
 **Full guide:** the [Modding Guide](https://rsantacroce.github.io/ourcraft-site/modding.html)
 has a step-by-step tutorial, recipes and the complete API reference.
