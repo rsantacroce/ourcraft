@@ -18,6 +18,13 @@ them and play.
 All the finished files are in the [`steps`](steps) folder, if you get
 stuck.
 
+**Other languages:** the step files are also in Brazilian Portuguese
+([`pt-BR/steps`](pt-BR/steps)) and Spanish from Spain ([`es/steps`](es/steps)),
+with their comments and in-game messages translated. The whole tutorial is
+on the website in [English](https://rsantacroce.github.io/ourcraft-site/fishing.html),
+[português](https://rsantacroce.github.io/ourcraft-site/fishing-pt-br.html) and
+[español](https://rsantacroce.github.io/ourcraft-site/fishing-es.html).
+
 ---
 
 ## For a grown-up: getting ready (5 minutes)
@@ -432,7 +439,7 @@ The finished mod is [`steps/8-feast.el`](steps/8-feast.el). Type
 
 Everyone's code goes wrong sometimes, even grown-up programmers. When
 your mod has a problem, the game says so in the **chat**, starting with
-**⚠**:
+**(!)**:
 
 - **`The script has a problem: ...`** means the game couldn't read your
   file. It stops at the first problem, so anything after it is missing

@@ -41,8 +41,28 @@ use bevy::prelude::*;
 /// Everything the client adds on top of Bevy's default plugins.
 pub struct ClientPlugin;
 
+/// The font for all text: the whole of Fira Mono, so chat, signs and mods
+/// can use accented letters (ã, ç, é, ñ, ¿…), which the small font built
+/// into Bevy leaves out. (SIL Open Font License: `fonts/OFL.txt`.)
+const FONT: &[u8] = include_bytes!("../fonts/FiraMono-Medium.ttf");
+
+/// Put our font where Bevy's default one was, so every text uses it.
+fn use_full_font(app: &mut App) {
+    let Some(mut fonts) = app
+        .world_mut()
+        .get_resource_mut::<Assets<bevy::text::Font>>()
+    else {
+        return;
+    };
+    let font = bevy::text::Font::from_bytes(FONT.to_vec());
+    if fonts.insert(AssetId::default(), font).is_err() {
+        warn!("Couldn't load the game's font; using Bevy's");
+    }
+}
+
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
+        use_full_font(app);
         app.insert_resource(ClearColor(Color::srgb(0.53, 0.75, 0.96)))
             .add_plugins((
                 input::InputPlugin,
