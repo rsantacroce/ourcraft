@@ -208,6 +208,27 @@ pub fn count_item(player: PlayerId, item: &str) -> u32 {
     }
 }
 
+/// Keep some text with the world under a name (`None` forgets it). Returns
+/// false if it's too big or there are too many names (see
+/// [`MAX_DATA_VALUE`] and [`MAX_DATA_KEYS`]).
+pub fn save_data(key: &str, value: Option<&str>) -> bool {
+    matches!(
+        host(&HostCall::SaveData {
+            key: key.into(),
+            value: value.map(Into::into),
+        }),
+        HostReply::Ok
+    )
+}
+
+/// Text kept with [`save_data`], if there is any.
+pub fn load_data(key: &str) -> Option<String> {
+    match host(&HostCall::LoadData { key: key.into() }) {
+        HostReply::Data(d) => d,
+        _ => None,
+    }
+}
+
 /// The id of a block by name (`"core:stone"`, `"yourmod:thing"`).
 pub fn block_id(name: &str) -> Option<BlockId> {
     match host(&HostCall::BlockId(name.into())) {

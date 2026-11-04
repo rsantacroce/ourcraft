@@ -199,18 +199,24 @@
            here))))
 
 ;; ---------------------------------------------------------------
-;; Tu diario de pesca (se olvida al cerrar el mundo)
+;; Tu diario de pesca (se guarda con el mundo)
 ;; ---------------------------------------------------------------
 
-(def journals {})
+(def journals (or (load-data "journals") {}))
+
+;; El nombre de quien juega, que siempre es el mismo.
+(defn name-of (player)
+  (dict-get (head (filter (fn (p) (= (dict-get p :id) player)) (players))) :name))
 
 (defn journal (player)
-  (or (dict-get journals (str player)) []))
+  (or (dict-get journals (name-of player)) []))
 
 (defn remember-catch (player f)
   (let (seen (journal player) id (dict-get f :id))
     (unless (some? (fn (s) (= s id)) seen)
-      (set! journals (dict-set journals (str player) (cons id seen)))
+      (set! journals (dict-set journals (name-of player) (cons id seen)))
+      ;; Lo guarda para la próxima vez que se abra el mundo.
+      (save-data "journals" journals)
       (show-title (str "¡Pez nuevo: " (dict-get f :display) "!") 2 player)
       (confetti-on player))))
 

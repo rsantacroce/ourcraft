@@ -17,6 +17,7 @@ use ourcraft_common::save::{WorldMeta, list_worlds};
 use crate::audio::PlaySound;
 use crate::input::{Actions, UiFocus};
 use crate::lan::LanBrowser;
+use crate::lang::{t, tf};
 use crate::net::{Connection, SessionEnded, SinglePlayer, Status};
 use crate::paths::{folder_name, saves_dir};
 use crate::settings::{ClientSettings, GraphicsSettings};
@@ -134,9 +135,9 @@ impl WorldSort {
 
     fn label(self) -> &'static str {
         match self {
-            Self::LastPlayed => "last played",
-            Self::Name => "name",
-            Self::Newest => "newest",
+            Self::LastPlayed => t("last played"),
+            Self::Name => t("name"),
+            Self::Newest => t("newest"),
         }
     }
 }
@@ -215,13 +216,14 @@ enum Action {
     MakerRandom,
     TogglePick,
     ToggleWheel,
+    CycleLanguage,
     /// Choose the mods of a world (folder and name), or of the new world.
     OpenMods(Option<(String, String)>),
     ToggleMod(String),
 }
 
 /// The games a new world can be: (mode name, what the button says).
-const GAME_MODES: [(Option<&str>, &str); 3] = [
+pub(crate) const GAME_MODES: [(Option<&str>, &str); 3] = [
     (None, "Build (free play)"),
     (Some("team_shooter"), "Splat Squad (team flag game)"),
     (Some("build_contest"), "Build Contest (vote!)"),
@@ -232,7 +234,7 @@ fn game_mode_name(mode: &str) -> &'static str {
     match mode {
         "team_shooter" => "Splat Squad",
         "build_contest" => "Build Contest",
-        _ => "game mode",
+        _ => t("game mode"),
     }
 }
 
@@ -432,7 +434,7 @@ fn button_actions(
                 if let Some((folder, _)) = &forms.mods_for {
                     let dir = saves_dir().join(folder);
                     if let Err(e) = ourcraft_common::save::save_world_mods(&dir, &forms.mods_on) {
-                        forms.message = Some(format!("Couldn't save the mods: {e}"));
+                        forms.message = Some(tf("Couldn't save the mods: {}", &[&e.to_string()]));
                     }
                 }
             }
@@ -575,6 +577,11 @@ fn button_actions(
             }
             Action::TogglePick => settings.middle_click_pick = !settings.middle_click_pick,
             Action::ToggleWheel => settings.wheel_hotbar = !settings.wheel_hotbar,
+            Action::CycleLanguage => {
+                settings.language = settings.language.next();
+                // Straight away, so the screen is rebuilt in it.
+                crate::lang::set(settings.language);
+            }
         }
     }
 }
@@ -611,9 +618,10 @@ fn delete_world(folder: &str) -> Result<(), String> {
         !folder.is_empty() && folder != "." && folder != ".." && !folder.contains(['/', '\\', ':']);
     let dir = saves_dir().join(folder);
     if !plain || !dir.join("world.dat").is_file() {
-        return Err(format!("Couldn't delete \"{folder}\": it isn't a world."));
+        return Err(tf("Couldn't delete \"{}\": it isn't a world.", &[folder]));
     }
-    std::fs::remove_dir_all(&dir).map_err(|e| format!("Couldn't delete the world: {e}"))
+    std::fs::remove_dir_all(&dir)
+        .map_err(|e| tf("Couldn't delete the world: {}", &[&e.to_string()]))
 }
 
 /// When a world was last saved (played), and when it was made.
@@ -629,16 +637,16 @@ fn world_times(folder: &str) -> (Option<SystemTime>, Option<SystemTime>) {
 }
 
 /// "today", "yesterday", "3 days ago"…
-fn days_ago(t: SystemTime) -> String {
+fn days_ago(when: SystemTime) -> String {
     let days = SystemTime::now()
-        .duration_since(t)
+        .duration_since(when)
         .map_or(0, |d| d.as_secs() / 86_400);
     match days {
-        0 => "today".into(),
-        1 => "yesterday".into(),
-        2..=13 => format!("{days} days ago"),
-        14..=59 => format!("{} weeks ago", days / 7),
-        _ => format!("{} months ago", days / 30),
+        0 => t("today").into(),
+        1 => t("yesterday").into(),
+        2..=13 => tf("{} days ago", &[&days.to_string()]),
+        14..=59 => tf("{} weeks ago", &[&(days / 7).to_string()]),
+        _ => tf("{} months ago", &[&(days / 30).to_string()]),
     }
 }
 
@@ -714,7 +722,7 @@ fn text_field(
     let shown = if focused {
         format!("{value}_")
     } else if value.is_empty() {
-        "(click to type)".into()
+        t("(click to type)").into()
     } else {
         value.to_owned()
     };
@@ -858,8 +866,8 @@ fn world_list(
                 for (folder, meta, saved, _) in worlds {
                     let mode = match meta.game_mode.as_deref() {
                         Some(m) => game_mode_name(m),
-                        None if meta.creative => "creative",
-                        None => "survival",
+                        None if meta.creative => t("creative"),
+                        None => t("survival"),
                     };
                     let when = saved.map(days_ago).unwrap_or_default();
                     list.spawn(Node {
@@ -870,7 +878,7 @@ fn world_list(
                     .with_children(|row| {
                         if forms.confirm_delete.as_deref() == Some(folder.as_str()) {
                             row.spawn((
-                                Text::new(format!("Delete \"{}\" for good?", meta.name)),
+                                Text::new(tf("Delete \"{}\" for good?", &[&meta.name])),
                                 TextFont::from_font_size(16.0),
                                 TextColor(Color::WHITE),
                                 Node {
@@ -878,15 +886,15 @@ fn world_list(
                                     ..default()
                                 },
                             ));
-                            let yes = button_node(row, "Delete", Action::Delete(folder), 100.0);
+                            let yes = button_node(row, t("Delete"), Action::Delete(folder), 100.0);
                             row.commands()
                                 .entity(yes)
                                 .insert((Danger, BackgroundColor(DANGER)));
-                            button_node(row, "Keep", Action::KeepWorld, 90.0);
+                            button_node(row, t("Keep"), Action::KeepWorld, 90.0);
                         } else {
                             let play = button_node(
                                 row,
-                                format!("{}\n{mode}, played {when}", meta.name),
+                                tf("{}\n{} · played {}", &[&meta.name, mode, &when]),
                                 Action::Play {
                                     folder: folder.clone(),
                                     name: meta.name.clone(),
@@ -905,12 +913,12 @@ fn world_list(
                             });
                             button_node(
                                 row,
-                                "Mods",
+                                t("Mods"),
                                 Action::OpenMods(Some((folder.clone(), meta.name))),
                                 70.0,
                             );
                             let delete =
-                                button_node(row, "Delete", Action::AskDelete(folder), 80.0);
+                                button_node(row, t("Delete"), Action::AskDelete(folder), 80.0);
                             row.commands()
                                 .entity(delete)
                                 .insert((Danger, BackgroundColor(DANGER)));
@@ -964,8 +972,16 @@ fn pretty_mod_name(name: &str) -> String {
         .join(" ")
 }
 
+/// One of the skin maker's rows: "Shirt: Red". A choice can be said
+/// differently for one part (`Hair colour: Brown`), otherwise the part and
+/// the choice are translated on their own.
+fn maker_label(part: &'static str, choice: &'static str) -> String {
+    crate::lang::lookup(&format!("{part}: {choice}"))
+        .map_or_else(|| format!("{}: {}", t(part), t(choice)), str::to_owned)
+}
+
 fn onoff(b: bool) -> &'static str {
-    if b { "on" } else { "off" }
+    if b { t("on") } else { t("off") }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1051,18 +1067,18 @@ fn rebuild_menu(
                             color: Color::srgb(0.25, 0.18, 0.1),
                         },
                     ));
-                    note(ui, "Build, explore and play together", Color::WHITE);
+                    note(ui, t("Build, explore and play together"), Color::WHITE);
                     ui.spawn(Node {
                         height: px(16),
                         ..default()
                     });
-                    button(ui, "Play", Action::Go(Screen::Worlds));
-                    button(ui, "Join a friend", Action::Go(Screen::Join));
-                    button(ui, "Settings", Action::OpenSettings);
+                    button(ui, t("Play"), Action::Go(Screen::Worlds));
+                    button(ui, t("Join a friend"), Action::Go(Screen::Join));
+                    button(ui, t("Settings"), Action::OpenSettings);
                     if !mobile {
-                        button(ui, "Quit", Action::QuitGame);
+                        button(ui, t("Quit"), Action::QuitGame);
                     }
-                    note(ui, format!("Playing as {}", settings.name), Color::WHITE);
+                    note(ui, tf("Playing as {}", &[&settings.name]), Color::WHITE);
                     // The version, small in the corner, so it can go in
                     // bug reports.
                     ui.spawn((
@@ -1078,16 +1094,16 @@ fn rebuild_menu(
                     ));
                 }
                 Screen::Worlds => {
-                    heading(ui, "Your worlds");
+                    heading(ui, t("Your worlds"));
                     ui.spawn(Node {
                         column_gap: px(10),
                         ..default()
                     })
                     .with_children(|row| {
-                        button_sized(row, "+ New world", Action::NewWorld, 250.0);
+                        button_sized(row, t("+ New world"), Action::NewWorld, 250.0);
                         button_sized(
                             row,
-                            format!("Sort: {}", forms.sort.label()),
+                            tf("Sort: {}", &[forms.sort.label()]),
                             Action::CycleSort,
                             250.0,
                         );
@@ -1105,65 +1121,70 @@ fn rebuild_menu(
                         WorldSort::Newest => worlds.sort_by_key(|w| std::cmp::Reverse(w.3)),
                     }
                     if worlds.is_empty() {
-                        note(ui, "No worlds yet. Make one!", grey);
+                        note(ui, t("No worlds yet. Make one!"), grey);
                     } else {
                         world_list(ui, worlds, &forms, scroll.0);
                     }
                     button_sized(
                         ui,
-                        format!("Friends on my network can join: {}", onoff(forms.lan)),
+                        tf("Friends on my network can join: {}", &[onoff(forms.lan)]),
                         Action::ToggleLan,
                         510.0,
                     );
-                    button(ui, "Back", Action::Go(Screen::Title));
+                    button(ui, t("Back"), Action::Go(Screen::Title));
                 }
                 Screen::NewWorld => {
-                    heading(ui, "New world");
+                    heading(ui, t("New world"));
                     let f = forms.focused;
                     text_field(
                         ui,
-                        "Name",
+                        t("Name"),
                         &forms.world_name,
                         Field::WorldName,
                         f == Some(Field::WorldName),
                     );
-                    button(ui, "Pick a random name", Action::RandomName);
+                    button(ui, t("Pick a random name"), Action::RandomName);
                     text_field(
                         ui,
-                        "Seed (optional number)",
+                        t("Seed (optional number)"),
                         &forms.seed,
                         Field::Seed,
                         f == Some(Field::Seed),
                     );
-                    let mode = format!("Game: {}", GAME_MODES[forms.game_mode].1);
-                    button_sized(ui, mode, Action::CycleGameMode, 420.0);
+                    let mode = tf("Game: {}", &[t(GAME_MODES[forms.game_mode].1)]);
+                    button_sized(ui, mode, Action::CycleGameMode, 440.0);
                     if forms.game_mode == 0 {
                         let survival = if forms.survival {
-                            "Survival: collect what you break"
+                            t("Survival: collect what you break")
                         } else {
-                            "Creative: fly, endless blocks"
+                            t("Creative: fly, endless blocks")
                         };
-                        button_sized(ui, survival, Action::ToggleSurvival, 420.0);
+                        button_sized(ui, survival, Action::ToggleSurvival, 440.0);
                     }
                     button_sized(
                         ui,
-                        format!("Friends on my network can join: {}", onoff(forms.lan)),
+                        tf("Friends on my network can join: {}", &[onoff(forms.lan)]),
                         Action::ToggleLan,
-                        480.0,
+                        510.0,
                     );
                     let on = forms
                         .mods_on
                         .iter()
                         .filter(|m| !is_game_mode_mod(m))
                         .count();
-                    button_sized(ui, format!("Mods: {on} on"), Action::OpenMods(None), 420.0);
-                    button(ui, "Create and play", Action::CreateWorld);
-                    button(ui, "Back", Action::Go(Screen::Worlds));
+                    button_sized(
+                        ui,
+                        tf("Mods: {} on", &[&on.to_string()]),
+                        Action::OpenMods(None),
+                        440.0,
+                    );
+                    button(ui, t("Create and play"), Action::CreateWorld);
+                    button(ui, t("Back"), Action::Go(Screen::Worlds));
                 }
                 Screen::Mods => {
                     let title = match &forms.mods_for {
-                        Some((_, name)) => format!("Mods for {name}"),
-                        None => "Mods for the new world".to_owned(),
+                        Some((_, name)) => tf("Mods for {}", &[name]),
+                        None => t("Mods for the new world").to_owned(),
                     };
                     heading(ui, &title);
                     let choices: Vec<_> = forms
@@ -1173,9 +1194,9 @@ fn rebuild_menu(
                         .collect();
                     for m in choices {
                         let kind = match (m.built_in, m.script) {
-                            (true, _) => "built in",
+                            (true, _) => t("built in"),
                             (false, true) => "EELisp",
-                            (false, false) => "added",
+                            (false, false) => t("added"),
                         };
                         let on = forms.mods_on.contains(&m.name);
                         button_sized(
@@ -1185,13 +1206,13 @@ fn rebuild_menu(
                             480.0,
                         );
                     }
-                    note(ui, "Add your own: put .el or .wasm files in", Color::WHITE);
+                    note(ui, t("Add your own: put .el or .wasm files in"), Color::WHITE);
                     note(ui, mods_dir().display().to_string(), grey);
                     if forms.mods_for.is_some() {
                         note(
                             ui,
-                            "Changes count next time you play. Switching a mod off\n\
-                             takes its blocks out of this world.",
+                            t("Changes count next time you play. A mod switched off\n\
+                               keeps its blocks: they wait, grey, until it's back on."),
                             grey,
                         );
                     }
@@ -1200,18 +1221,18 @@ fn rebuild_menu(
                     } else {
                         Screen::NewWorld
                     };
-                    button(ui, "Back", Action::Go(back));
+                    button(ui, t("Back"), Action::Go(back));
                 }
                 Screen::Join => {
-                    heading(ui, "Join a friend");
-                    note(ui, "Games on your network:", Color::WHITE);
+                    heading(ui, t("Join a friend"));
+                    note(ui, t("Games on your network:"), Color::WHITE);
                     let servers = lan.list();
                     if let Some(problem) = &lan.problem {
                         note(ui, problem.clone(), red);
                     } else if servers.is_empty() {
                         note(
                             ui,
-                            "Looking...  (your friend needs \"Friends on my network can join\" on)",
+                            t("Looking...  (your friend needs \"Friends on my network can join\" on)"),
                             grey,
                         );
                     }
@@ -1224,9 +1245,14 @@ fn rebuild_menu(
                             .unwrap_or_default();
                         button_sized(
                             ui,
-                            format!(
-                                "{}{mode}  ({}/{} players)",
-                                s.beacon.name, s.beacon.players, s.beacon.max_players
+                            tf(
+                                "{}{}  ({}/{} players)",
+                                &[
+                                    &s.beacon.name,
+                                    &mode,
+                                    &s.beacon.players.to_string(),
+                                    &s.beacon.max_players.to_string(),
+                                ],
                             ),
                             Action::JoinLan(s.address.to_string()),
                             460.0,
@@ -1239,20 +1265,20 @@ fn rebuild_menu(
                     let f = forms.focused;
                     text_field(
                         ui,
-                        "Or type an address (host or host:port)",
+                        t("Or type an address (host or host:port)"),
                         &forms.address,
                         Field::Address,
                         f == Some(Field::Address),
                     );
-                    button(ui, "Join", Action::JoinAddress);
-                    button(ui, "Back", Action::Go(Screen::Title));
+                    button(ui, t("Join"), Action::JoinAddress);
+                    button(ui, t("Back"), Action::Go(Screen::Title));
                 }
                 Screen::Settings => {
-                    heading(ui, "Settings");
+                    heading(ui, t("Settings"));
                     let f = forms.focused;
                     text_field(
                         ui,
-                        "Your name",
+                        t("Your name"),
                         &settings.name,
                         Field::PlayerName,
                         f == Some(Field::PlayerName),
@@ -1269,32 +1295,41 @@ fn rebuild_menu(
                         ..default()
                     };
                     let touch = match settings.touch_controls {
-                        None => "automatic",
-                        Some(true) => "on",
-                        Some(false) => "off",
+                        None => t("automatic"),
+                        Some(true) => t("on"),
+                        Some(false) => t("off"),
                     };
                     ui.spawn(columns.clone()).with_children(|ui| {
                         row(
                             ui,
-                            format!("Skin: {}", crate::skins::skin_label(&settings.skin)),
+                            tf("Skin: {}", &[&crate::skins::skin_label(&settings.skin)]),
                             Action::Skin(-1),
                             Action::Skin(1),
                         );
                         row(
                             ui,
-                            format!("View distance: {} chunks", settings.render_distance),
+                            tf(
+                                "View distance: {} chunks",
+                                &[&settings.render_distance.to_string()],
+                            ),
                             Action::RenderDistance(-1),
                             Action::RenderDistance(1),
                         );
                         row(
                             ui,
-                            format!("Look sensitivity: {:.1}", settings.mouse_sensitivity),
+                            tf(
+                                "Look sensitivity: {}",
+                                &[&format!("{:.1}", settings.mouse_sensitivity)],
+                            ),
                             Action::Sensitivity(-1),
                             Action::Sensitivity(1),
                         );
                         row(
                             ui,
-                            format!("Sound volume: {:.0}%", settings.volume * 100.0),
+                            tf(
+                                "Sound volume: {}%",
+                                &[&format!("{:.0}", settings.volume * 100.0)],
+                            ),
                             Action::Volume(-1),
                             Action::Volume(1),
                         );
@@ -1308,62 +1343,67 @@ fn rebuild_menu(
                         if let Some(p) = &preview {
                             skin_preview(ui, p, 2.0);
                         }
-                        button(ui, "Make your own skin", Action::OpenSkinMaker);
+                        button(ui, t("Make your own skin"), Action::OpenSkinMaker);
                     });
                     if let Some(problem) = &my_skin.problem {
                         note(ui, problem.clone(), red);
                     } else if !mobile {
                         note(
                             ui,
-                            format!(
-                                "Your own skins: 64x64 PNG files in {}",
-                                crate::skins::skins_dir().display()
+                            tf(
+                                "Your own skins: 64×64 PNG files in {}",
+                                &[&crate::skins::skins_dir().display().to_string()],
                             ),
                             grey,
                         );
                     }
                     ui.spawn(columns).with_children(|ui| {
                         let toggles = [
-                            (format!("Touch controls: {touch}"), Action::CycleTouch),
                             (
-                                format!("Hide rude words in chat: {}", onoff(settings.chat_filter)),
+                                // In the language itself, so it can be found.
+                                tf("Language: {}", &[settings.language.name()]),
+                                Action::CycleLanguage,
+                            ),
+                            (tf("Touch controls: {}", &[touch]), Action::CycleTouch),
+                            (
+                                tf("Hide rude words in chat: {}", &[onoff(settings.chat_filter)]),
                                 Action::ToggleFilter,
                             ),
                             (
-                                format!("Music: {}", onoff(settings.music)),
+                                tf("Music: {}", &[onoff(settings.music)]),
                                 Action::ToggleMusic,
                             ),
                             (
-                                format!(
+                                tf(
                                     "Show info text (FPS, position): {}",
-                                    onoff(settings.show_debug)
+                                    &[onoff(settings.show_debug)],
                                 ),
                                 Action::ToggleDebug,
                             ),
                             (
-                                format!(
+                                tf(
                                     "Middle click picks block: {}",
-                                    onoff(settings.middle_click_pick)
+                                    &[onoff(settings.middle_click_pick)],
                                 ),
                                 Action::TogglePick,
                             ),
                             (
-                                format!(
+                                tf(
                                     "Mouse wheel changes slot: {}",
-                                    onoff(settings.wheel_hotbar)
+                                    &[onoff(settings.wheel_hotbar)],
                                 ),
                                 Action::ToggleWheel,
                             ),
                         ];
                         for (label, action) in toggles {
-                            button_sized(ui, label, action, 420.0);
+                            button_sized(ui, label, action, 430.0);
                         }
                     });
-                    button(ui, "Done", Action::CloseSettings);
+                    button(ui, t("Done"), Action::CloseSettings);
                 }
                 Screen::SkinMaker => {
                     use crate::render::skin_textures::{MAKER_PARTS, made_skin_choices};
-                    heading(ui, "Make your own skin");
+                    heading(ui, t("Make your own skin"));
                     let choices = made_skin_choices(&settings.made_skin).unwrap_or([0; 9]);
                     ui.spawn(Node {
                         column_gap: px(24),
@@ -1388,7 +1428,7 @@ fn rebuild_menu(
                             for (i, (part, options)) in MAKER_PARTS.iter().enumerate() {
                                 setting_row_sized(
                                     ui,
-                                    format!("{part}: {}", options[choices[i] as usize]),
+                                    maker_label(part, options[choices[i] as usize]),
                                     Action::MakerPart(i, -1),
                                     Action::MakerPart(i, 1),
                                     240.0,
@@ -1401,20 +1441,20 @@ fn rebuild_menu(
                         ..default()
                     })
                     .with_children(|ui| {
-                        button_sized(ui, "Surprise me!", Action::MakerRandom, 200.0);
-                        button_sized(ui, "Done", Action::Go(Screen::Settings), 200.0);
+                        button_sized(ui, t("Surprise me!"), Action::MakerRandom, 200.0);
+                        button_sized(ui, t("Done"), Action::Go(Screen::Settings), 200.0);
                     });
                 }
                 Screen::Pause => {
-                    heading(ui, "Paused");
-                    button(ui, "Back to game", Action::Resume);
-                    button(ui, "Settings", Action::OpenSettings);
-                    button(ui, "Save and quit to title", Action::QuitToTitle);
+                    heading(ui, t("Paused"));
+                    button(ui, t("Back to game"), Action::Resume);
+                    button(ui, t("Settings"), Action::OpenSettings);
+                    button_sized(ui, t("Save and quit to title"), Action::QuitToTitle, 340.0);
                 }
                 Screen::Disconnected(reason) => {
-                    heading(ui, "Disconnected");
+                    heading(ui, t("Disconnected"));
                     note(ui, reason.clone(), Color::WHITE);
-                    button(ui, "Back to title", Action::QuitToTitle);
+                    button(ui, t("Back to title"), Action::QuitToTitle);
                 }
                 Screen::None => {}
             }
@@ -1424,10 +1464,10 @@ fn rebuild_menu(
     // where the field being typed in may be: show it again up top.
     if let (true, Some(field)) = (mobile, forms.focused) {
         let (label, value) = match field {
-            Field::WorldName => ("Name", forms.world_name.as_str()),
-            Field::Seed => ("Seed", forms.seed.as_str()),
-            Field::Address => ("Address", forms.address.as_str()),
-            Field::PlayerName => ("Your name", settings.name.as_str()),
+            Field::WorldName => (t("Name"), forms.world_name.as_str()),
+            Field::Seed => (t("Seed"), forms.seed.as_str()),
+            Field::Address => (t("Address"), forms.address.as_str()),
+            Field::PlayerName => (t("Your name"), settings.name.as_str()),
         };
         commands.spawn((
             MenuRoot,

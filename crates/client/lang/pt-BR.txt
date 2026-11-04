@@ -1,0 +1,226 @@
+# Ourcraft: the game's screens in Brazilian Portuguese (pt-BR).
+# One text per line: English text = Translated text. The first " = " splits the line.
+# \n is a line break, \\ a backslash. {} is a blank (a number or a name), filled in order:
+# keep the same number of {} as the English. Lines starting with # are notes.
+# The English must be exactly as in the code (crates/client/src); a test checks every one is here.
+
+# ---- Title screen ----
+Build, explore and play together = Construa, explore e jogue com os amigos
+Play = Jogar
+Join a friend = Jogar com um amigo
+Settings = Configurações
+Quit = Sair
+Playing as {} = Jogando como {}
+
+# ---- Your worlds ----
+Your worlds = Seus mundos
++ New world = + Novo mundo
+Sort: {} = Ordem: {}
+last played = recentes
+name = nome
+newest = mais novos
+No worlds yet. Make one! = Ainda não há mundos. Crie um!
+Friends on my network can join: {} = Aberto para amigos da rede: {}
+Back = Voltar
+Delete "{}" for good? = Apagar "{}" para sempre?
+Delete = Apagar
+Keep = Não
+{}\n{} · played {} = {}\n{} · jogado {}
+creative = criativo
+survival = sobrevivência
+game mode = modo de jogo
+today = hoje
+yesterday = ontem
+{} days ago = há {} dias
+{} weeks ago = há {} semanas
+{} months ago = há {} meses
+Couldn't delete "{}": it isn't a world. = Não deu para apagar "{}": isso não é um mundo.
+Couldn't delete the world: {} = Não deu para apagar o mundo: {}
+on = ligado
+off = desligado
+
+# ---- New world ----
+New world = Novo mundo
+Name = Nome
+(click to type) = (clique para digitar)
+Pick a random name = Sortear um nome
+Seed (optional number) = Semente (um número, se quiser)
+Seed = Semente
+Game: {} = Jogo: {}
+Build (free play) = Construir (livre)
+Splat Squad (team flag game) = Splat Squad (pega-bandeira)
+Build Contest (vote!) = Build Contest (votação!)
+Survival: collect what you break = Sobrevivência: junte o que quebrar
+Creative: fly, endless blocks = Criativo: voe, blocos sem fim
+Mods: {} on = Mods ligados: {}
+Create and play = Criar e jogar
+
+# ---- Mods ----
+Mods = Mods
+Mods for {} = Mods de {}
+Mods for the new world = Mods do novo mundo
+built in = do jogo
+added = adicionado
+Add your own: put .el or .wasm files in = Adicione os seus: coloque arquivos .el ou .wasm em
+Changes count next time you play. A mod switched off\nkeeps its blocks: they wait, grey, until it's back on. = As mudanças valem na próxima vez que você jogar. Um mod\ndesligado guarda os blocos dele: eles esperam, cinza, até ele voltar.
+Couldn't save the mods: {} = Não deu para salvar os mods: {}
+
+# ---- Join a friend ----
+Games on your network: = Jogos na sua rede:
+Looking...  (your friend needs "Friends on my network can join" on) = Procurando...  (seu amigo precisa ligar "Aberto para amigos da rede")
+{}{}  ({}/{} players) = {}{}  ({}/{} jogadores)
+Or type an address (host or host:port) = Ou digite um endereço (host ou host:porta)
+Address = Endereço
+Join = Entrar
+Can't look for games on this network ({}) = Não dá para procurar jogos nesta rede ({})
+Can't find {}: {} = Não encontrei {}: {}
+Can't find {} = Não encontrei {}
+{}'s world = Mundo de {}
+
+# ---- Settings ----
+Your name = Seu nome
+Skin: {} = Skin: {}
+View distance: {} chunks = Distância: {} chunks
+Look sensitivity: {} = Sensibilidade: {}
+Sound volume: {}% = Volume do som: {}%
+Make your own skin = Faça sua própria skin
+Your own skins: 64×64 PNG files in {} = Suas próprias skins: arquivos PNG 64×64 em {}
+Language: {} = Idioma: {}
+Touch controls: {} = Controles de toque: {}
+automatic = automático
+Hide rude words in chat: {} = Esconder palavrões: {}
+Music: {} = Música: {}
+Show info text (FPS, position): {} = Ver FPS e posição: {}
+Middle click picks block: {} = Botão do meio pega bloco: {}
+Mouse wheel changes slot: {} = Rodinha muda a barra: {}
+Done = Pronto
+Made by you = Feita por você
+{} is {}x{}; skins must be 64x64 (or 64x32) = {} tem {}x{}; as skins precisam ter 64x64 (ou 64x32)
+{} has broken pixel data = {} tem pixels estragados
+{} is too big for a skin ({} KB) = {} é grande demais para uma skin ({} KB)
+{} can't be read ({}) = Não deu para ler {} ({})
+
+# The built-in skins.
+Explorer = Explorador
+Miner = Mineiro
+Gardener = Jardineiro
+Knight = Cavaleiro
+Astronaut = Astronauta
+Robot = Robô
+
+# ---- Skin maker: "Part: Choice" ----
+Surprise me! = Surpreenda-me!
+Skin = Pele
+Hair colour = Cor do cabelo
+Hair = Cabelo
+Eyes = Olhos
+Face = Rosto
+Shirt = Camiseta
+Trousers = Calça
+Shoes = Sapatos
+Hat = Chapéu
+Peach = Pêssego
+Tan = Bronzeado
+Brown = Marrom
+Dark = Escuro
+Pale = Claro
+Olive = Oliva
+Black = Preto
+Blonde = Loiro
+Ginger = Ruivo
+Grey = Cinza
+White = Branco
+Pink = Rosa
+Blue = Azul
+Green = Verde
+Purple = Roxo
+Short = Curto
+Long = Comprido
+Hazel = Cor de mel
+Violet = Violeta
+Smile = Sorriso
+Grin = Sorrisão
+Surprised = Surpresa
+Freckles = Sardas
+Glasses = Óculos
+Red = Vermelho
+None = Nenhum
+Hard hat = Capacete de obra
+Straw hat = Chapéu de palha
+Knight's helmet = Elmo de cavaleiro
+Space helmet = Capacete espacial
+Light grey = Cinza-claro
+Orange = Laranja
+Yellow = Amarelo
+Lime = Verde-limão
+Cyan = Ciano
+Light blue = Azul-claro
+Magenta = Magenta
+# A choice said differently for one part.
+Skin: Tan = Pele: Morena
+Skin: Dark = Pele: Escura
+Skin: Pale = Pele: Clara
+Hair colour: Brown = Cor do cabelo: Castanho
+Hair colour: Grey = Cor do cabelo: Grisalho
+Eyes: Brown = Olhos: Castanhos
+
+# ---- Pause ----
+Paused = Pausado
+Back to game = Voltar ao jogo
+Save and quit to title = Salvar e voltar ao início
+Disconnected = Desconectado
+Back to title = Voltar ao início
+Connection lost = A conexão caiu
+Connecting to {}... = Conectando a {}...
+
+# ---- In the game ----
+Click: capture mouse   Esc: release   F3: hide this text\nWASD: move   Space: jump (double-tap: fly)   Shift: down   Ctrl: run\nLeft click: break   Right click: place   Middle click: pick block\n1-9 / wheel: hotbar   E: inventory and crafting   Q: drop   F: fly   G: creative/survival\nRight click doors, chests, signs, beds, furnaces   Hold right click to eat   T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag = Clique: prender o mouse   Esc: soltar   F3: esconder este texto\nWASD: andar   Espaço: pular (dois toques: voar)   Shift: descer   Ctrl: correr\nClique esquerdo: quebrar   Clique direito: colocar   Clique do meio: pegar bloco\n1-9 / rodinha: barra   E: inventário e criação   Q: soltar   F: voar   G: criativo/sobrevivência\nClique direito em portas, baús, placas, camas e fornalhas   Segure o clique direito para comer   T: pular uma hora   [ e ]: distância de visão   Enter: chat   F7: simular lag
+Hop potion {} = Poção de pulo {}
+Glow potion {} = Poção de brilho {}
+Swim potion {} = Poção de nado {}
+Welcome to {}! {} = Boas-vindas a {}! {}
+Night = Noite
+Morning = Manhã
+Midday = Meio-dia
+Evening = Tarde
+
+# Touch buttons (small circles: keep them short).
+Jump = Pular
+Down = Descer
+Fly = Voar
+Bag = Bolsa
+Menu = Menu
+Eat = Comer
+View = Vista
+Chat = Chat
+
+# ---- Inventory ----
+Building = Construção
+Nature = Natureza
+Food = Comida
+Tools = Ferramentas
+Items = Itens
+Creative: click an item to put it in your selected hotbar slot = Criativo: clique num item para colocá-lo no espaço escolhido da barra
+Inventory = Inventário
+Crafting Table = Bancada
+Chest = Baú
+Big Chest = Baú grande
+Furnace = Fornalha
+Sign = Placa
+Name Tag = Etiqueta
+Backpack = Mochila
+Hotbar = Barra
+Tap Bag to close = Toque em Bolsa para fechar
+Press E to close = Aperte E para fechar
+Click: pick up / put down.  Right click: half / one.  E: close = Clique: pegar / soltar.  Clique direito: metade / um.  E: fechar
+Lighting the fire... = Acendendo o fogo...
+Top: what to cook (ore, sand, clay...).  Bottom: fuel (coal, wood...). = Em cima: o que cozinhar (minério, areia, argila...).  Embaixo: combustível (carvão, madeira...).
+
+# ---- Signs, books and name tags ----
+Give your animal a name = Dê um nome ao seu animal
+Write in the book = Escreva no livro
+Write on the sign = Escreva na placa
+Enter: next line (and done)   Esc: done = Enter: próxima linha (e pronto)   Esc: pronto
+Del = Apagar
+Space = Espaço
+Next = Próxima

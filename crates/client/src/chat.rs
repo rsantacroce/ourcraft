@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use ourcraft_common::protocol::{Channel, ClientMessage, MAX_CHAT_LEN, ServerMessage};
 
 use crate::input::UiFocus;
+use crate::lang::tf;
 use crate::net::{Connection, FromServer, NetReceiveSet};
 
 /// Seconds a message stays on screen.
@@ -73,7 +74,7 @@ fn collect_messages(
             ServerMessage::Welcome {
                 server_name, motd, ..
             } => {
-                log.push(None, format!("Welcome to {server_name}! {motd}"), now);
+                log.push(None, tf("Welcome to {}! {}", &[server_name, motd]), now);
             }
             _ => {}
         }

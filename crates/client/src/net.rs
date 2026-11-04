@@ -21,6 +21,7 @@ use ourcraft_server::{EmbeddedServer, LocalLink, ServerConfig};
 use renet::RenetClient;
 use renet_netcode::{ClientAuthentication, NetcodeClientTransport};
 
+use crate::lang::{t, tf};
 use crate::paths::{folder_name, saves_dir};
 use crate::settings::GraphicsSettings;
 
@@ -272,7 +273,7 @@ impl Connection {
             world_dir: saves_dir().join(&opts.folder),
             world_name: world.to_owned(),
             seed: opts.seed,
-            server_name: format!("{name}'s world"),
+            server_name: tf("{}'s world", &[name]),
             bind: opts
                 .lan
                 .then(|| SocketAddr::from(([0, 0, 0, 0], DEFAULT_PORT))),
@@ -328,9 +329,9 @@ impl Connection {
         };
         let server_addr = with_port
             .to_socket_addrs()
-            .map_err(|e| format!("Can't find {address}: {e}"))?
+            .map_err(|e| tf("Can't find {}: {}", &[address, &e.to_string()]))?
             .find(|a| a.is_ipv4())
-            .ok_or_else(|| format!("Can't find {address}"))?;
+            .ok_or_else(|| tf("Can't find {}", &[address]))?;
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -634,7 +635,7 @@ fn receive(
         let reason = conn
             .client
             .disconnect_reason()
-            .map_or_else(|| "Connection lost".to_owned(), |r| r.to_string());
+            .map_or_else(|| t("Connection lost").to_owned(), |r| r.to_string());
         warn!("Disconnected: {reason}");
         conn.status = Status::Disconnected(reason);
     }

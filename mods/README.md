@@ -45,6 +45,13 @@ events, the game functions and two examples, and
 [`tutorials/fishing`](tutorials/fishing) for a tutorial that a 10-year-old
 can follow: a fishing mod, built in 8 steps.
 
+## Switching a mod off
+
+A world keeps the blocks and items of a mod that's switched off: they
+stay as grey and purple stand-ins with the same names, and switching the
+mod back on brings them back as they were. A mod's saved data
+(`mod_data/<mod>.dat` in the world's folder) stays too.
+
 ## Write your own
 
 1. Copy `paint_blocks` to a new folder and add it to `members` in

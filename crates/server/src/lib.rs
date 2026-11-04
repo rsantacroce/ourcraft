@@ -25,6 +25,7 @@ pub mod entities;
 pub mod farming;
 pub mod magic;
 pub mod mobs;
+pub mod mod_data;
 pub mod mods;
 pub mod needs;
 

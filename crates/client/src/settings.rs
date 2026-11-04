@@ -16,7 +16,10 @@ pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(ClientSettings::load())
+        let settings = ClientSettings::load();
+        // Before anything is shown, so the first screens are in it too.
+        crate::lang::set(settings.language);
+        app.insert_resource(settings)
             .init_resource::<GraphicsSettings>()
             .add_systems(
                 Update,
@@ -52,6 +55,8 @@ pub struct ClientSettings {
     pub middle_click_pick: bool,
     /// The mouse wheel moves along the hotbar.
     pub wheel_hotbar: bool,
+    /// The language of the game's screens (the computer's, until chosen).
+    pub language: crate::lang::Language,
 }
 
 impl GraphicsSettings {
@@ -77,6 +82,7 @@ impl Default for ClientSettings {
             made_skin: crate::render::skin_textures::made_skin_name([0, 0, 0, 0, 0, 10, 12, 0, 0]),
             middle_click_pick: true,
             wheel_hotbar: true,
+            language: crate::lang::Language::from_system(),
         }
     }
 }
@@ -138,6 +144,11 @@ impl ClientSettings {
                 }
                 "middle_click_pick" => s.middle_click_pick = value != "off",
                 "wheel_hotbar" => s.wheel_hotbar = value != "off",
+                "language" => {
+                    if let Some(l) = crate::lang::Language::from_code(value) {
+                        s.language = l;
+                    }
+                }
                 _ => {}
             }
         }
@@ -151,7 +162,7 @@ impl ClientSettings {
              name = {}\nrender_distance = {}\nmouse_sensitivity = {:.2}\nvolume = {:.2}\n\
              music = {}\ntouch_controls = {}\nchat_filter = {}\nshow_debug = {}\n\
              skin = {}\nmade_skin = {}\nmiddle_click_pick = {}\n\
-             wheel_hotbar = {}\n",
+             wheel_hotbar = {}\nlanguage = {}\n",
             self.name,
             self.render_distance,
             self.mouse_sensitivity,
@@ -168,6 +179,7 @@ impl ClientSettings {
             self.made_skin,
             onoff(self.middle_click_pick),
             onoff(self.wheel_hotbar),
+            self.language.code(),
         )
     }
 
@@ -235,6 +247,9 @@ fn apply_settings(
         InputSettings::default().mouse_sensitivity * settings.mouse_sensitivity;
     input.middle_click_pick = settings.middle_click_pick;
     input.wheel_hotbar = settings.wheel_hotbar;
+    if crate::lang::current() != settings.language {
+        crate::lang::set(settings.language);
+    }
     if let Some(on) = settings.touch_controls {
         touch.enabled = on;
     }
@@ -279,6 +294,7 @@ mod tests {
             made_skin: "made_391541c54".into(),
             middle_click_pick: false,
             wheel_hotbar: false,
+            language: crate::lang::Language::SpanishSpain,
         };
         assert_eq!(ClientSettings::parse(&s.to_text()), s);
         let knight = ClientSettings {

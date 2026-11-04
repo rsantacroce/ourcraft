@@ -18,6 +18,7 @@ use ourcraft_common::inventory::HOTBAR_SLOTS;
 
 use crate::input::{Actions, ActionsSet, UiFocus};
 use crate::interaction::PlayerInventory;
+use crate::lang::t;
 use crate::player::GameMode;
 
 pub struct TouchPlugin;
@@ -34,7 +35,7 @@ impl Plugin for TouchPlugin {
                     .in_set(ActionsSet)
                     .after(bevy::input::InputSystems),
             )
-            .add_systems(Update, update_touch_ui);
+            .add_systems(Update, (update_touch_ui, translate_labels));
     }
 }
 
@@ -321,6 +322,41 @@ fn circle(radius: f32, color: Color) -> impl Bundle {
     )
 }
 
+impl TouchButton {
+    fn label(self) -> &'static str {
+        match self {
+            TouchButton::Jump => t("Jump"),
+            TouchButton::Down => t("Down"),
+            TouchButton::Fly => t("Fly"),
+            TouchButton::Inventory => t("Bag"),
+            TouchButton::Menu => t("Menu"),
+            TouchButton::Eat => t("Eat"),
+            TouchButton::View => t("View"),
+            TouchButton::Chat => t("Chat"),
+        }
+    }
+}
+
+/// A touch button's word.
+#[derive(Component)]
+struct TouchLabel(TouchButton);
+
+/// Say the buttons' words again when the language changes.
+fn translate_labels(
+    mut labels: Query<(&mut Text, &TouchLabel)>,
+    mut seen: Local<Option<crate::lang::Language>>,
+) {
+    if !crate::lang::changed(&mut seen) {
+        return;
+    }
+    for (mut text, label) in &mut labels {
+        let word = label.0.label();
+        if text.0 != word {
+            text.0 = word.to_owned();
+        }
+    }
+}
+
 fn spawn_touch_ui(mut commands: Commands) {
     let root = commands
         .spawn((
@@ -339,22 +375,13 @@ fn spawn_touch_ui(mut commands: Commands) {
     commands.entity(root).with_children(|ui| {
         for b in BUTTONS {
             let (_, r) = button_layout(b);
-            let label = match b {
-                TouchButton::Jump => "Jump",
-                TouchButton::Down => "Down",
-                TouchButton::Fly => "Fly",
-                TouchButton::Inventory => "Bag",
-                TouchButton::Menu => "Menu",
-                TouchButton::Eat => "Eat",
-                TouchButton::View => "View",
-                TouchButton::Chat => "Chat",
-            };
             ui.spawn((
                 circle(r, Color::srgba(0.0, 0.0, 0.0, 0.3)),
                 TouchButtonUi(b),
             ))
             .with_child((
-                Text::new(label),
+                Text::new(b.label()),
+                TouchLabel(b),
                 TextFont::from_font_size(16.0),
                 TextColor(Color::srgba(1.0, 1.0, 1.0, 0.9)),
                 Pickable::IGNORE,

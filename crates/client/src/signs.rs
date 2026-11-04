@@ -17,6 +17,7 @@ use ourcraft_common::shapes::{Dir4, VariantKind};
 
 use crate::input::UiFocus;
 use crate::inventory_ui::OpenScreen;
+use crate::lang::t;
 use crate::net::{Connection, FromServer, NetReceiveSet};
 use crate::world::{Blocks, ClientWorld};
 
@@ -539,9 +540,9 @@ fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
                 ))
                 .with_children(|board| {
                     let title = match editor.pos {
-                        Some(Writing::Name(_)) => "Give your animal a name",
-                        Some(Writing::Book(_)) => "Write in the book",
-                        _ => "Write on the sign",
+                        Some(Writing::Name(_)) => t("Give your animal a name"),
+                        Some(Writing::Book(_)) => t("Write in the book"),
+                        _ => t("Write on the sign"),
                     };
                     board.spawn((Text::new(title), TextFont::from_font_size(18.0)));
                     for i in 0..editor.lines.len() {
@@ -563,7 +564,7 @@ fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
                     }
                     if !keys {
                         board.spawn((
-                            Text::new("Enter: next line (and done)   Esc: done"),
+                            Text::new(t("Enter: next line (and done)   Esc: done")),
                             TextFont::from_font_size(13.0),
                             TextColor(Color::srgb(0.95, 0.9, 0.8)),
                         ));
@@ -581,10 +582,10 @@ fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
                         });
                     }
                     board.spawn(row()).with_children(|r| {
-                        r.spawn(key("Del".into(), SignKey::Back, 72.0));
-                        r.spawn(key("Space".into(), SignKey::Char(' '), 160.0));
-                        r.spawn(key("Next".into(), SignKey::Next, 96.0));
-                        r.spawn(key("Done".into(), SignKey::Done, 72.0));
+                        r.spawn(key(t("Del").into(), SignKey::Back, 72.0));
+                        r.spawn(key(t("Space").into(), SignKey::Char(' '), 160.0));
+                        r.spawn(key(t("Next").into(), SignKey::Next, 96.0));
+                        r.spawn(key(t("Done").into(), SignKey::Done, 72.0));
                     });
                 });
         });

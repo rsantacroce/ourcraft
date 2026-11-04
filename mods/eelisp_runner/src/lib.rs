@@ -37,6 +37,8 @@ struct Runner {
     problem: Option<String>,
     /// Problems already shown in the chat (each is shown once).
     shown: Vec<String>,
+    /// The line each of the script's functions starts on, for messages.
+    lines: Vec<(String, usize)>,
 }
 
 thread_local! {
@@ -113,7 +115,7 @@ impl Mod for Runner {
             None => None,
             Some(Ok(v)) => Some(v),
             Some(Err(e)) => {
-                let text = format!("({name} …) failed: {}", says(&e));
+                let text = format!("({name} …) failed: {}{}", says(&e), self.where_is(name));
                 guest::log(&text);
                 // Shown in the chat once, so whoever wrote it can see it.
                 if !self.shown.contains(&text) {
@@ -156,14 +158,107 @@ impl Runner {
                     .bytes()
                     .fold(0u64, |h, b| h.wrapping_mul(31) ^ b as u64),
         );
-        if let Err(e) = it.eval_str(&script) {
-            let text = format!("The script has a problem: {}", says(&e));
+        if let Err(e) = self.run_script(&it, &script) {
+            let text = format!("The script has a problem: {e}");
             guest::log(&text);
             self.problem = Some(text);
         }
         print_output(&it);
         self.ticks = it.eval_str("(fn? on-tick)").is_ok_and(|v| truthy(&v));
         self.it = Some(it);
+    }
+}
+
+impl Runner {
+    /// Run the script one top-level form at a time, so a mistake can say
+    /// which line it's on.
+    fn run_script(&mut self, it: &Interpreter, script: &str) -> Result<(), String> {
+        check_brackets(script)?;
+        let forms = eelisp::parser::top_forms(script).map_err(|e| says(&e))?;
+        let mut from = 0;
+        for form in forms {
+            let at = script[from..].find(&form.source).map_or(from, |i| from + i);
+            from = at + form.source.len();
+            let line = line_of(script, at);
+            if let Value::List(l) = &form.value
+                && let (Some(Value::Symbol(head)), Some(Value::Symbol(name))) =
+                    (l.first(), l.get(1))
+                && matches!(head.as_str(), "defn" | "defun" | "def")
+            {
+                self.lines.push((name.as_str().to_owned(), line));
+            }
+            it.eval_str(&form.source)
+                .map_err(|e| format!("line {line}: {}", says(&e)))?;
+        }
+        Ok(())
+    }
+
+    /// "(on-chat is on line 12)", for a message about a failed function.
+    fn where_is(&self, name: &str) -> String {
+        self.lines
+            .iter()
+            .find(|(n, _)| n == name)
+            .map_or(String::new(), |(_, l)| {
+                format!(" ({name} starts on line {l})")
+            })
+    }
+}
+
+/// The line (from 1) a byte offset is on.
+fn line_of(text: &str, at: usize) -> usize {
+    text[..at.min(text.len())].matches('\n').count() + 1
+}
+
+/// Every bracket has its partner? Says where one doesn't, in words a
+/// beginner can follow. (Strings and `;` comments don't count.)
+fn check_brackets(script: &str) -> Result<(), String> {
+    let mut open: Vec<(char, usize)> = Vec::new();
+    let (mut line, mut chars) = (1, script.chars().peekable());
+    while let Some(c) = chars.next() {
+        match c {
+            '\n' => line += 1,
+            ';' => {
+                while chars.peek().is_some_and(|c| *c != '\n') {
+                    chars.next();
+                }
+            }
+            '"' => {
+                while let Some(c) = chars.next() {
+                    match c {
+                        '\\' => {
+                            if chars.next() == Some('\n') {
+                                line += 1;
+                            }
+                        }
+                        '"' => break,
+                        '\n' => line += 1,
+                        _ => {}
+                    }
+                }
+            }
+            '(' | '[' | '{' => open.push((c, line)),
+            ')' | ']' | '}' => {
+                let want = match c {
+                    ')' => '(',
+                    ']' => '[',
+                    _ => '{',
+                };
+                match open.pop() {
+                    None => return Err(format!("line {line}: there's an extra {c} here")),
+                    Some((o, l)) if o != want => {
+                        return Err(format!(
+                            "line {line}: this {c} doesn't match the {o} on line {l}"
+                        ));
+                    }
+                    Some(_) => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    match open.last() {
+        Some((o, l)) => Err(format!("line {l}: this {o} is never closed")),
+        None => Ok(()),
     }
 }
 
@@ -705,8 +800,107 @@ fn add_game_functions(it: &Interpreter) {
             guest::count_item(num(a, 0, "the player")? as u64, &text(a, 1)) as f64,
         ))
     });
+    // ---- Remembering ----
+    // (save-data "journal" journals): keep a value with the world, under a
+    // name. Numbers, text, true/false, nil, keywords, lists and dicts can be
+    // kept. (save-data "journal" nil) forgets it.
+    it.define_fn("save-data", |a| {
+        let key = text(a, 0);
+        let value = match a.get(1) {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(to_source(v)?),
+        };
+        match guest::host(&HostCall::SaveData { key, value }) {
+            HostReply::Error(e) => Err(LispError::Runtime(e)),
+            _ => Ok(Value::Bool(true)),
+        }
+    });
+    // (load-data "journal"): what was kept under that name, or nil.
+    it.define_fn("load-data", |a| {
+        Ok(guest::load_data(&text(a, 0))
+            .and_then(|src| eelisp::parser::parse(&src).ok())
+            .and_then(|forms| forms.into_iter().next())
+            .and_then(|v| from_source(&v))
+            .unwrap_or(Value::Null))
+    });
     // (world-spawn): where new players appear, as [x y z].
     it.define_fn("world-spawn", |_| {
         Ok(guest::world_spawn().map_or(Value::Null, |p| list(p.map(|v| Value::Number(v as f64)))))
     });
+}
+
+/// A value written as EELisp, to keep with `save-data`: `[1 "two" :three]`,
+/// `{"a" 1}`. Only plain data; a function can't be kept.
+fn to_source(v: &Value) -> Result<String, LispError> {
+    Ok(match v {
+        Value::Null => "nil".into(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) if n.is_finite() => {
+            if n.fract() == 0.0 && n.abs() < 1e15 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{n}")
+            }
+        }
+        Value::Number(_) => "nil".into(),
+        Value::Str(s) => quoted(s),
+        Value::Keyword(k) => format!(":{k}"),
+        Value::List(l) => {
+            let items: Result<Vec<String>, LispError> = l.iter().map(to_source).collect();
+            format!("[{}]", items?.join(" "))
+        }
+        Value::Dict(d) => {
+            let mut parts = Vec::new();
+            for k in &d.keys {
+                parts.push(format!("{} {}", quoted(k), to_source(&d.map[k])?));
+            }
+            format!("{{{}}}", parts.join(" "))
+        }
+        other => {
+            return Err(LispError::Runtime(format!(
+                "save-data can keep numbers, text, lists and dicts, not a {}",
+                eelisp::value::type_name(other)
+            )));
+        }
+    })
+}
+
+fn quoted(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Back from what [`to_source`] wrote: `[..]` reads as `(list ..)`, so
+/// turn that into a list again. Anything else that isn't plain data is
+/// left out.
+fn from_source(v: &Value) -> Option<Value> {
+    Some(match v {
+        Value::List(l) => match l.first() {
+            Some(Value::Symbol(s)) if s.as_str() == "list" => {
+                list(l[1..].iter().filter_map(from_source))
+            }
+            _ => return None,
+        },
+        Value::Dict(d) => {
+            let mut out = OrderedDict::default();
+            for k in &d.keys {
+                if let Some(v) = from_source(&d.map[k]) {
+                    out.insert(k.clone(), v);
+                }
+            }
+            Value::Dict(Rc::new(out))
+        }
+        Value::Symbol(_) => return None,
+        v => v.clone(),
+    })
 }

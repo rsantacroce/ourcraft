@@ -74,7 +74,10 @@ fn update(browser: &mut LanBrowser, dt: f32) -> bool {
                 browser.socket = Some(s);
             }
             Err(e) => {
-                browser.problem = Some(format!("Can't look for games on this network ({e})"));
+                browser.problem = Some(crate::lang::tf(
+                    "Can't look for games on this network ({})",
+                    &[&e.to_string()],
+                ));
                 changed = true;
             }
         }

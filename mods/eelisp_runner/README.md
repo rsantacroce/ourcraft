@@ -33,7 +33,9 @@ Define any of these and the game calls them:
 
 If the script has a mistake, the game says so in the chat (starting with
 `(!)`), as well as in the server log: when the world loads for a mistake in
-the script itself, the first time it happens for one in an event.
+the script itself, the first time it happens for one in an event. It says
+which line: `line 3: this ( is never closed`, or `(on-chat …) failed: …
+(on-chat starts on line 12)`.
 
 The rest of the script runs once, when the world loads. That's where you
 register blocks and set up your variables with `def`.
@@ -62,6 +64,8 @@ register blocks and set up your variables with `def`.
 | `(count-item player "core:bread")` | how many they have |
 | `(random 6)`, `(chance 25)`, `(pick [a b c])` | 0 to 5; true 25 times in 100; one of them |
 | `(world-spawn)` | where new players appear, `[x y z]` |
+| `(save-data "name" value)` | keep a value with the world (numbers, text, true/false, nil, keywords, lists, dicts). `nil` forgets it. Saved straight away |
+| `(load-data "name")` | what was kept under that name, or nil. Works while the script first runs too, so `(def x (or (load-data "x") 0))` picks up where it left off |
 | `(spawn-mob "core:pig" x y z)` | an animal |
 | `(sound "name" [x y z])` | a sound, for everyone or from a place |
 | `(confetti x y z)`, `(hearts x y z)`, `(poof x y z)` | a little celebration |

@@ -623,9 +623,9 @@ get new names and art, never copied ones.
   up for chat (new touch Chat button; chat moves to the top while you
   type) and the menu fields. Tested on the Android emulator with Gboard;
   iOS builds but still needs a try on a real iPad or iPhone.
-- ~~Missing-character box in the world list on Android~~: fixed (the
-  font has plain ASCII only, so "·" and "×" in on-screen text became
-  ", " and "x"). On phones, the field being typed in now also shows in a
+- ~~Missing-character box in the world list on Android~~: fixed. The
+  game now has the whole of Fira Mono (accented letters, "·", "×"), so the
+  ", " and "x" stand-ins are gone again. On phones, the field being typed in now also shows in a
   bar above the keyboard, which covers the lower fields.
 - Ask Apple for the multicast permission so LAN discovery works on iOS.
 - Move to Bevy 0.20 (0.20.1 is out). Nothing blocks it any more: the
