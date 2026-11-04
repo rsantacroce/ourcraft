@@ -24,6 +24,7 @@ use ourcraft_common::protocol::{Channel, ClientMessage, NetContainer, NetStack};
 use crate::input::{Actions, UiFocus};
 use crate::interaction::PlayerInventory;
 use crate::items::{Items, Recipes};
+use crate::lang::t;
 use crate::player::GameMode;
 use crate::render::textures::TEXTURE_SIZE;
 use crate::world::Blocks;
@@ -424,11 +425,11 @@ impl PaletteKind {
 
     fn label(self) -> &'static str {
         match self {
-            PaletteKind::Building => "Building",
-            PaletteKind::Nature => "Nature",
-            PaletteKind::Food => "Food",
-            PaletteKind::Tools => "Tools",
-            PaletteKind::Items => "Items",
+            PaletteKind::Building => t("Building"),
+            PaletteKind::Nature => t("Nature"),
+            PaletteKind::Food => t("Food"),
+            PaletteKind::Tools => t("Tools"),
+            PaletteKind::Items => t("Items"),
         }
     }
 
@@ -963,16 +964,16 @@ fn rebuild_screen(
     let creative = *mode == GameMode::Creative;
     let palette_screen = creative && *screen == OpenScreen::Inventory;
     let title = match *screen {
-        _ if palette_screen => "Creative: click an item to put it in your selected hotbar slot",
-        OpenScreen::Inventory => "Inventory",
-        OpenScreen::CraftingTable => "Crafting Table",
+        _ if palette_screen => t("Creative: click an item to put it in your selected hotbar slot"),
+        OpenScreen::Inventory => t("Inventory"),
+        OpenScreen::CraftingTable => t("Crafting Table"),
         OpenScreen::Container(_) => match furnace.0.as_ref().map(|v| v.kind) {
-            Some(ContainerKind::Chest) => "Chest",
-            Some(ContainerKind::BigChest) => "Big Chest",
-            _ => "Furnace",
+            Some(ContainerKind::Chest) => t("Chest"),
+            Some(ContainerKind::BigChest) => t("Big Chest"),
+            _ => t("Furnace"),
         },
-        OpenScreen::Sign(_) => "Sign",
-        OpenScreen::NameTag(_) => "Name Tag",
+        OpenScreen::Sign(_) => t("Sign"),
+        OpenScreen::NameTag(_) => t("Name Tag"),
     };
     let row = || Node {
         flex_direction: FlexDirection::Row,
@@ -1145,7 +1146,7 @@ fn rebuild_screen(
 
                     // ---- Bottom part: the player's items ----
                     if !palette_screen {
-                        panel.spawn(label("Backpack"));
+                        panel.spawn(label(t("Backpack")));
                         panel.spawn(row()).with_children(|g| {
                             for i in HOTBAR_SLOTS..INVENTORY_SLOTS {
                                 let b = Some(SlotButton::Inventory(i));
@@ -1153,7 +1154,7 @@ fn rebuild_screen(
                             }
                         });
                     }
-                    panel.spawn(label("Hotbar"));
+                    panel.spawn(label(t("Hotbar")));
                     panel.spawn(row()).with_children(|g| {
                         for i in 0..HOTBAR_SLOTS {
                             let selected = i == inventory.selected;
@@ -1171,11 +1172,11 @@ fn rebuild_screen(
                     });
                     panel.spawn((
                         Text::new(if cfg!(any(target_os = "ios", target_os = "android")) {
-                            "Tap Bag to close"
+                            t("Tap Bag to close")
                         } else if palette_screen {
-                            "Press E to close"
+                            t("Press E to close")
                         } else {
-                            "Click: pick up / put down.  Right click: half / one.  E: close"
+                            t("Click: pick up / put down.  Right click: half / one.  E: close")
                         }),
                         TextFont::from_font_size(13.0),
                         TextColor(Color::srgb(0.7, 0.7, 0.7)),
@@ -1226,7 +1227,7 @@ fn spawn_furnace(
 ) {
     let Some(view) = &furnace.0 else {
         panel.spawn((
-            Text::new("Lighting the fire..."),
+            Text::new(t("Lighting the fire...")),
             TextFont::from_font_size(14.0),
         ));
         return;
@@ -1292,7 +1293,9 @@ fn spawn_furnace(
         });
     if view.kind == ContainerKind::Furnace {
         panel.spawn((
-            Text::new("Top: what to cook (ore, sand, clay...).  Bottom: fuel (coal, wood...)."),
+            Text::new(t(
+                "Top: what to cook (ore, sand, clay...).  Bottom: fuel (coal, wood...).",
+            )),
             TextFont::from_font_size(13.0),
             TextColor(Color::srgb(0.7, 0.7, 0.7)),
         ));

@@ -21,6 +21,7 @@ use ourcraft_common::skin::{
     NetSkin, SKIN_BYTES, SKIN_SIZE, SkinError, check_skin_file, skin_from_rgba,
 };
 
+use crate::lang::{t, tf};
 use crate::net::Connection;
 use crate::render::skin_textures::{BUILTIN_SKINS, builtin_skin, front_view, made_skin_choices};
 use crate::settings::ClientSettings;
@@ -101,12 +102,12 @@ pub fn skin_label(value: &str) -> String {
             .to_owned();
     }
     if made_skin_choices(value).is_some() {
-        return "Made by you".into();
+        return t("Made by you").into();
     }
     BUILTIN_SKINS
         .iter()
         .find(|(n, _)| *n == value)
-        .map_or_else(|| value.to_owned(), |(_, label)| label.to_string())
+        .map_or_else(|| value.to_owned(), |(_, label)| t(label).to_owned())
 }
 
 /// Clean up a saved skin setting: a built-in name, or a plain file name
@@ -157,10 +158,26 @@ pub fn resolve_skin(value: &str) -> (NetSkin, Option<String>) {
             Ok(pixels) => (NetSkin::Custom(pixels), None),
             Err(e) => {
                 warn!("Skin {file} {e}; using the default skin");
-                (NetSkin::default(), Some(format!("{file} {e}")))
+                (NetSkin::default(), Some(skin_problem(file, &e)))
             }
         },
         None => (NetSkin::Builtin(value), None),
+    }
+}
+
+/// Why a skin file can't be worn, to show in Settings.
+fn skin_problem(file: &str, e: &SkinError) -> String {
+    match e {
+        SkinError::WrongSize { width, height } => tf(
+            "{} is {}x{}; skins must be 64x64 (or 64x32)",
+            &[file, &width.to_string(), &height.to_string()],
+        ),
+        SkinError::BadData => tf("{} has broken pixel data", &[file]),
+        SkinError::TooBig(n) => tf(
+            "{} is too big for a skin ({} KB)",
+            &[file, &(n / 1024).to_string()],
+        ),
+        SkinError::Unreadable(why) => tf("{} can't be read ({})", &[file, why]),
     }
 }
 

@@ -4485,6 +4485,7 @@ dependencies = [
  "ourcraft_server",
  "renet",
  "renet_netcode",
+ "sys-locale",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ use ourcraft_common::world::ColumnPos;
 use crate::input::{Actions, UiFocus};
 use crate::interaction::PlayerInventory;
 use crate::items::Items;
+use crate::lang::t;
 use crate::net::{Connection, FromServer, NetReceiveSet};
 use crate::player::{Player, PlayerCamera};
 use crate::world::{Blocks, ChunkStreaming, ClientWorld};
@@ -360,10 +361,10 @@ fn needle_angle(from: Vec3, yaw: f32, home: Vec3) -> f32 {
 /// The time of day in words.
 fn time_words(fraction: f32) -> &'static str {
     match fraction {
-        f if !(0.22..0.78).contains(&f) => "Night",
-        f if f < 0.4 => "Morning",
-        f if f < 0.6 => "Midday",
-        _ => "Evening",
+        f if !(0.22..0.78).contains(&f) => t("Night"),
+        f if f < 0.4 => t("Morning"),
+        f if f < 0.6 => t("Midday"),
+        _ => t("Evening"),
     }
 }
 
@@ -452,7 +453,10 @@ fn show_gadgets(
             t.rotation = Rot2::radians(needle_angle(me, player.yaw, target));
         }
         if clock && let Some(mut t) = text {
-            t.0 = time_words(tod.fraction).to_owned();
+            let words = time_words(tod.fraction);
+            if t.0 != words {
+                t.0 = words.to_owned();
+            }
         }
         if map
             && draw_map

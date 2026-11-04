@@ -4,6 +4,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
 use crate::interaction::Target;
+use crate::lang::{t, tf};
 use crate::net::{Connection, Status};
 use crate::player::{GameMode, Player};
 use crate::remote_players::RemotePlayers;
@@ -19,7 +20,13 @@ impl Plugin for HudPlugin {
             .add_systems(Startup, spawn_hud)
             .add_systems(
                 Update,
-                (toggle_debug, update_debug_text, update_status, show_effects),
+                (
+                    toggle_debug,
+                    update_debug_text,
+                    update_status,
+                    show_effects,
+                    translate_help,
+                ),
             );
     }
 }
@@ -72,13 +79,7 @@ fn spawn_hud(mut commands: Commands) {
                 DebugText,
             ));
             parent.spawn((
-                Text::new(
-                    "Click: capture mouse   Esc: release   F3: hide this text\n\
-                     WASD: move   Space: jump (double-tap: fly)   Shift: down   Ctrl: run\n\
-                     Left click: break   Right click: place   Middle click: pick block\n\
-                     1-9 / wheel: hotbar   E: inventory and crafting   Q: drop   F: fly   G: creative/survival\n\
-                     Right click doors, chests, signs, beds, furnaces   Hold right click to eat   T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag",
-                ),
+                Text::new(help_text()),
                 TextFont::from_font_size(14.0),
                 TextColor(Color::WHITE),
                 TextShadow {
@@ -96,18 +97,42 @@ fn spawn_hud(mut commands: Commands) {
         });
 }
 
+/// The help text was made at the start: say it again in a new language.
+fn translate_help(
+    mut help: Query<&mut Text, With<HelpText>>,
+    mut seen: Local<Option<crate::lang::Language>>,
+) {
+    let first = seen.is_none();
+    // (The first time, it was just made in the right language.)
+    if !crate::lang::changed(&mut seen) || first {
+        return;
+    }
+    for mut text in &mut help {
+        text.0 = help_text().to_owned();
+    }
+}
+
+/// The keyboard help, top left.
+fn help_text() -> &'static str {
+    t("Click: capture mouse   Esc: release   F3: hide this text\n\
+         WASD: move   Space: jump (double-tap: fly)   Shift: down   Ctrl: run\n\
+         Left click: break   Right click: place   Middle click: pick block\n\
+         1-9 / wheel: hotbar   E: inventory and crafting   Q: drop   F: fly   G: creative/survival\n\
+         Right click doors, chests, signs, beds, furnaces   Hold right click to eat   T: skip an hour   [ and ]: render distance   Enter: chat   F7: simulate lag")
+}
+
 fn show_effects(
     effects: Res<crate::player::Effects>,
     mut text: Single<&mut Text, With<EffectsText>>,
 ) {
-    let names = ["Hop", "Glow", "Swim"];
+    let names = [t("Hop potion {}"), t("Glow potion {}"), t("Swim potion {}")];
     let lines: Vec<String> = names
         .iter()
         .zip(effects.0)
         .filter(|(_, s)| *s > 0.0)
         .map(|(n, s)| {
             let s = s.ceil() as u32;
-            format!("{n} potion {}:{:02}", s / 60, s % 60)
+            n.replace("{}", &format!("{}:{:02}", s / 60, s % 60))
         })
         .collect();
     let joined = lines.join("\n");
@@ -127,7 +152,7 @@ fn update_status(
     mut shown: Local<Option<String>>,
 ) {
     let text = match conn.as_deref().map(|c| (&c.status, c)) {
-        Some((Status::Connecting, c)) => Some(format!("Connecting to {}...", c.target)),
+        Some((Status::Connecting, c)) => Some(tf("Connecting to {}...", &[&c.target])),
 
         _ => None,
     };
