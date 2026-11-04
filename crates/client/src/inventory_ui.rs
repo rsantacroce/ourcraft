@@ -10,6 +10,12 @@
 //! mouse pointer, click again to put it down (or swap, or merge). Right
 //! click picks up half, or puts down one.
 
+// Buttons here are nodes with Bevy's `Interaction` (what its old `Button`
+// added), which Bevy 0.20 deprecates but still updates, in favour of
+// `ui_widgets::Button` with `Pressed`/`Hovered`. Move to those before Bevy
+// 0.21 removes them.
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 
 use bevy::asset::RenderAssetUsages;
@@ -624,7 +630,7 @@ fn spawn_stack_extras(
 /// A tab (or page arrow) of the creative palette.
 fn tab_button(label: &str, on: bool, button: SlotButton) -> impl Bundle {
     (
-        Button,
+        (Interaction::default(), bevy::ui::FocusPolicy::Block),
         button,
         Node {
             padding: UiRect::axes(px(10), px(5)),
@@ -670,7 +676,7 @@ fn spawn_slot(
         }),
     ));
     if let Some(b) = button {
-        slot.insert((Button, b));
+        slot.insert(((Interaction::default(), bevy::ui::FocusPolicy::Block), b));
     }
     slot.with_children(|s| {
         let Some(stack) = stack else { return };

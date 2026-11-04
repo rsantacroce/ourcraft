@@ -4,6 +4,12 @@
 //! picture, which is put on the sign's board. Rude words are hidden by the
 //! chat filter, like in chat.
 
+// Buttons here are nodes with Bevy's `Interaction` (what its old `Button`
+// added), which Bevy 0.20 deprecates but still updates, in favour of
+// `ui_widgets::Button` with `Pressed`/`Hovered`. Move to those before Bevy
+// 0.21 removes them.
+#![allow(deprecated)]
+
 use std::collections::HashMap;
 
 use bevy::asset::RenderAssetUsages;
@@ -492,7 +498,7 @@ fn line_look(editor: &SignEditor, i: usize) -> (String, Color) {
 fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
     let key = |label: String, k: SignKey, width: f32| {
         (
-            Button,
+            (Interaction::default(), bevy::ui::FocusPolicy::Block),
             k,
             Node {
                 width: px(width),
@@ -548,7 +554,7 @@ fn spawn_editor(commands: &mut Commands, editor: &SignEditor, keys: bool) {
                     for i in 0..editor.lines.len() {
                         let (t, c) = line_look(editor, i);
                         board.spawn((
-                            Button,
+                            (Interaction::default(), bevy::ui::FocusPolicy::Block),
                             EditorLine(i),
                             Text::new(t),
                             TextFont::from_font_size(if keys { 18.0 } else { 22.0 }),

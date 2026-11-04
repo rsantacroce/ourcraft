@@ -14,7 +14,8 @@ cartoon team game **Splat Squad** and **Build Contest**. Runs on macOS, Windows,
 
 **Download** the game for macOS, Windows or Linux from the
 [latest release](https://github.com/rsantacroce/ourcraft/releases/latest)
-(or the website), or build it from source:
+(or the website), or build it from source (Rust 1.97.1 or newer:
+`rustup update`):
 
 ```sh
 cargo run --release            # main menu
