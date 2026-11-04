@@ -894,7 +894,7 @@ fn world_list(
                         } else {
                             let play = button_node(
                                 row,
-                                tf("{}\n{}, played {}", &[&meta.name, mode, &when]),
+                                tf("{}\n{} · played {}", &[&meta.name, mode, &when]),
                                 Action::Play {
                                     folder: folder.clone(),
                                     name: meta.name.clone(),
@@ -1351,7 +1351,7 @@ fn rebuild_menu(
                         note(
                             ui,
                             tf(
-                                "Your own skins: 64x64 PNG files in {}",
+                                "Your own skins: 64×64 PNG files in {}",
                                 &[&crate::skins::skins_dir().display().to_string()],
                             ),
                             grey,
