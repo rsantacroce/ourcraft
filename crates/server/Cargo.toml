@@ -3,6 +3,7 @@ name = "ourcraft_server"
 description = "The Ourcraft game server: runs headless, or inside the client for single player."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 
 [dependencies]

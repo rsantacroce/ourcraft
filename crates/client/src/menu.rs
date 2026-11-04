@@ -5,6 +5,12 @@
 //! That's the simplest way to do UI and fast enough for menus. Buttons carry
 //! a [`Action`] that a single system carries out.
 
+// Buttons here are nodes with Bevy's `Interaction` (what its old `Button`
+// added), which Bevy 0.20 deprecates but still updates, in favour of
+// `ui_widgets::Button` with `Pressed`/`Hovered`. Move to those before Bevy
+// 0.21 removes them.
+#![allow(deprecated)]
+
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
@@ -682,7 +688,7 @@ fn button_node(
 ) -> Entity {
     parent
         .spawn((
-            Button,
+            (Interaction::default(), bevy::ui::FocusPolicy::Block),
             MenuButton,
             action,
             Node {
@@ -728,7 +734,7 @@ fn text_field(
     };
     parent
         .spawn((
-            Button,
+            (Interaction::default(), bevy::ui::FocusPolicy::Block),
             Action::Focus(field),
             Node {
                 width: px(320),

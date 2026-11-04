@@ -628,8 +628,11 @@ get new names and art, never copied ones.
   ", " and "x" stand-ins are gone again. On phones, the field being typed in now also shows in a
   bar above the keyboard, which covers the lower fields.
 - Ask Apple for the multicast permission so LAN discovery works on iOS.
-- Move to Bevy 0.20 (0.20.1 is out). Nothing blocks it any more: the
-  game uses plain `renet`, which doesn't depend on Bevy.
+  The request, ready to paste, and the steps after Apple says yes are in
+  `mobile/ios/MULTICAST.md`.
+- ~~Move to Bevy 0.20~~: done (0.20.1, Rust 1.97.1). Menus still use the
+  deprecated `Interaction`; move them to `ui_widgets::Button` before
+  Bevy 0.21.
 - ~~Sunset sky looks muddy brown~~: fixed (the warm glow is now added on
   top of the sky colour).
 - The sun "drawn as a clipped triangle" turned out to be the sun setting

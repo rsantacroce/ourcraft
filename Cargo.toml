@@ -10,6 +10,8 @@ default-members = ["crates/client"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# What Bevy 0.20 needs.
+rust-version = "1.97.1"
 license = "MIT"
 
 [workspace.dependencies]
@@ -20,13 +22,13 @@ ourcraft_mod_api = { path = "crates/mod_api" }
 ourcraft_mod_host = { path = "crates/mod_host" }
 # Pinned exactly. Default features are off here; the client turns them on,
 # while the headless server only needs a few.
-bevy = { version = "=0.19.1", default-features = false }
+bevy = { version = "=0.20.1", default-features = false }
 # Networking: renet handles reliable/unreliable channels over any transport;
 # renet_netcode is its UDP transport (with connection handshakes).
 renet = "2.0"
 renet_netcode = "2.0"
-# Same version Bevy 0.19 uses, so `Vec3` in `common` *is* Bevy's `Vec3`.
-glam = "0.32"
+# Same version Bevy 0.20 uses, so `Vec3` in `common` *is* Bevy's `Vec3`.
+glam = "0.33"
 
 [workspace.lints.clippy]
 # Bevy system signatures routinely trip these.
